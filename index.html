@@ -475,6 +475,15 @@ a.mfact:hover b{text-decoration:underline}
 .ccard .n{font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ccard .m{display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--ink-3);margin-top:4px;min-width:0}
 .ccard .m span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ccol.min{flex:0 0 54px;max-height:none;cursor:pointer}
+.ccol.min>header{border-bottom:0;border-radius:var(--r-lg);padding:var(--sp-3) 0;height:100%}
+.ccol.min .clist,.ccol.min .ch,.ccol.min .kmin{display:none}
+.ccol.min .ct{flex-direction:column;gap:10px;align-items:center;height:100%}
+.ccol.min .ct .bar{width:22px;height:4px}
+.ccol.min .ct .lbl{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-height:210px;font-size:var(--fs-sm);font-weight:650}
+.ccol.min .ct .n{margin:0}
+.ccol.min:hover{border-color:var(--accent)}
 
 /* attachments */
 .att{display:flex;align-items:center;gap:var(--sp-3);padding:10px var(--sp-3);border:1px solid var(--line);
@@ -650,7 +659,7 @@ a.mfact:hover b{text-decoration:underline}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -921,6 +930,7 @@ function toast(msg, kind) {
 let onScrim = null;
 function openScrim(fn) { onScrim = fn; $('#scrim').classList.add('on'); }
 function closeAll() {
+  if (typeof OPEN !== 'undefined') { OPEN.kind = null; OPEN.id = null; OPEN.tab = null; }
   $('#scrim').classList.remove('on');
   $('#drawer').classList.remove('on');
   $('#modal').classList.remove('on');
@@ -1045,16 +1055,39 @@ function weekLabel(key) { const r = weekRange(key); return `${fdate(r.from)} –
 const SYNC = { dirty: new Set(), status: 'idle', last: null, err: null, mode: 'local' };
 
 function stamp(rec) { rec._v = now(); rec._by = (AUTH.user && AUTH.user.username) || 'local'; return rec; }
-function touch(shard) { SYNC.dirty.add(shard); saveLocal(); renderSyncBadge(); scheduleSync(); }
+
+/* Bulk writes used to serialise the whole database once per record — a few
+   hundred rows and the tab locks up. batch() marks shards dirty as it goes and
+   saves once at the end. */
+let BATCH = 0;
+function touch(shard) {
+  SYNC.dirty.add(shard);
+  if (BATCH) return;
+  saveLocal(); renderSyncBadge(); scheduleSync();
+}
+function batch(fn) {
+  BATCH++;
+  try { return fn(); }
+  finally {
+    BATCH--;
+    if (!BATCH) { saveLocal(); renderSyncBadge(); scheduleSync(); }
+  }
+}
 
 function upsert(shard, rec) {
   if (!rec.id) rec.id = uid(shard[0].toUpperCase());
   stamp(rec);
-  const arr = DB[shard], i = arr.findIndex(r => r.id === rec.id);
-  if (i < 0) arr.push(rec); else arr[i] = Object.assign(arr[i], rec);
-  if (IDX[shard]) IDX[shard].set(rec.id, arr[i < 0 ? arr.length - 1 : i]);
+  const arr = DB[shard];
+  const idx = IDX[shard];
+  let i = -1;
+  if (idx && idx.has(rec.id)) i = arr.indexOf(idx.get(rec.id));
+  if (i < 0) i = arr.findIndex(r => r.id === rec.id);
+  let out;
+  if (i < 0) { arr.push(rec); out = rec; }
+  else { out = Object.assign(arr[i], rec); }
+  if (idx) idx.set(out.id, out);
   touch(shard);
-  return arr[i < 0 ? arr.length - 1 : i];
+  return out;
 }
 function remove(shard, id) {
   const arr = DB[shard], i = arr.findIndex(r => r.id === id);
@@ -1306,17 +1339,19 @@ const isCollabOnly = (d, rep) => rep !== 'all' && String(d.ownerId) !== String(r
 /* ---- lead status: four stages a contact moves through ---- */
 const LEAD_STAGES = [
   { id: 'unqualified', label: 'Unqualified', hint: 'Not yet worked, or ruled out' },
-  { id: 'qualified',   label: 'Qualified',   hint: 'Real fit confirmed' },
+  { id: 'connected',   label: 'Connected',   hint: 'We have reached them and spoken' },
   { id: 'followup',    label: 'Follow-up',   hint: 'Waiting on them, needs a next touch' },
-  { id: 'progressing', label: 'Progressing', hint: 'Actively moving toward a deal' }
+  { id: 'progressing', label: 'Progressing', hint: 'Actively moving toward a deal' },
+  { id: 'won',         label: 'Won',         hint: 'Bought — now a customer' }
 ];
 const leadStages = () => (DB.config && DB.config.leadStages && DB.config.leadStages.length)
   ? DB.config.leadStages : LEAD_STAGES;
 const leadStage = id => leadStages().find(s => s.id === id) || null;
 const leadLabel = id => (leadStage(id) || {}).label || null;
 const leadColor = id => {
+  if (id === 'won') return 'var(--good)';
   const i = leadStages().findIndex(s => s.id === id);
-  const ramp = ['--seq-6','--seq-4','--seq-3','--seq-2'];
+  const ramp = ['--seq-6','--seq-5','--seq-4','--seq-3','--seq-2'];
   return i < 0 ? 'var(--ink-3)' : `var(${ramp[Math.min(i, ramp.length - 1)]})`;
 };
 /* HubSpot's lead statuses, folded into the four. Anything unrecognised is left
@@ -1325,11 +1360,15 @@ const LEAD_MAP = {
   attempted_to_contact: 'followup',
   in_progress: 'progressing',
   open_deal: 'progressing',
-  connected: 'qualified',
+  connected: 'connected',
+  qualified: 'connected',      // v1.3 called this stage Qualified
   open: 'unqualified',
   new: 'unqualified',
   unqualified: 'unqualified',
-  bad_timing: 'unqualified'
+  bad_timing: 'unqualified',
+  customer: 'won',
+  won: 'won',
+  closed_won: 'won'
 };
 function mapLeadStatus(raw) {
   if (!raw) return null;
@@ -1344,6 +1383,10 @@ function migrateLeadStatus() {
   let changed = 0, unmapped = 0;
   DB.contacts.forEach(c => {
     if (c._del || !c.leadStatus) return;
+    // v1.3 -> v1.4 rename
+    if (c.leadStatus === 'qualified' && !leadStages().some(x => x.id === 'qualified')) {
+      c.leadStatus = 'connected'; c._v = now(); changed++; return;
+    }
     if (leadStages().some(x => x.id === c.leadStatus)) return;
     const m = mapLeadStatus(c.leadStatus);
     if (m) { c.leadStatusRaw = c.leadStatus; c.leadStatus = m; c._v = now(); changed++; }
@@ -2871,18 +2914,49 @@ const leadStatusCell = c => {
 };
 
 /* ---- staging board: drag a contact through the four stages ---- */
+const CMINKEY = CFG.cacheKey + '.minLeadStages';
+function minLeadStages() {
+  try { return JSON.parse(localStorage.getItem(CMINKEY) || '[]'); } catch (e) { return []; }
+}
+function toggleLeadMin(id) {
+  const cur = minLeadStages();
+  const next = cur.includes(id) ? cur.filter(x => x !== id) : cur.concat([id]);
+  try { localStorage.setItem(CMINKEY, JSON.stringify(next)); } catch (e) {}
+  render();
+}
+function expandAllLeadStages() {
+  try { localStorage.removeItem(CMINKEY); } catch (e) {}
+  render();
+}
 function contactBoard(root, scoped) {
   const board = el('div', { class: 'cboard' });
   const cols = leadStages().concat([{ id: '__none', label: 'Not staged', hint: 'No status set yet' }]);
+  const mins = minLeadStages();
+  if (mins.length) root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [
+    el('button', { class: 'btn sm', html: ico('board',13) + ` Expand ${mins.length} stage${mins.length > 1 ? 's' : ''}`,
+      onclick: expandAllLeadStages }) ]));
   cols.forEach(st => {
     const list = st.id === '__none'
       ? scoped.filter(c => !c.leadStatus)
       : scoped.filter(c => c.leadStatus === st.id);
-    const col = el('div', { class: 'ccol', style: `--st:${st.id === '__none' ? 'var(--ink-3)' : leadColor(st.id)}` });
+    const isMin = mins.includes(st.id);
+    const col = el('div', { class: 'ccol' + (isMin ? ' min' : ''),
+      style: `--st:${st.id === '__none' ? 'var(--ink-3)' : leadColor(st.id)}` });
     col.appendChild(el('header', {}, [
-      el('div', { class: 'ct', html: `<span class="bar"></span><span>${esc(st.label)}</span><span class="n">${list.length}</span>` }),
+      el('div', { class: 'ct' }, [
+        el('span', { class: 'bar' }),
+        el('span', { class: 'lbl', text: st.label, title: st.label }),
+        el('span', { class: 'n', text: list.length }),
+        el('button', { class: 'kmin', title: 'Minimise this stage', 'aria-label': 'Minimise ' + st.label,
+          html: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 5l-6 7 6 7"/></svg>`,
+          onclick: e => { e.stopPropagation(); toggleLeadMin(st.id); } })
+      ]),
       el('div', { class: 'ch', text: st.hint || '' })
     ]));
+    if (isMin) {
+      col.title = `${st.label} — ${list.length} contacts. Click to expand.`;
+      col.addEventListener('click', e => { if (!e.target.closest('.ccard')) toggleLeadMin(st.id); });
+    }
     const inner = el('div', { class: 'clist' });
     if (!list.length) inner.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 4px',
       text: 'Drop a contact here' }));
@@ -2958,7 +3032,8 @@ function viewTasks(root) {
   ];
   const by = groupBy(mine, bucket);
   root.appendChild(viewHead(null, [
-    el('button', { class: 'btn' + (showDone ? ' primary' : ''), text: showDone ? 'Hiding nothing' : 'Show completed',
+    el('button', { class: 'btn' + (showDone ? ' primary' : ''),
+      text: showDone ? 'Hide completed' : 'Show completed',
       onclick: () => { VIEW.tableFilter.done = !showDone; render(); } }),
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New task', onclick: () => editTask(null) })
   ]));
@@ -3016,16 +3091,27 @@ function taskRow(t) {
   b.appendChild(m);
   if (t.note) b.appendChild(el('div', { style: 'font-size:var(--fs-sm);color:var(--ink-2);margin-top:5px;line-height:1.5', text: t.note }));
   n.appendChild(b);
-  n.appendChild(el('button', { class: 'btn icon ghost', html: ico('edit',14), 'aria-label': 'Edit task',
+  const acts = el('div', { style: 'display:flex;gap:4px;align-items:center;flex:none' });
+  acts.appendChild(el('button', {
+    class: 'btn sm' + (t.status === 'done' ? '' : ' primary'),
+    html: t.status === 'done' ? 'Reopen' : ico('check',13) + ' Done',
+    title: t.status === 'done' ? 'Put this task back on the list' : 'Mark this task complete',
+    onclick: e => { e.stopPropagation(); toggleTask(t); } }));
+  acts.appendChild(el('button', { class: 'btn icon ghost', html: ico('edit',14), 'aria-label': 'Edit task',
     onclick: e => { e.stopPropagation(); editTask(t); } }));
+  n.appendChild(acts);
   return n;
 }
 function toggleTask(t) {
-  t.status = t.status === 'done' ? 'open' : 'done';
-  t.completedAt = t.status === 'done' ? new Date().toISOString() : null;
+  const done = t.status !== 'done';
+  t.status = done ? 'done' : 'open';
+  t.completedAt = done ? new Date().toISOString() : null;
   upsert('tasks', t);
-  if (t.status === 'done') logAct({ dealId: t.dealId || null, ownerId: t.ownerId, kind: 'task',
-    html: `Completed task <b>${esc(t.title)}</b>` });
+  if (done) logAct({ dealId: t.dealId || null, contactId: t.contactId || null, ownerId: t.ownerId,
+    kind: 'task', html: `Completed task <b>${esc(t.title)}</b>` });
+  toast(done ? `Done — ${t.title}` : `Reopened — ${t.title}`, done ? 'ok' : '');
+  // the drawer holds its own copy of the list, so redraw it as well as the page
+  refreshDrawer();
   render();
 }
 /* ================================================================
@@ -3058,7 +3144,7 @@ function drawerHead(title, metaNodes, actions) {
   h.appendChild(el('button', { class: 'btn icon ghost', html: ico('x',17), 'aria-label': 'Close', onclick: closeAll }));
   return h;
 }
-function tabbed(tabs, initialLabel) {
+function tabbed(tabs, initialLabel, onSwitch) {
   const bar = el('div', { class: 'tabs' });
   const body = el('div', { class: 'body' });
   let cur = Math.max(0, tabs.findIndex(t => t.label === initialLabel));
@@ -3069,7 +3155,7 @@ function tabbed(tabs, initialLabel) {
     body.scrollTop = 0;
   }
   tabs.forEach((t, i) => bar.appendChild(el('button', { text: t.label + (t.count != null ? ` (${t.count})` : ''),
-    onclick: () => { cur = i; paint(); } })));
+    onclick: () => { cur = i; if (onSwitch) onSwitch(t.label); paint(); } })));
   paint();
   return [bar, body];
 }
@@ -3083,6 +3169,16 @@ const dl = pairs => {
 };
 
 /* ============================================================ DEAL */
+/* What the drawer is currently showing, so a change made from inside it (a task
+   ticked, a line item edited) can redraw it instead of leaving a stale row. */
+const OPEN = { kind: null, id: null, tab: null };
+function refreshDrawer() {
+  if (!OPEN.kind || !$('#drawer').classList.contains('on')) return false;
+  if (OPEN.kind === 'deal') openDeal(OPEN.id, OPEN.tab);
+  else if (OPEN.kind === 'company') openCompany(OPEN.id);
+  else if (OPEN.kind === 'contact') openContact(OPEN.id);
+  return true;
+}
 const openDealTab = (d, tab) => openDeal(d.id, tab);
 function openDeal(id, tab) {
   const d = getDl(id); if (!d) return toast('Deal not found', 'err');
@@ -3112,7 +3208,8 @@ function openDeal(id, tab) {
     { label: 'Attachments', count: attachmentsFor(d.id).length, render: () => dealFiles(d) },
     { label: 'Activity', render: () => dealActivity(d) }
   ];
-  const [bar, body] = tabbed(tabs, tab);
+  OPEN.kind = 'deal'; OPEN.id = d.id; OPEN.tab = tab || 'Overview';
+  const [bar, body] = tabbed(tabs, tab, lbl => { OPEN.tab = lbl; });
   const foot = el('div', { class: 'foot' });
   foot.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Task', onclick: () => editTask(null, { dealId: d.id, ownerId: d.ownerId }) }));
   foot.appendChild(el('button', { class: 'btn', html: ico('note',14) + ' Log note', onclick: () => logNote(d) }));
@@ -3568,6 +3665,7 @@ function commitDeal(d) {
 /* ========================================================= COMPANY */
 function openCompany(id) {
   const c = getCo(id); if (!c) return toast('Company not found', 'err');
+  OPEN.kind = 'company'; OPEN.id = c.id; OPEN.tab = null;
   const ds = live('deals').filter(d => d.companyId === c.id);
   const ps = live('contacts').filter(p => p.companyId === c.id);
   const head = drawerHead(c.name || 'Unnamed company', [
@@ -3727,6 +3825,7 @@ function enrichCompany(c, o) {
 /* ========================================================= CONTACT */
 function openContact(id) {
   const c = getCt(id); if (!c) return toast('Contact not found', 'err');
+  OPEN.kind = 'contact'; OPEN.id = c.id; OPEN.tab = null;
   const co = getCo(c.companyId);
   const ds = live('deals').filter(d => (d.contactIds || []).includes(c.id));
   const head = drawerHead(c.fullName || c.email || 'Unnamed contact', [
@@ -4372,11 +4471,11 @@ function starterCatalogue() {
     ['TRAINING',      'Onboarding & training',   'Service',      'once']
   ];
   let n = 0;
-  seed.forEach(([sku, name, category, billing]) => {
+  batch(() => seed.forEach(([sku, name, category, billing]) => {
     if (live('products').some(p => p.sku === sku)) return;
     upsert('products', { sku, name, category, billing, listPrice: null, active: true, currency: CFG.currency });
     n++;
-  });
+  }));
   toast(`${n} products added — set their prices in the catalogue`, 'ok');
 }
 function importProductsCSV(after) {
@@ -4396,7 +4495,7 @@ function importProductsCSV(after) {
           if (rows.length < 2) throw new Error('no data rows');
           const hdr = rows[0].map(NORM);
           let added = 0, updated = 0;
-          rows.slice(1).forEach(r => {
+          batch(() => rows.slice(1).forEach(r => {
             const sku = pick(r, hdr, ['sku','code','product code']);
             const name = pick(r, hdr, ['name','product','product name','description']);
             if (!sku && !name) return;
@@ -4415,7 +4514,7 @@ function importProductsCSV(after) {
             };
             if (p) { upsert('products', Object.assign(p, patch)); updated++; }
             else { upsert('products', patch); added++; }
-          });
+          }));
           closeAll(); productManager(); render();
           toast(`${added} added, ${updated} updated`, 'ok');
         } catch (e) { toast('Import failed: ' + e.message, 'err'); }
@@ -4971,10 +5070,18 @@ function viewSettings(root) {
     onRow: o => editOwner(o)
   });
   c1.body.appendChild(host1);
+  const inactiveList = DB.owners.filter(o => !o.active);
   c1.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);margin-top:var(--sp-3);flex-wrap:wrap' }, [
     el('button', { class: 'btn primary', html: ico('plus',14) + ' Add person', onclick: () => editOwner(null) }),
-    el('button', { class: 'btn', html: ico('flag',14) + ' Set team target', onclick: () => editTargets() })
-  ]));
+    el('button', { class: 'btn', html: ico('flag',14) + ' Set team target', onclick: () => editTargets() }),
+    inactiveList.length ? el('button', { class: 'btn danger',
+      html: ico('trash',14) + ` Remove ${inactiveList.length} inactive`,
+      onclick: () => removeInactive() }) : null
+  ].filter(Boolean)));
+  if (inactiveList.length) c1.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: `${inactiveList.length} people are marked inactive: ${inactiveList.map(o => esc(o.name)).join(', ')}. ` +
+          `They cannot be assigned anything and no longer appear in filters. Removing them takes them off this list for good — ` +
+          `you will be asked what to do with the records they still hold.` }));
   c1.node.classList.add('span2');
   g.appendChild(c1.node);
 
@@ -5104,7 +5211,7 @@ function viewSettings(root) {
       `Sets a name on ${noName.length} companies and a country on ${noCtry.length}, derived from their domains. Existing values are never overwritten.`,
       'Fill blanks', () => {
         let n = 0;
-        withDom.forEach(x => { n += enrichCompany(x) ? 1 : 0; });
+        batch(() => withDom.forEach(x => { n += enrichCompany(x) ? 1 : 0; }));
         render(); toast(`Updated ${n} companies`, 'ok');
       }) }));
   const logoRow = el('div', { class: 'wtoggle', style: 'margin-top:var(--sp-4);cursor:default' });
@@ -5195,10 +5302,8 @@ function editOwner(o) {
     el('div', { class: 'field-row' }, [ fld('Role', rl), fld('Status', ac) ]),
     fld(`Target for ${b.label} (${CFG.currency})`, tg, 'Set targets per period by switching the period filter and editing again.')
   ]), [
-    isNew ? null : el('button', { class: 'btn danger', text: 'Remove', onclick: () =>
-      confirmDo('Remove person', `${o.name} will be removed from the team list. Their deals keep the owner id and show as unassigned.`, 'Remove', () => {
-        DB.owners = DB.owners.filter(x => x.id !== o.id);
-        DB.config._v = now(); touch('config'); closeAll(); render(); }) }),
+    isNew ? null : el('button', { class: 'btn danger', html: ico('trash',14) + ' Remove',
+      onclick: () => removePerson(o) }),
     el('div', { style: 'flex:1' }),
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
     el('button', { class: 'btn primary', text: isNew ? 'Add' : 'Save', onclick: () => {
@@ -5215,6 +5320,108 @@ function editOwner(o) {
       closeAll(); render(); toast(isNew ? 'Person added' : 'Saved', 'ok');
     } })
   ].filter(Boolean));
+}
+/* What a person still holds, so removing them is an informed decision. */
+function ownerHoldings(id) {
+  const sid = String(id);
+  return {
+    deals:     live('deals').filter(d => String(d.ownerId) === sid),
+    collabs:   live('deals').filter(d => collabsOf(d).some(x => String(x) === sid)),
+    contacts:  live('contacts').filter(c => String(c.ownerId) === sid),
+    companies: live('companies').filter(c => String(c.ownerId) === sid),
+    tasks:     live('tasks').filter(t => String(t.ownerId) === sid && t.status !== 'done')
+  };
+}
+function reassignFrom(ids, toId) {
+  const set = new Set(ids.map(String));
+  let n = 0;
+  batch(() => {
+  live('deals').forEach(d => {
+    let touched = false;
+    if (set.has(String(d.ownerId))) { d.ownerId = toId; touched = true; }
+    const cs = collabsOf(d).filter(x => !set.has(String(x)));
+    if (cs.length !== collabsOf(d).length) { d.collaboratorIds = cs; d.collaboratorId = null; touched = true; }
+    if (touched) { upsert('deals', d); n++; }
+  });
+  ['contacts','companies','tasks'].forEach(shard => {
+    live(shard).forEach(r => {
+      if (!set.has(String(r.ownerId))) return;
+      r.ownerId = toId; upsert(shard, r); n++;
+    });
+  });
+  });
+  return n;
+}
+function removePerson(o) {
+  const h = ownerHoldings(o.id);
+  const total = h.deals.length + h.contacts.length + h.companies.length + h.tasks.length;
+  const body = el('div');
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.6;color:var(--ink-2)',
+    html: `Remove <b>${esc(o.name)}</b> from the team list.` }));
+  body.appendChild(dl([
+    ['Deals owned', String(h.deals.length)],
+    ['Deals collaborating on', String(h.collabs.length)],
+    ['Contacts owned', String(h.contacts.length)],
+    ['Companies owned', String(h.companies.length)],
+    ['Open tasks', String(h.tasks.length)]
+  ]));
+  const sel = ownerSelect('', { emptyLabel: 'Leave unassigned' });
+  body.appendChild(el('div', { style: 'margin-top:var(--sp-4)' }, [
+    fld('Reassign their records to', sel,
+      total ? 'Closed deals keep their history either way — only the owner field changes.'
+            : 'They hold nothing, so this only affects the team list.') ]));
+  modal('Remove ' + o.name, body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); render(); } }),
+    el('button', { class: 'btn danger', text: 'Remove person', onclick: () => {
+      const to = sel.value || null;
+      const n = (total || h.collabs.length) ? reassignFrom([o.id], to) : 0;
+      DB.owners = DB.owners.filter(x => x.id !== o.id);
+      if (DB.config.targets) delete DB.config.targets[o.id];
+      DB.config._v = now(); touch('config');
+      if (VIEW.rep === o.id) VIEW.rep = 'all';
+      closeAll(); render();
+      toast(n ? `${o.name} removed — ${n} records reassigned` : `${o.name} removed`, 'ok');
+    } })
+  ]);
+}
+function removeInactive() {
+  const list = DB.owners.filter(o => !o.active);
+  if (!list.length) return;
+  const ids = list.map(o => o.id);
+  const tot = ids.reduce((acc, id) => {
+    const h = ownerHoldings(id);
+    acc.deals += h.deals.length; acc.contacts += h.contacts.length;
+    acc.companies += h.companies.length; acc.tasks += h.tasks.length;
+    acc.collabs += h.collabs.length;
+    return acc;
+  }, { deals: 0, contacts: 0, companies: 0, tasks: 0, collabs: 0 });
+  const body = el('div');
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.6;color:var(--ink-2)',
+    html: `Remove all <b>${list.length}</b> inactive people: ${list.map(o => esc(o.name)).join(', ')}.` }));
+  body.appendChild(dl([
+    ['Deals owned between them', String(tot.deals)],
+    ['Deals they collaborate on', String(tot.collabs)],
+    ['Contacts owned', String(tot.contacts)],
+    ['Companies owned', String(tot.companies)],
+    ['Open tasks', String(tot.tasks)]
+  ]));
+  const sel = ownerSelect('', { emptyLabel: 'Leave unassigned' });
+  body.appendChild(el('div', { style: 'margin-top:var(--sp-4)' }, [
+    fld('Reassign everything to', sel,
+      'Their closed deals stay in the history and still count in past totals — only the owner field moves.') ]));
+  modal('Remove inactive people', body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); render(); } }),
+    el('button', { class: 'btn danger', text: `Remove ${list.length} people`, onclick: () => {
+      const to = sel.value || null;
+      const n = reassignFrom(ids, to);
+      DB.owners = DB.owners.filter(o => o.active);
+      ids.forEach(id => { if (DB.config.targets) delete DB.config.targets[id]; });
+      DB.config._v = now(); touch('config');
+      if (ids.includes(VIEW.rep)) VIEW.rep = 'all';
+      closeAll(); render();
+      toast(`${list.length} people removed — ${n} records reassigned`, 'ok');
+    } })
+  ]);
 }
 function editTargets() {
   const b = periodBounds();
@@ -5292,7 +5499,7 @@ function importDialog() {
       const f = fileCsv.files[0]; if (!f) return toast('Choose a file first', 'err');
       const rd = new FileReader();
       rd.onload = () => {
-        try { const n = importCSV(kindSel.value, parseCSV(rd.result));
+        try { const n = batch(() => importCSV(kindSel.value, parseCSV(rd.result)));
           closeAll(); render(); toast(`${n.added} added, ${n.updated} updated`, 'ok'); scheduleSync();
         } catch (e) { toast('Import failed: ' + e.message, 'err'); }
       };
@@ -5490,6 +5697,9 @@ async function boot() {
 }
 /* One-shot data migrations, safe to run on every load. */
 function runMigrations() {
+  return batch(() => runMigrationsInner());
+}
+function runMigrationsInner() {
   // single collaborator -> list
   let c = 0;
   DB.deals.forEach(d => {
