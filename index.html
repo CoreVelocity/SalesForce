@@ -208,13 +208,15 @@ label.fl{display:block;font-size:var(--fs-xs);text-transform:uppercase;letter-sp
 .card-head h3{margin:0;font-size:var(--fs-md);font-weight:650}
 .card-head .sp{flex:1}
 
-.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;
-  font-size:var(--fs-xs);font-weight:650;background:var(--surface-3);color:var(--ink-2);white-space:nowrap}
+.tag{display:inline-block;padding:2px 8px;border-radius:99px;
+  font-size:var(--fs-xs);font-weight:650;background:var(--surface-3);color:var(--ink-2);
+  white-space:nowrap;vertical-align:middle}
 .tag.good{background:rgba(12,163,12,.14);color:var(--good-ink)}
 .tag.bad{background:rgba(208,59,59,.14);color:var(--critical-ink)}
 .tag.warn{background:rgba(250,178,25,.16);color:var(--warning)}
 .tag.info{background:var(--accent-soft);color:var(--accent)}
-.tag.sw::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--sw,var(--ink-3))}
+.tag.sw::before{content:"";display:inline-block;vertical-align:middle;position:relative;top:-1px;
+  width:8px;height:8px;border-radius:2px;margin-right:5px;background:var(--sw,var(--ink-3))}
 
 .avatar{width:26px;height:26px;border-radius:99px;display:grid;place-items:center;flex:none;
   font-size:10px;font-weight:800;letter-spacing:.02em;color:#fff;background:var(--s1)}
@@ -257,6 +259,12 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
   background:var(--surface-3);padding:1px 7px;border-radius:99px;font-variant-numeric:tabular-nums}
 .kcol .kv{font-size:var(--fs-sm);color:var(--ink-2);margin-top:4px;font-variant-numeric:tabular-nums}
 .kcol .kv em{color:var(--ink-3);font-style:normal}
+.kcol .ktot{margin-top:7px;display:flex;flex-direction:column;gap:3px}
+.kcol .ktot .r{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-sm);line-height:1.25}
+.kcol .ktot .r em{font-style:normal;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink-3);font-weight:700;flex:none}
+.kcol .ktot .r b{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--ink-1);font-weight:650;white-space:nowrap}
+.kcol .ktot .r b.fc{color:var(--accent)}
 .klist{padding:var(--sp-2);overflow-y:auto;display:flex;flex-direction:column;gap:var(--sp-2);flex:1;min-height:70px;min-width:0}
 .kcard>*{min-width:0}
 .kcard{background:var(--surface-2);border:1px solid var(--line);border-left:3px solid var(--stage,var(--s1));
@@ -331,8 +339,20 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .drawer.on{transform:none}
 .drawer>header{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-4);
   border-bottom:1px solid var(--line);background:var(--surface-1)}
-.drawer>header h3{margin:0 0 4px;font-size:var(--fs-xl);letter-spacing:-.015em;line-height:1.25}
-.drawer>header .meta{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;color:var(--ink-3);font-size:var(--fs-sm)}
+.drawer>header h3{margin:0 0 6px;font-size:var(--fs-xl);letter-spacing:-.015em;line-height:1.25}
+.drawer>header .meta{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
+  color:var(--ink-3);font-size:var(--fs-sm);min-width:0}
+/* every meta item keeps its own width — a shrinking flex item was letting the
+   stage chip collapse to 36px and the value text land on top of it */
+.drawer>header .meta>*{flex:0 0 auto}
+.mfact{display:inline-flex;align-items:baseline;gap:5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;text-decoration:none}
+.mfact em{font-style:normal;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-3);font-weight:700}
+.mfact b{color:var(--ink-1);font-weight:650;overflow:hidden;text-overflow:ellipsis}
+.mfact.num b{font-variant-numeric:tabular-nums}
+a.mfact b{color:var(--accent)}
+a.mfact:hover b{text-decoration:underline}
 .drawer .body{flex:1;overflow-y:auto;padding:var(--sp-4)}
 .drawer .foot{padding:var(--sp-3) var(--sp-4);border-top:1px solid var(--line);background:var(--surface-1);
   display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
@@ -363,6 +383,30 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .stepper button.cur{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:var(--shadow-2)}
 .stepper button.won{background:var(--good);border-color:var(--good);color:#fff}
 .stepper button.lost{background:var(--critical);border-color:var(--critical);color:#fff}
+
+/* inline-edit field grid inside a drawer card */
+.efields{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(196px,1fr))}
+.efield{min-width:0}
+.efield.wide{grid-column:1/-1}
+.efield .fl{margin-bottom:5px}
+.efield select.inp,.efield input.inp{width:100%}
+.efield select.inp:focus,.efield input.inp:focus{border-color:var(--accent)}
+
+/* attachments */
+.att{display:flex;align-items:center;gap:var(--sp-3);padding:10px var(--sp-3);border:1px solid var(--line);
+  border-radius:var(--r-md);background:var(--surface-1);margin-bottom:var(--sp-2)}
+.att .ft{width:34px;height:34px;border-radius:var(--r-sm);display:grid;place-items:center;flex:none;
+  font-size:9px;font-weight:800;letter-spacing:.03em;color:#fff;background:var(--seq-3)}
+.att .ft.pdf{background:var(--s2)}
+.att .ft.doc{background:var(--s1)}
+.att .ft.xls{background:var(--s6)}
+.att .ft.img{background:var(--s7)}
+.att .nm{flex:1;min-width:0}
+.att .nm b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att .nm span{font-size:var(--fs-sm);color:var(--ink-3)}
+.dropzone{border:1.5px dashed var(--line);border-radius:var(--r-lg);padding:var(--sp-5) var(--sp-4);
+  text-align:center;color:var(--ink-3);transition:border-color .15s,background .15s;margin-bottom:var(--sp-3)}
+.dropzone.hot{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 
 /* timeline */
 .tl{position:relative;padding-left:24px}
@@ -433,12 +477,12 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .wtoggle .hd{color:var(--ink-3);cursor:grab}
 .wtoggle .nm{flex:1;font-weight:600}
 .wtoggle.off{opacity:.5}
-.sw{position:relative;width:36px;height:20px;border-radius:99px;background:var(--surface-3);
+.tgl{position:relative;width:36px;height:20px;border-radius:99px;background:var(--surface-3);
   border:1px solid var(--line);cursor:pointer;flex:none;padding:0;transition:background .14s}
-.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:99px;
+.tgl::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:99px;
   background:var(--ink-3);transition:transform .14s,background .14s}
-.sw.on{background:var(--accent);border-color:var(--accent)}
-.sw.on::after{transform:translateX(16px);background:#fff}
+.tgl.on{background:var(--accent);border-color:var(--accent)}
+.tgl.on::after{transform:translateX(16px);background:#fff}
 @media print{nav.side,header.top,.btn,.scrim,.drawer{display:none !important}
   #app.on{grid-template-columns:1fr;grid-template-areas:"brand" "main"}
   main{overflow:visible;padding:0}
@@ -527,7 +571,8 @@ const CFG = {
   // folder with the sales team (edit rights) so everyone reads/writes the same
   // files; each rep's client merges by record with tombstones.
   root     : 'CoreVCRM',
-  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','config'],
+  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','config'],
+  attachDir: 'attachments',
   cacheKey : 'corevcrm.v1',
   autoSyncMs: 120000,
   currency : 'AED',
@@ -707,7 +752,7 @@ document.addEventListener('keydown', e => {
    ================================================================ */
 const DB = {
   companies: [], contacts: [], deals: [], tasks: [],
-  commitments: [], reviews: [], activities: [],
+  commitments: [], reviews: [], activities: [], attachments: [],
   owners: [], stages: [], lossReasons: [],
   config: { widgets: null, targets: {}, theme: 'dark' },
   meta: { exportedAt: null, homeCurrency: CFG.currency }
@@ -825,6 +870,7 @@ function saveLocal() {
       db: {
         companies: DB.companies, contacts: DB.contacts, deals: DB.deals, tasks: DB.tasks,
         commitments: DB.commitments, reviews: DB.reviews, activities: DB.activities,
+        attachments: DB.attachments,
         owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons,
         config: DB.config, meta: DB.meta
       }
@@ -962,7 +1008,7 @@ function mergeRecords(mine, theirs) {
   });
   return Array.from(out.values());
 }
-const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities'];
+const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments'];
 
 async function syncNow(opt) {
   const o = opt || {};
@@ -1027,6 +1073,57 @@ function renderSyncBadge() {
   n.innerHTML = `<span class="dot ${cls}"></span><span>${esc(txt)}</span>`;
 }
 
+/* ---------------------------------------------- attachments (OneDrive) */
+const attachmentsFor = dealId => live('attachments')
+  .filter(a => a.dealId === dealId)
+  .sort((x, y) => (y.at || '').localeCompare(x.at || ''));
+
+/* Files live beside the data: CoreVCRM/attachments/<dealId>/<name>.
+   The quote tool can push into the same folder and append a row to
+   attachments.json — that pair is the whole cross-tool contract. */
+async function uploadAttachment(dealId, file) {
+  if (SYNC.mode !== 'onedrive') throw new Error('Sign in with Microsoft to upload files. In local-only mode you can still add a link.');
+  if (file.size > 60 * 1024 * 1024) throw new Error('That file is over 60 MB — upload it to OneDrive yourself and add it here as a link.');
+  const safe = String(file.name).replace(/[\\/:*?"<>|#%]/g, '-').slice(0, 120);
+  const path = `/me/drive/root:/${CFG.root}/${CFG.attachDir}/${dealId}/${safe}:/content`;
+  const t = await getToken();
+  const r = await fetch('https://graph.microsoft.com/v1.0' + path, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + t, 'Content-Type': file.type || 'application/octet-stream' },
+    body: file
+  });
+  if (!r.ok) throw new Error('OneDrive refused the upload (' + r.status + ')');
+  const item = await r.json();
+  return upsert('attachments', {
+    dealId, name: safe, size: file.size, mime: file.type || null,
+    url: item.webUrl || null, driveItemId: item.id || null,
+    at: new Date().toISOString(), by: (AUTH.user && AUTH.user.username) || 'local', kind: 'file'
+  });
+}
+function addAttachmentLink(dealId, name, url, label) {
+  return upsert('attachments', {
+    dealId, name: name || url, url, kind: 'link', label: label || null,
+    at: new Date().toISOString(), by: (AUTH.user && AUTH.user.username) || 'local'
+  });
+}
+async function deleteAttachment(a, alsoFile) {
+  if (alsoFile && a.driveItemId && SYNC.mode === 'onedrive') {
+    try { await graph('/me/drive/items/' + a.driveItemId, { method: 'DELETE' }); }
+    catch (e) { toast('Record removed, but the file is still in OneDrive', 'err'); }
+  }
+  remove('attachments', a.id);
+}
+const fileKind = name => {
+  const e = String(name || '').split('.').pop().toLowerCase();
+  if (e === 'pdf') return ['pdf', 'PDF'];
+  if (['doc','docx','rtf','odt'].includes(e)) return ['doc', 'DOC'];
+  if (['xls','xlsx','csv'].includes(e)) return ['xls', 'XLS'];
+  if (['png','jpg','jpeg','gif','webp','heic','svg'].includes(e)) return ['img', 'IMG'];
+  if (['ppt','pptx'].includes(e)) return ['', 'PPT'];
+  return ['', (e || 'FILE').slice(0, 4).toUpperCase()];
+};
+const fsize = b => !b ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+
 /* ------------------------------------------------- seed / import / export */
 function applySeed(seed, opt) {
   const o = opt || {};
@@ -1051,7 +1148,7 @@ function exportAll() {
     owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons, config: DB.config,
     companies: live('companies'), contacts: live('contacts'), deals: live('deals'),
     tasks: live('tasks'), commitments: live('commitments'), reviews: live('reviews'),
-    activities: live('activities')
+    activities: live('activities'), attachments: live('attachments')
   };
 }
 function download(name, text, mime) {
@@ -1436,6 +1533,8 @@ const VIEW = {
   name: 'dashboard',
   rep: 'all',
   period: 'fy',
+  pipePeriod: 'all',           // the board has its own period — opt in, so nothing vanishes on open
+  dateBasis: 'close',          // pipeline period applies to close date or created date
   stageFilter: null,
   sort: {}, page: {}, tableFilter: {},
   week: weekKey()
@@ -1502,10 +1601,11 @@ addEventListener('hashchange', () => {
 });
 
 /* ------------------------------------------------------- scoping */
-function periodBounds() {
-  if (VIEW.period === 'fy') return fyBounds();
-  if (VIEW.period === 'q')  return qBounds();
-  if (VIEW.period === 'm')  return mBounds();
+function periodBounds(which) {
+  const p = which || VIEW.period;
+  if (p === 'fy') return fyBounds();
+  if (p === 'q')  return qBounds();
+  if (p === 'm')  return mBounds();
   return { from: '1900-01-01', to: '2999-12-31', label: 'All time' };
 }
 const inPeriod = (d, b) => d && dnum(d) >= dnum(b.from) && dnum(d) <= dnum(b.to);
@@ -1526,11 +1626,12 @@ function renderTopControls() {
       .map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('') + '</optgroup>';
   s.value = cur;
 }
-function periodSeg() {
+function periodSeg(key) {
+  key = key || 'period';
   const seg = el('div', { class: 'seg' });
   [['m','This month'],['q','Quarter'],['fy','Fiscal year'],['all','All time']].forEach(([v, l]) => {
-    seg.appendChild(el('button', { class: VIEW.period === v ? 'on' : '', text: l,
-      onclick: () => { VIEW.period = v; render(); } }));
+    seg.appendChild(el('button', { class: VIEW[key] === v ? 'on' : '', text: l,
+      onclick: () => { VIEW[key] = v; render(); } }));
   });
   return seg;
 }
@@ -1767,7 +1868,7 @@ function customizeDash() {
       row.dataset.id = id;
       row.appendChild(el('span', { class: 'hd', html: ico('list',14) }));
       row.appendChild(el('span', { class: 'nm', text: w.name }));
-      row.appendChild(el('button', { class: 'sw' + (isOff ? '' : ' on'), 'aria-label': 'Toggle ' + w.name,
+      row.appendChild(el('button', { class: 'tgl' + (isOff ? '' : ' on'), 'aria-label': 'Toggle ' + w.name,
         onclick: () => { const i = off.indexOf(id); if (i < 0) off.push(id); else off.splice(i, 1); paint(); } }));
       row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', id); row.style.opacity = '.4'; });
       row.addEventListener('dragend',   () => row.style.opacity = '');
@@ -1796,24 +1897,90 @@ function customizeDash() {
 }
 
 /* ======================================================== PIPELINE */
+/* The board's own scope: rep + period, and which date the period applies to.
+   Close date answers "what lands this quarter"; created date answers "what did
+   we actually generate this quarter" — different questions, same board. */
+function pipeScope() {
+  let deals = scopedDeals().filter(isOpen);
+  if (VIEW.pipePeriod === 'all') return { deals, hidden: 0, field: null };
+  const b = periodBounds(VIEW.pipePeriod);
+  const field = VIEW.dateBasis === 'created' ? 'createdAt' : 'closeDate';
+  const hidden = deals.filter(d => !d[field]).length;
+  return { deals: deals.filter(d => d[field] && inPeriod(d[field], b)), hidden, field };
+}
 function viewPipeline(root) {
-  const deals = scopedDeals().filter(isOpen);
+  const scope = pipeScope();
+  const deals = scope.deals;
   const st = openStages();
+  const basisLabel = VIEW.dateBasis === 'created' ? 'created date' : 'close date';
+
   root.appendChild(viewHead(null, [
-    el('div', { style: 'font-size:var(--fs-sm);color:var(--ink-3)', html:
-      `<b class="mono" style="color:var(--ink-1)">${deals.length}</b> open · <b class="mono" style="color:var(--ink-1)">${CFG.currency} ${money(sum(deals, d => d.amount))}</b> total · weighted <b class="mono" style="color:var(--ink-1)">${CFG.currency} ${money(sum(deals, weighted))}</b>` }),
     el('button', { class: 'btn', html: ico('list',14) + ' Table view', onclick: () => go('deals') }),
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New deal', onclick: () => editDeal(null) })
   ]));
+
+  // ---- filter row
+  const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rep = el('select', { class: 'inp', style: 'width:auto;min-width:148px', 'aria-label': 'Sales rep',
+    onchange: e => { VIEW.rep = e.target.value; VIEW.page = {}; render(); } });
+  rep.innerHTML = '<option value="all">All sales reps</option>' +
+    activeOwners().map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('') +
+    (DB.owners.some(o => !o.active)
+      ? '<optgroup label="Inactive">' + DB.owners.filter(o => !o.active)
+          .map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('') + '</optgroup>'
+      : '');
+  bar.appendChild(rep);
+  bar.appendChild(periodSeg('pipePeriod'));
+  const basis = el('div', { class: 'seg' });
+  [['close', 'By close date'], ['created', 'By created date']].forEach(([v, l]) =>
+    basis.appendChild(el('button', { class: VIEW.dateBasis === v ? 'on' : '', text: l,
+      onclick: () => { VIEW.dateBasis = v; render(); } })));
+  if (VIEW.pipePeriod !== 'all') bar.appendChild(basis);
+  if (VIEW.rep !== 'all' || VIEW.pipePeriod !== 'all')
+    bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Reset filters',
+      onclick: () => { VIEW.rep = 'all'; VIEW.pipePeriod = 'all'; VIEW.dateBasis = 'close'; render(); } }));
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: VIEW.pipePeriod === 'all' ? 'Every open deal' : `Open deals with a ${basisLabel} in ${periodBounds(VIEW.pipePeriod).label}` }));
+  root.appendChild(bar);
+
+  // ---- board totals
+  const tl = el('div', { class: 'tiles' });
+  tl.appendChild(tile('Open deals', deals.length, { icon: 'board',
+    foot: VIEW.rep === 'all' ? 'all reps' : ownerName(VIEW.rep) }));
+  tl.appendChild(tile('Pipeline value', money(sum(deals, d => d.amount)), { cur: true, icon: 'chart',
+    foot: 'sum of every open deal in scope' }));
+  tl.appendChild(tile('Forecast (weighted)', money(sum(deals, weighted)), { cur: true, icon: 'bolt',
+    foot: 'value × stage probability' }));
+  const commitN = deals.filter(d => stage(d.stageId).probability >= .9);
+  tl.appendChild(tile('At commit stage', money(sum(commitN, d => d.amount)), { cur: true, icon: 'flag',
+    foot: `${commitN.length} deals at 90%+` }));
+  const noVal = deals.filter(d => !d.amount).length;
+  tl.appendChild(tile('Missing a value', noVal, { icon: 'warn',
+    foot: noVal ? 'these sit at zero in the forecast' : 'every deal is valued' }));
+  root.appendChild(tl);
+
+  if (scope.hidden) root.appendChild(el('div', { class: 'card',
+    style: 'margin-bottom:var(--sp-3);border-color:var(--warning);display:flex;gap:var(--sp-3);align-items:center' }, [
+    el('span', { html: ico('warn',15), style: 'color:var(--warning)' }),
+    el('div', { style: 'flex:1;line-height:1.5', html:
+      `<b>${scope.hidden}</b> open deals have no ${esc(basisLabel)} and are not on the board while this period filter is on.` }),
+    el('button', { class: 'btn sm', text: 'Show all', onclick: () => { VIEW.pipePeriod = 'all'; render(); } })
+  ]));
+
   const kan = el('div', { class: 'kan' });
   st.forEach(s => {
     const ds = deals.filter(d => d.stageId === s.id)
       .sort((a, b2) => (b2.amount || 0) - (a.amount || 0));
+    const total = sum(ds, d => d.amount), fc = sum(ds, weighted);
     const col = el('div', { class: 'kcol', style: `--stage:${stageColor(s.id)}` });
     col.dataset.stage = s.id;
     col.appendChild(el('header', {}, [
       el('div', { class: 'kt', html: `<span class="bar"></span><span>${esc(s.label)}</span><span class="n">${ds.length}</span>` }),
-      el('div', { class: 'kv', html: `${CFG.currency} ${money(sum(ds, d => d.amount))} <em>· ${Math.round(s.probability*100)}% → ${CFG.currency} ${money(sum(ds, weighted), {compact:true})}</em>` })
+      el('div', { class: 'ktot' }, [
+        el('div', { class: 'r', html: `<em>Pipeline</em><b>${CFG.currency} ${money(total, { dash: false })}</b>` }),
+        el('div', { class: 'r', html: `<em>Forecast · ${Math.round(s.probability*100)}%</em><b class="fc">${CFG.currency} ${money(fc, { dash: false })}</b>` })
+      ])
     ]));
     const list = el('div', { class: 'klist' });
     if (!ds.length) list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 4px', text: 'Drop a deal here' }));
@@ -1836,10 +2003,10 @@ function viewPipeline(root) {
   ['won','lost'].forEach(kind => {
     const s = DB.stages.find(x => x.kind === kind); if (!s) return;
     const col = el('div', { class: 'kcol', style: `--stage:${stageColor(s.id)};flex-basis:186px;opacity:.9` });
-    const closed = scopedDeals().filter(d => d.stageId === s.id && inPeriod(d.closeDate, periodBounds()));
+    const closed = scopedDeals().filter(d => d.stageId === s.id && inPeriod(d.closeDate, periodBounds(VIEW.pipePeriod)));
     col.appendChild(el('header', {}, [
       el('div', { class: 'kt', html: `<span class="bar"></span><span>${esc(s.label)}</span><span class="n">${closed.length}</span>` }),
-      el('div', { class: 'kv', html: `${CFG.currency} ${money(sum(closed, d => d.amount))} <em>· ${periodBounds().label}</em>` })
+      el('div', { class: 'kv', html: `${CFG.currency} ${money(sum(closed, d => d.amount))} <em>· ${periodBounds(VIEW.pipePeriod).label}</em>` })
     ]));
     const list = el('div', { class: 'klist', style: 'min-height:120px' });
     list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 6px;line-height:1.5',
@@ -2258,6 +2425,21 @@ function toggleTask(t) {
 /* ================================================================
    DETAIL DRAWERS + RECORD FORMS
    ================================================================ */
+/* A labelled, non-shrinking header fact: "VALUE  AED 260,000".
+   Labels are what make the header readable — a bare run of numbers and names
+   is ambiguous once there are more than two of them. */
+function mfact(label, value, o) {
+  o = o || {};
+  const n = el(o.onclick ? 'a' : 'span', {
+    class: 'mfact' + (o.num ? ' num' : ''),
+    title: o.title || (label ? label + ': ' + value : value),
+    href: o.onclick ? 'javascript:void 0' : null
+  });
+  if (label) n.appendChild(el('em', { text: label }));
+  n.appendChild(el('b', { text: String(value) }));
+  if (o.onclick) n.addEventListener('click', e => { e.preventDefault(); o.onclick(); });
+  return n;
+}
 function drawerHead(title, metaNodes, actions) {
   const h = el('header');
   const left = el('div', { style: 'flex:1;min-width:0' });
@@ -2299,20 +2481,24 @@ function openDeal(id) {
   const d = getDl(id); if (!d) return toast('Deal not found', 'err');
   const s = stage(d.stageId), co = getCo(d.companyId);
   const head = drawerHead(d.name, [
-    stageCell(d.stageId),
-    d.amount ? `<b class="mono" style="color:var(--ink-1);font-size:var(--fs-md)">${CFG.currency} ${money(d.amount)}</b>` : `<span class="tag warn">no value set</span>`,
-    co ? el('a', { href: 'javascript:void 0', style: 'color:var(--accent);text-decoration:none',
-      text: co.name, onclick: e => { e.preventDefault(); openCompany(co.id); } }) : null,
-    `<span>${ico('user',12)} ${esc(ownerName(d.ownerId))}</span>`,
-    d.closeDate ? `<span class="mono">${ico('cal',12)} ${esc(fdate(d.closeDate, 'long'))}</span>` : null
+    el('span', { html: stageCell(d.stageId) }),
+    d.amount ? mfact('Value', CFG.currency + ' ' + money(d.amount), { num: true })
+             : el('span', { html: '<span class="tag warn">no value set</span>' }),
+    isOpen(d) ? mfact('Weighted', CFG.currency + ' ' + money(weighted(d)), { num: true,
+      title: `Weighted: ${Math.round(s.probability * 100)}% of ${CFG.currency} ${money(d.amount)}` }) : null,
+    co ? mfact('Company', co.name, { onclick: () => openCompany(co.id) }) : null,
+    mfact('Owner', ownerName(d.ownerId)),
+    d.closeDate ? mfact('Close', fdate(d.closeDate, 'long'), { num: true }) : null,
+    d.demoDate ? mfact('Demo', fdate(d.demoDate, 'long'), { num: true }) : null
   ], [
     el('button', { class: 'btn', html: ico('edit',14) + ' Edit', onclick: () => editDeal(d) })
   ]);
 
   const tabs = [
     { label: 'Overview', render: () => dealOverview(d) },
-    { label: 'People', count: (d.contactIds || []).length, render: () => dealPeople(d) },
+    { label: 'Contact', count: (d.contactIds || []).length, render: () => dealPeople(d) },
     { label: 'Tasks', count: live('tasks').filter(t => t.dealId === d.id && t.status !== 'done').length, render: () => dealTasks(d) },
+    { label: 'Attachments', count: attachmentsFor(d.id).length, render: () => dealFiles(d) },
     { label: 'Activity', render: () => dealActivity(d) }
   ];
   const [bar, body] = tabbed(tabs);
@@ -2374,19 +2560,8 @@ function dealOverview(d) {
   ns.appendChild(nsRow);
   w.appendChild(ns);
 
-  w.appendChild(el('div', { class: 'card' }, [
-    el('h3', { text: 'Deal details' }),
-    dl([
-      ['Company', (getCo(d.companyId) || {}).name || '—'],
-      ['Owner', esc(ownerName(d.ownerId))],
-      ['Type', esc(d.dealType || '—')],
-      ['Priority', d.priority ? `<span class="tag ${d.priority==='high'?'bad':d.priority==='medium'?'warn':''}">${esc(d.priority)}</span>` : '—'],
-      ['Close date', d.closeDate ? esc(fdate(d.closeDate, 'long')) : '—'],
-      ['Created', d.createdAt ? esc(fdate(d.createdAt, 'long')) : '—'],
-      ['Loss reason', d.lossReason ? `<span class="tag bad">${esc(d.lossReason)}</span>` : null],
-      ['HubSpot id', d.hubspotId ? `<span class="mono" style="color:var(--ink-3)">${esc(d.hubspotId)}</span>` : null]
-    ])
-  ]));
+  w.appendChild(dealDetailsCard(d));
+  w.appendChild(dealCompanyCard(d));
   if ((d.notes || []).length) {
     const c = el('div', { class: 'card', style: 'margin-top:var(--sp-3)' });
     c.appendChild(el('h3', { text: 'Notes' }));
@@ -2396,6 +2571,133 @@ function dealOverview(d) {
     c.appendChild(list); w.appendChild(c);
   }
   return w;
+}
+/* ---- Deal details: edited in place, saved per field ---- */
+function dealDetailsCard(d) {
+  const c = el('div', { class: 'card' });
+  c.appendChild(el('div', { class: 'card-head' }, [
+    el('h3', { text: 'Deal details' }), el('div', { class: 'sp' }),
+    el('span', { style: 'font-size:var(--fs-xs);color:var(--ink-3)', text: 'changes save as you edit' })
+  ]));
+  const grid = el('div', { class: 'efields' });
+  const save = (field, value, label) => {
+    const before = d[field] == null ? '' : String(d[field]);
+    const after = value == null ? '' : String(value);
+    if (before === after) return;
+    d[field] = value;
+    upsert('deals', d);
+    logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+      html: `${esc(label)} set to <b>${esc(after || '—')}</b>` });
+    toast(label + ' saved', 'ok');
+    renderNav();
+  };
+
+  // company — picker, because it links to a record rather than holding a string
+  const cp = coPicker(d.companyId);
+  const coWrap = el('div');
+  coWrap.appendChild(cp.node);
+  coWrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:6px', text: 'Link company',
+    onclick: () => {
+      const id = cp.get() || pendingCo;
+      if (!id) return toast('Pick a company from the list first', 'err');
+      const co = getCo(id);
+      save('companyId', id, 'Company');
+      pendingCo = null;
+      openDeal(d.id);
+      if (co) toast('Linked to ' + co.name, 'ok');
+    } }));
+  grid.appendChild(efield('Company', coWrap, 'wide'));
+
+  grid.appendChild(efield('Deal owner', ownerSelect(d.ownerId, {
+    onchange: e => save('ownerId', e.target.value || null, 'Deal owner') })));
+
+  grid.appendChild(efield('Deal collaborator', ownerSelect(d.collaboratorId, {
+    emptyLabel: 'None', exclude: d.ownerId,
+    onchange: e => save('collaboratorId', e.target.value || null, 'Deal collaborator') }),
+    null, 'A second rep working the deal — they see it in their own pipeline filter.'));
+
+  const typ = el('select', { class: 'inp',
+    onchange: e => save('dealType', e.target.value || null, 'Deal type') });
+  typ.appendChild(el('option', { value: '', text: '—' }));
+  dealTypes().forEach(t => typ.appendChild(el('option', { value: t, text: t, selected: d.dealType === t || null })));
+  grid.appendChild(efield('Deal type', typ));
+
+  const pri = el('select', { class: 'inp',
+    onchange: e => save('priority', e.target.value || null, 'Priority') });
+  [['','—'],['low','Low'],['medium','Medium'],['high','High']].forEach(([v, l]) =>
+    pri.appendChild(el('option', { value: v, text: l, selected: (d.priority || '') === v || null })));
+  grid.appendChild(efield('Priority', pri));
+
+  grid.appendChild(efield('Expected close date', el('input', { class: 'inp', type: 'date', value: d.closeDate || '',
+    onchange: e => save('closeDate', e.target.value || null, 'Close date') })));
+
+  grid.appendChild(efield('Demo date', el('input', { class: 'inp', type: 'date', value: d.demoDate || '',
+    onchange: e => save('demoDate', e.target.value || null, 'Demo date') }),
+    null, 'When the XS1 / XP1 demo is booked or was delivered.'));
+
+  grid.appendChild(efield(`Deal value (${CFG.currency})`, el('input', { class: 'inp', type: 'number', min: '0', step: '1000',
+    value: d.amount == null ? '' : d.amount,
+    onchange: e => save('amount', e.target.value === '' ? null : Number(e.target.value), 'Deal value') })));
+
+  c.appendChild(grid);
+
+  const ro = dl([
+    ['Created', d.createdAt ? esc(fdate(d.createdAt, 'long')) : '—'],
+    ['Age', d.createdAt ? days(TODAY(), d.createdAt) + ' days' : '—'],
+    ['Loss reason', d.lossReason ? `<span class="tag bad">${esc(d.lossReason)}</span>` : null],
+    ['Lost to', d.lostTo ? esc(d.lostTo) : null],
+    ['HubSpot id', d.hubspotId ? `<span class="mono" style="color:var(--ink-3)">${esc(d.hubspotId)}</span>` : null]
+  ]);
+  ro.style.marginTop = 'var(--sp-4)';
+  ro.style.paddingTop = 'var(--sp-3)';
+  ro.style.borderTop = '1px solid var(--line-soft)';
+  c.appendChild(ro);
+  return c;
+}
+function efield(label, node, cls, hint) {
+  const w = el('div', { class: 'efield ' + (cls || '') });
+  w.appendChild(el('label', { class: 'fl', text: label }));
+  w.appendChild(node);
+  if (hint) w.appendChild(el('div', { style: 'font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;line-height:1.5', text: hint }));
+  return w;
+}
+/* ---- the company behind the deal, inline ---- */
+function dealCompanyCard(d) {
+  const co = getCo(d.companyId);
+  const c = el('div', { class: 'card', style: 'margin-top:var(--sp-3)' });
+  if (!co) {
+    c.appendChild(el('h3', { text: 'Company' }));
+    c.appendChild(el('p', { class: 'sub', style: 'margin:6px 0 0',
+      text: 'No company linked yet. Use the Company field above — the account view, its other deals and its contacts all hang off that link.' }));
+    return c;
+  }
+  const ds = live('deals').filter(x => x.companyId === co.id);
+  const people = live('contacts').filter(p => p.companyId === co.id);
+  c.appendChild(el('div', { class: 'card-head' }, [
+    el('h3', { text: 'Company' }), el('div', { class: 'sp' }),
+    el('button', { class: 'btn sm', text: 'Open account →', onclick: () => openCompany(co.id) })
+  ]));
+  c.appendChild(el('div', { style: 'display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)' }, [
+    el('span', { class: 'avatar lg', style: `background:${personColor(co.id)}`, text: initials(co.name) }),
+    el('div', { style: 'min-width:0' }, [
+      el('div', { style: 'font-weight:650;font-size:var(--fs-lg)', text: co.name || 'Unnamed' }),
+      el('div', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+        text: [co.industry, [co.city, co.country].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || 'no profile details yet' })
+    ])
+  ]));
+  c.appendChild(dl([
+    ['Domain', co.domain ? `<a href="https://${esc(String(co.domain).replace(/^https?:\/\//,''))}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(co.domain)}</a>` : '—'],
+    ['Phone', co.phone ? `<span class="mono">${esc(co.phone)}</span>` : '—'],
+    ['Industry', esc(co.industry || '—')],
+    ['Employees', esc(co.employees || '—')],
+    ['Location', esc([co.city, co.country].filter(Boolean).join(', ') || '—')],
+    ['Lifecycle', co.lifecycleStage ? `<span class="tag info">${esc(co.lifecycleStage)}</span>` : '—'],
+    ['Account owner', esc(ownerName(co.ownerId))],
+    ['Open pipeline', `<span class="mono">${CFG.currency} ${money(sum(ds.filter(isOpen), x => x.amount), { dash: false })}</span> <span style="color:var(--ink-3)">· ${ds.filter(isOpen).length} deals</span>`],
+    ['Won to date', `<span class="mono" style="color:var(--good-ink)">${CFG.currency} ${money(sum(ds.filter(isWon), x => x.amount), { dash: false })}</span>`],
+    ['Contacts on file', String(people.length)]
+  ]));
+  return c;
 }
 function dealPeople(d) {
   const w = el('div');
@@ -2443,6 +2745,88 @@ function dealTasks(d) {
     '<h4>No follow-up scheduled</h4><p>Set the next action and a date so this deal cannot go quiet.</p>' }));
   ts.forEach(t => w.appendChild(taskRow(t)));
   return w;
+}
+/* ---- Attachments: quotes and anything else that belongs to the deal ---- */
+function dealFiles(d) {
+  const w = el('div');
+  w.appendChild(el('div', { class: 'card-head' }, [
+    el('h3', { text: 'Attachments' }), el('div', { class: 'sp' }),
+    el('button', { class: 'btn sm', html: ico('clip',13) + ' Add link', onclick: () => addLinkDialog(d) }),
+    el('button', { class: 'btn sm primary', html: ico('plus',13) + ' Upload', onclick: () => fileIn.click() })
+  ]));
+  const fileIn = el('input', { type: 'file', multiple: 'multiple', style: 'display:none',
+    onchange: e => doUpload(d, Array.from(e.target.files)) });
+  w.appendChild(fileIn);
+
+  const zone = el('div', { class: 'dropzone', html:
+    ico('dl', 26) + `<div style="margin-top:8px;line-height:1.55">Drop quote PDFs here, or <b>Upload</b>.<br>
+      <span style="font-size:var(--fs-sm)">Saved to OneDrive under <span class="mono">${esc(CFG.root)}/${esc(CFG.attachDir)}/${esc(d.id)}/</span></span></div>` });
+  ['dragenter','dragover'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('hot'); }));
+  ['dragleave','drop'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('hot'); }));
+  zone.addEventListener('drop', e => doUpload(d, Array.from(e.dataTransfer.files || [])));
+  w.appendChild(zone);
+
+  if (SYNC.mode !== 'onedrive') w.appendChild(el('p', { class: 'sub',
+    style: 'color:var(--warning);margin:-6px 0 var(--sp-3)',
+    html: ico('warn',12) + ' Local-only session — uploads need a Microsoft sign-in. Add a link instead.' }));
+
+  const list = attachmentsFor(d.id);
+  if (!list.length) {
+    w.appendChild(el('div', { class: 'empty', html: ico('clip',30) +
+      '<h4>Nothing attached yet</h4><p>Quotes generated in your pricing tool land here once it writes them to this deal, or you can drop them in by hand.</p>' }));
+    return w;
+  }
+  list.forEach(a => {
+    const [cls, ext] = fileKind(a.name);
+    const row = el('div', { class: 'att' });
+    row.appendChild(el('span', { class: 'ft ' + cls, text: a.kind === 'link' ? 'LINK' : ext }));
+    row.appendChild(el('div', { class: 'nm', html:
+      `<b title="${esc(a.name)}">${esc(a.name)}</b>
+       <span>${esc(fdate(a.at, 'long'))} · ${esc(String(a.by || '').split('@')[0])}${a.size ? ' · ' + fsize(a.size) : ''}${a.label ? ' · ' + esc(a.label) : ''}</span>` }));
+    if (a.url) row.appendChild(el('a', { class: 'btn sm', href: a.url, target: '_blank', rel: 'noopener',
+      html: ico('dl',13) + ' Open' }));
+    row.appendChild(el('button', { class: 'btn icon ghost', html: ico('trash',14), 'aria-label': 'Remove ' + a.name,
+      onclick: () => confirmDo('Remove attachment',
+        a.kind === 'link' ? `Remove the link to “${a.name}” from this deal?`
+                          : `Remove “${a.name}” from this deal and delete the file from OneDrive?`,
+        'Remove', async () => { await deleteAttachment(a, a.kind !== 'link'); openDeal(d.id); toast('Removed'); }) }));
+    w.appendChild(row);
+  });
+  return w;
+}
+async function doUpload(d, files) {
+  if (!files.length) return;
+  const t = toast(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`);
+  let ok = 0;
+  for (const f of files) {
+    try { await uploadAttachment(d.id, f); ok++; }
+    catch (e) { toast(String(e.message || e), 'err'); }
+  }
+  if (ok) {
+    logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+      html: `Attached ${ok} file${ok > 1 ? 's' : ''}: ${esc(files.slice(0, 3).map(f => f.name).join(', '))}` });
+    toast(`${ok} file${ok > 1 ? 's' : ''} attached`, 'ok');
+    openDeal(d.id);
+  }
+}
+function addLinkDialog(d) {
+  const url = el('input', { class: 'inp', placeholder: 'https://…  (OneDrive or SharePoint share link)' });
+  const nm = el('input', { class: 'inp', placeholder: 'e.g. XP1 APEX quote — rev 2' });
+  const lb = el('input', { class: 'inp', placeholder: 'Quote · Proposal · Contract · Floor plan' });
+  modal('Add a link to ' + d.name, el('div', {}, [
+    fld('Link *', url, 'Paste the share link of a quote or document that already lives in OneDrive, SharePoint or your pricing tool.'),
+    fld('Display name', nm), fld('Label', lb)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Attach', onclick: () => {
+      const u = url.value.trim();
+      if (!/^https?:\/\//i.test(u)) { url.focus(); return toast('Needs a full https:// link', 'err'); }
+      addAttachmentLink(d.id, nm.value.trim() || u.split('/').pop() || u, u, lb.value.trim() || null);
+      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+        html: `Linked document <b>${esc(nm.value.trim() || u)}</b>` });
+      closeAll(); openDeal(d.id); toast('Link attached', 'ok');
+    } })
+  ]);
 }
 function dealActivity(d) {
   const w = el('div');
@@ -2692,17 +3076,35 @@ function fld(label, node, hint) {
   if (hint) w.appendChild(el('div', { style: 'font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;line-height:1.5', text: hint }));
   return w;
 }
-function ownerSelect(value) {
+/* Assignment picker. Only active people can be chosen. A record that already
+   belongs to someone who has since left keeps that owner — it is shown as the
+   current value so saving does not silently reassign it — but no *other*
+   inactive person can be picked, so work never lands on a leaver. */
+function ownerSelect(value, o) {
+  o = o || {};
   const s = el('select', { class: 'inp' });
-  s.appendChild(el('option', { value: '', text: 'Unassigned' }));
-  activeOwners().forEach(o => s.appendChild(el('option', { value: o.id, text: o.name, selected: String(value) === o.id || null })));
-  const inact = DB.owners.filter(o => !o.active);
-  if (inact.length) {
-    const g = el('optgroup', { label: 'Inactive' });
-    inact.forEach(o => g.appendChild(el('option', { value: o.id, text: o.name, selected: String(value) === o.id || null })));
+  if (o.onchange) s.addEventListener('change', o.onchange);
+  s.appendChild(el('option', { value: '', text: o.emptyLabel || 'Unassigned' }));
+  activeOwners().forEach(p => {
+    if (o.exclude && String(o.exclude) === p.id) return;
+    s.appendChild(el('option', { value: p.id, text: p.name, selected: String(value) === p.id || null }));
+  });
+  const cur = DB.owners.find(p => p.id === String(value));
+  if (cur && !cur.active) {
+    const g = el('optgroup', { label: 'No longer active — reassign' });
+    g.appendChild(el('option', { value: cur.id, text: cur.name + ' (inactive)', selected: true }));
     s.appendChild(g);
   }
   return s;
+}
+/* Deal types: the three CoreV sells against, plus any legacy value already on
+   a record so an import never loses what it came in with. */
+function dealTypes() {
+  const base = (DB.config && DB.config.dealTypes && DB.config.dealTypes.length)
+    ? DB.config.dealTypes.slice() : ['Consumer', 'Commercial', 'International'];
+  const found = Array.from(new Set(live('deals').map(d => d.dealType).filter(Boolean)));
+  found.forEach(t => { if (!base.includes(t)) base.push(t); });
+  return base;
 }
 /* type-ahead picker over an entity list */
 function picker(opts) {
@@ -2773,12 +3175,12 @@ function editDeal(d, pre) {
   DB.stages.sort((a,b) => a.order - b.order).forEach(s => stg.appendChild(
     el('option', { value: s.id, text: `${s.label} — ${Math.round(s.probability*100)}%`, selected: d.stageId === s.id || null })));
   const own = ownerSelect(d.ownerId);
+  const collab = ownerSelect(d.collaboratorId, { emptyLabel: 'None' });
   const close = el('input', { class: 'inp', type: 'date', value: d.closeDate || '' });
-  const types = Array.from(new Set(live('deals').map(x => x.dealType).filter(Boolean)))
-    .concat(['Commercial','Consumer','International','New Business','Existing Business']);
+  const demo = el('input', { class: 'inp', type: 'date', value: d.demoDate || '' });
   const typ = el('select', { class: 'inp' });
   typ.appendChild(el('option', { value: '', text: '—' }));
-  Array.from(new Set(types)).sort().forEach(t => typ.appendChild(el('option', { value: t, text: t, selected: d.dealType === t || null })));
+  dealTypes().forEach(t => typ.appendChild(el('option', { value: t, text: t, selected: d.dealType === t || null })));
   const pri = el('select', { class: 'inp' });
   [['','—'],['low','Low'],['medium','Medium'],['high','High']].forEach(([v,l]) =>
     pri.appendChild(el('option', { value: v, text: l, selected: (d.priority||'') === v || null })));
@@ -2789,7 +3191,10 @@ function editDeal(d, pre) {
   body.appendChild(fld('Company', cp.node, 'Start typing to link an existing account, or create a new one.'));
   body.appendChild(el('div', { class: 'field-row' }, [
     fld(`Value (${CFG.currency})`, amount), fld('Expected close date', close) ]));
-  body.appendChild(el('div', { class: 'field-row' }, [ fld('Stage', stg), fld('Owner', own) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Stage', stg), fld('Deal owner', own) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [
+    fld('Deal collaborator', collab, 'A second rep working this deal.'),
+    fld('Demo date', demo) ]));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('Deal type', typ), fld('Priority', pri) ]));
   body.appendChild(fld('Next step', nxt));
 
@@ -2806,7 +3211,9 @@ function editDeal(d, pre) {
       d.companyId = cp.get() || pendingCo || d.companyId || null;
       d.amount = amount.value === '' ? null : Number(amount.value);
       d.stageId = stg.value; d.ownerId = own.value || null;
-      d.closeDate = close.value || null; d.dealType = typ.value || null;
+      d.collaboratorId = (collab.value && collab.value !== own.value) ? collab.value : null;
+      d.closeDate = close.value || null; d.demoDate = demo.value || null;
+      d.dealType = typ.value || null;
       d.priority = pri.value || null; d.nextStep = nxt.value.trim() || null;
       const saved = upsert('deals', d);
       if (isNew) logAct({ dealId: saved.id, ownerId: saved.ownerId, kind: 'stage',
@@ -3459,6 +3866,39 @@ function viewSettings(root) {
   });
   c3.body.appendChild(nr);
   g.appendChild(c3.node);
+
+  /* ---- deal types ---- */
+  const c3b = card('Deal types', 'The categories a deal can be tagged with');
+  const dt = el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--sp-3)' });
+  const list2 = (DB.config.dealTypes && DB.config.dealTypes.length)
+    ? DB.config.dealTypes : ['Consumer', 'Commercial', 'International'];
+  list2.forEach((t, i) => {
+    const used = live('deals').filter(d => d.dealType === t).length;
+    dt.appendChild(el('span', { class: 'tag', style: 'padding:4px 8px' }, [
+      el('span', { text: t + (used ? ` · ${used}` : '') }),
+      el('button', { style: 'background:none;border:0;color:var(--ink-3);cursor:pointer;padding:0 0 0 6px',
+        html: ico('x',11), 'aria-label': 'Remove ' + t,
+        onclick: () => {
+          if (used) return toast(`${used} deals still use “${t}” — retag them first`, 'err');
+          DB.config.dealTypes = list2.filter((_, j) => j !== i);
+          DB.config._v = now(); touch('config'); render();
+        } })
+    ]));
+  });
+  c3b.body.appendChild(dt);
+  const ndt = el('input', { class: 'inp', placeholder: 'Add a type and press Enter' });
+  ndt.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const v = ndt.value.trim(); if (!v || list2.includes(v)) return;
+    DB.config.dealTypes = list2.concat([v]);
+    DB.config._v = now(); touch('config'); render();
+  });
+  c3b.body.appendChild(ndt);
+  const legacy = Array.from(new Set(live('deals').map(d => d.dealType).filter(Boolean)))
+    .filter(t => !list2.includes(t));
+  if (legacy.length) c3b.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: `Still on records from the HubSpot import: ${legacy.map(t => `<b>${esc(t)}</b>`).join(', ')}. They stay selectable until those deals are retagged.` }));
+  g.appendChild(c3b.node);
 
   /* ---- data health ---- */
   const c4 = card('Data health', 'What to clean up so the analytics can be trusted');
