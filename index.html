@@ -94,6 +94,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 }
 #gate .alt{margin-top:var(--sp-4);font-size:var(--fs-sm);color:var(--ink-3)}
 #gate .alt button{background:none;border:0;color:var(--accent);cursor:pointer;text-decoration:underline;padding:0}
+#gate .ver{margin-top:var(--sp-5);padding-top:var(--sp-3);border-top:1px solid var(--line-soft);
+  font-size:var(--fs-xs);color:var(--ink-3);letter-spacing:.04em;font-variant-numeric:tabular-nums}
 
 /* ============================ shell ============================ */
 #app{display:none;min-height:100vh}
@@ -221,6 +223,9 @@ label.fl{display:block;font-size:var(--fs-xs);text-transform:uppercase;letter-sp
 .avatar{width:26px;height:26px;border-radius:99px;display:grid;place-items:center;flex:none;
   font-size:10px;font-weight:800;letter-spacing:.02em;color:#fff;background:var(--s1)}
 .avatar.lg{width:38px;height:38px;font-size:13px}
+.logo{display:inline-grid;place-items:center;flex:none;border-radius:var(--r-sm);overflow:hidden;
+  background:var(--surface-2);border:1px solid var(--line)}
+.logo img{width:100%;height:100%;object-fit:contain;background:#fff}
 
 .empty{text-align:center;padding:var(--sp-7) var(--sp-4);color:var(--ink-3)}
 .empty svg{opacity:.35;margin-bottom:var(--sp-3)}
@@ -265,6 +270,22 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
   color:var(--ink-3);font-weight:700;flex:none}
 .kcol .ktot .r b{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--ink-1);font-weight:650;white-space:nowrap}
 .kcol .ktot .r b.fc{color:var(--accent)}
+.kmin{margin-left:6px;background:none;border:0;color:var(--ink-3);cursor:pointer;padding:2px;
+  border-radius:var(--r-sm);flex:none;line-height:0}
+.kmin:hover{background:var(--surface-3);color:var(--ink-1)}
+/* a minimised stage: a narrow strip that still carries its count and value */
+.kcol.min{flex:0 0 54px;max-height:none;cursor:pointer}
+.kcol.min>header{border-bottom:0;border-radius:var(--r-lg);padding:var(--sp-3) 0;height:100%}
+.kcol.min .klist,.kcol.min .ktot,.kcol.min .kmin{display:none}
+.kcol.min .kt{flex-direction:column;gap:10px;align-items:center;height:100%}
+.kcol.min .kt .bar{width:22px;height:4px}
+.kcol.min .kt .lbl{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-height:210px;font-size:var(--fs-sm);font-weight:650}
+.kcol.min .kt .n{margin:0}
+.kcol.min .kmv{writing-mode:vertical-rl;transform:rotate(180deg);font-size:var(--fs-xs);
+  color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.kcol:not(.min) .kmv{display:none}
+.kcol.min:hover{border-color:var(--accent)}
 .klist{padding:var(--sp-2);overflow-y:auto;display:flex;flex-direction:column;gap:var(--sp-2);flex:1;min-height:70px;min-width:0}
 .kcard>*{min-width:0}
 .kcard{background:var(--surface-2);border:1px solid var(--line);border-left:3px solid var(--stage,var(--s1));
@@ -383,6 +404,17 @@ a.mfact:hover b{text-decoration:underline}
 .stepper button.cur{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:var(--shadow-2)}
 .stepper button.won{background:var(--good);border-color:var(--good);color:#fff}
 .stepper button.lost{background:var(--critical);border-color:var(--critical);color:#fff}
+
+/* attention banner */
+.alert{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
+  border:1px solid rgba(250,178,25,.42);background:rgba(250,178,25,.10);
+  border-left:3px solid var(--warning);border-radius:var(--r-lg);margin-bottom:var(--sp-4)}
+.alert .ic{color:var(--warning);flex:none;margin-top:1px}
+.alert .btn{flex:none;align-self:center}
+@media (max-width:620px){.alert{flex-wrap:wrap}.alert .btn{width:100%;justify-content:center}}
+/* overdue queue row */
+.oq{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;padding:10px var(--sp-3);
+  border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);margin-bottom:var(--sp-2)}
 
 /* inline-edit field grid inside a drawer card */
 .efields{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(196px,1fr))}
@@ -509,6 +541,7 @@ a.mfact:hover b{text-decoration:underline}
     <div class="alt">
       Working offline? <button id="demo-mode">Open with local data only</button>
     </div>
+    <div class="ver" id="gate-ver"></div>
   </div>
 </div>
 
@@ -563,7 +596,14 @@ a.mfact:hover b{text-decoration:underline}
    ================================================================ */
 'use strict';
 
+/* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
+   and in Settings, so a rep on a stale cached copy is obvious at a glance. */
+const VERSION = '1.2.0';
+const RELEASED = '2026-09-27';
+
 const CFG = {
+  version  : VERSION,
+  released : RELEASED,
   clientId : 'cd1b7f5f-5ff9-4066-ab4f-06f270a94fcb',
   authority: 'https://login.microsoftonline.com/core-velocity.com',
   scopes   : ['User.Read', 'Files.ReadWrite.All', 'Sites.ReadWrite.All'],
@@ -661,6 +701,128 @@ function personColor(id) {
   let h = 0; const s = String(id || '');
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return `var(${SEQ[Math.abs(h) % SEQ.length]})`;
+}
+
+/* ------------------------------------------------- domain → company data
+   What a domain can honestly tell you offline: a readable name, and a country
+   from the country-code TLD. A city cannot be derived from a domain without a
+   paid enrichment provider, so this never guesses one. */
+function cleanDomain(d) {
+  if (!d) return null;
+  let s = String(d).trim().toLowerCase()
+    .replace(/^[a-z]+:\/\//, '').replace(/^www\./, '')
+    .split('/')[0].split('?')[0].split('#')[0].split('@').pop().replace(/\.$/, '');
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(s) ? s : null;
+}
+/* multi-part public suffixes we must not mistake for the name */
+const SUFFIX2 = new Set(['co','com','net','org','gov','edu','ac','mil','or','ne','go','in','web','biz']);
+const SMALLWORD = new Set(['and','of','the','for','by','on','at','in','to']);
+const ACRONYM = new Set(['uae','ksa','llc','fze','fzc','fzco','dmcc','jlt','difc','adgm','gcc','uk','usa',
+  'hq','it','ai','ae','pjsc','psc','wll','spc','bv','gmbh','sa','fc','sc','ufc','hr','pt','tv','id']);
+function domainToName(domain) {
+  const d = cleanDomain(domain);
+  if (!d) return null;
+  const parts = d.split('.');
+  // drop the public suffix, including two-part ones like .co.uk / .com.sa
+  let end = parts.length - 1;
+  if (end >= 2 && SUFFIX2.has(parts[end - 1])) end -= 1;
+  const core = parts.slice(0, end).filter(p => p !== 'www');
+  const label = (core[core.length - 1] || parts[0]);
+  return label.split(/[-_]+/).filter(Boolean).map(w =>
+    ACRONYM.has(w) ? w.toUpperCase()
+      : SMALLWORD.has(w) ? w
+      : w.charAt(0).toUpperCase() + w.slice(1)
+  ).join(' ').replace(/\s+/g, ' ').trim() || null;
+}
+const CCTLD = {
+  ae:'United Arab Emirates', sa:'Saudi Arabia', qa:'Qatar', kw:'Kuwait', bh:'Bahrain', om:'Oman',
+  jo:'Jordan', lb:'Lebanon', eg:'Egypt', iq:'Iraq', sy:'Syria', ye:'Yemen', ps:'Palestine',
+  ma:'Morocco', tn:'Tunisia', dz:'Algeria', ly:'Libya', sd:'Sudan', tr:'Turkey', ir:'Iran',
+  pk:'Pakistan', in:'India', bd:'Bangladesh', lk:'Sri Lanka', np:'Nepal',
+  uk:'United Kingdom', gb:'United Kingdom', ie:'Ireland', fr:'France', de:'Germany', es:'Spain',
+  it:'Italy', pt:'Portugal', nl:'Netherlands', be:'Belgium', ch:'Switzerland', at:'Austria',
+  se:'Sweden', no:'Norway', dk:'Denmark', fi:'Finland', is:'Iceland', pl:'Poland', cz:'Czechia',
+  gr:'Greece', ru:'Russia', ua:'Ukraine', ro:'Romania', hu:'Hungary', lt:'Lithuania', lv:'Latvia',
+  us:'United States', ca:'Canada', mx:'Mexico', br:'Brazil', ar:'Argentina', cl:'Chile', co:'Colombia',
+  au:'Australia', nz:'New Zealand', za:'South Africa', ng:'Nigeria', ke:'Kenya', gh:'Ghana',
+  et:'Ethiopia', tz:'Tanzania', ug:'Uganda', cn:'China', hk:'Hong Kong', tw:'Taiwan', jp:'Japan',
+  kr:'South Korea', sg:'Singapore', my:'Malaysia', th:'Thailand', id:'Indonesia', ph:'Philippines',
+  vn:'Vietnam', mt:'Malta', cy:'Cyprus', az:'Azerbaijan', kz:'Kazakhstan', uz:'Uzbekistan', am:'Armenia'
+};
+function domainCountry(domain) {
+  const d = cleanDomain(domain);
+  if (!d) return null;
+  const parts = d.split('.');
+  const tld = parts[parts.length - 1];
+  if (tld.length !== 2) return null;                 // .com/.org etc say nothing
+  return CCTLD[tld] || null;
+}
+/* Logos come from public favicon/logo services, tried in order; each failure
+   falls through to the next and finally to an initials badge. Opt-out lives in
+   Settings, because using it sends customer domains to a third party. */
+/* A table of 938 accounts would otherwise fire three requests per row every
+   render. LOGO keeps a per-domain negative cache and trips a breaker if the
+   services are unreachable at all, so a blocked network costs one round of
+   attempts rather than thousands. */
+const LOGO = { bad: new Set(), ok: 0, fail: 0, off: false, warned: false };
+function logoFailed(domain) {
+  LOGO.fail++;
+  if (domain) LOGO.bad.add(domain);
+  if (!LOGO.off && LOGO.ok === 0 && LOGO.fail >= 12) {
+    LOGO.off = true;
+    if (!LOGO.warned) {
+      LOGO.warned = true;
+      setTimeout(() => toast('Company logos are unreachable from this network — showing initials instead'), 600);
+    }
+  }
+}
+const logosOn = () => (DB.config && DB.config.logos) !== false && !LOGO.off;
+const logoCandidates = domain => {
+  const d = cleanDomain(domain);
+  if (!d || LOGO.bad.has(d)) return [];
+  return [
+    'https://logo.clearbit.com/' + d + '?size=128',
+    'https://icons.duckduckgo.com/ip3/' + d + '.ico',
+    'https://www.google.com/s2/favicons?sz=128&domain=' + d
+  ];
+};
+function logoEl(co, size) {
+  const px = size || 38;
+  const fallback = el('span', { class: 'avatar' + (px > 30 ? ' lg' : ''),
+    style: `background:${personColor(co.id || co.name)};width:${px}px;height:${px}px;font-size:${Math.round(px*0.34)}px`,
+    text: initials(co.name || co.domain) });
+  const urls = logosOn() ? logoCandidates(co.domain) : [];
+  if (!urls.length) return fallback;
+  const wrap = el('span', { class: 'logo', style: `width:${px}px;height:${px}px` });
+  let i = 0;
+  const img = el('img', { alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', src: urls[0] });
+  img.addEventListener('load', () => { LOGO.ok++; });
+  img.addEventListener('error', () => {
+    i++;
+    if (i < urls.length) { img.src = urls[i]; return; }
+    logoFailed(cleanDomain(co.domain));
+    wrap.replaceWith(fallback);
+  });
+  wrap.appendChild(img);
+  return wrap;
+}
+/* HTML-string form, for the table renderers that build rows with innerHTML */
+function logoFallback(img) {
+  const rest = (img.getAttribute('data-next') || '').split('|').filter(Boolean);
+  if (rest.length) { img.setAttribute('data-next', rest.slice(1).join('|')); img.src = rest[0]; return; }
+  logoFailed(img.getAttribute('data-domain'));
+  const w = img.parentNode;
+  if (w) w.outerHTML = img.getAttribute('data-fb') || '';
+}
+function logoLoaded() { LOGO.ok++; }
+function logoHTML(co, size) {
+  const px = size || 26;
+  const fb = `<span class="avatar" style="background:${personColor(co.id || co.name)};width:${px}px;height:${px}px;font-size:${Math.round(px*0.36)}px">${esc(initials(co.name || co.domain))}</span>`;
+  const urls = logosOn() ? logoCandidates(co.domain) : [];
+  if (!urls.length) return fb;
+  return `<span class="logo" style="width:${px}px;height:${px}px"><img alt="" loading="lazy" referrerpolicy="no-referrer"
+    src="${esc(urls[0])}" data-next="${esc(urls.slice(1).join('|'))}" data-domain="${esc(cleanDomain(co.domain) || '')}"
+    data-fb="${esc(fb)}" onload="logoLoaded()" onerror="logoFallback(this)"></span>`;
 }
 
 /* --------------------------------------------------------------- icons */
@@ -1570,9 +1732,7 @@ function renderNav() {
   const mob = el('div', { class: 'mobile-only', style: 'margin-bottom:var(--sp-3)' });
   const mrep = el('select', { class: 'inp', 'aria-label': 'Sales rep',
     onchange: e => { VIEW.rep = e.target.value; VIEW.page = {}; render(); } });
-  mrep.innerHTML = '<option value="all">All reps</option>' +
-    DB.owners.slice().sort((a,b) => (b.active - a.active) || a.name.localeCompare(b.name))
-      .map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}${o.active ? '' : ' (inactive)'}</option>`).join('');
+  mrep.innerHTML = repOptions();
   mob.appendChild(mrep);
   mob.appendChild(el('button', { class: 'btn sm', style: 'margin-top:6px;width:100%;justify-content:center',
     text: document.documentElement.getAttribute('data-theme') === 'dark' ? 'Light theme' : 'Dark theme',
@@ -1585,6 +1745,8 @@ function renderNav() {
   ]));
   f.appendChild(el('div', { class: 'row', style: 'margin-top:6px;opacity:.75', text:
     (AUTH.user ? AUTH.user.name || AUTH.user.username : 'Local session') }));
+  f.appendChild(el('div', { class: 'row mono', style: 'margin-top:6px;opacity:.6;letter-spacing:.04em',
+    text: 'v' + CFG.version, title: 'CoreV CRM v' + CFG.version + ' · released ' + CFG.released }));
   n.appendChild(f);
   renderSyncBadge();
 }
@@ -1617,14 +1779,19 @@ const openTasks = () => live('tasks').filter(t => t.status !== 'done' &&
   (VIEW.rep === 'all' || String(t.ownerId) === VIEW.rep));
 const weighted = d => (d.amount || 0) * stage(d.stageId).probability;
 
+/* Rep dropdowns list active people only. Someone who has left keeps their
+   closed history — it still counts in every total — but they are not a filter
+   anyone should be picking week to week. */
+function repOptions(allLabel) {
+  return `<option value="all">${esc(allLabel || 'All reps')}</option>` +
+    activeOwners().map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
+}
 function renderTopControls() {
   const s = $('#repfilter');
-  const cur = VIEW.rep;
-  s.innerHTML = '<option value="all">All reps</option>' +
-    activeOwners().map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('') +
-    '<optgroup label="Inactive">' + DB.owners.filter(o => !o.active)
-      .map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('') + '</optgroup>';
-  s.value = cur;
+  // a filter left pointing at someone who has since gone inactive falls back to all
+  if (VIEW.rep !== 'all' && !activeOwners().some(o => o.id === VIEW.rep)) VIEW.rep = 'all';
+  s.innerHTML = repOptions();
+  s.value = VIEW.rep;
 }
 function periodSeg(key) {
   key = key || 'period';
@@ -1678,6 +1845,8 @@ function viewDashboard(root) {
     periodSeg(),
     el('button', { class: 'btn', html: ico('cog',14) + ' Customize', onclick: customizeDash })
   ]));
+  const ob = overdueBanner();
+  if (ob) root.appendChild(ob);
   const order = widgetOrder().filter(id => !widgetOff().includes(id));
   if (!order.length) {
     root.appendChild(el('div', { class: 'empty', html:
@@ -1897,6 +2066,113 @@ function customizeDash() {
 }
 
 /* ======================================================== PIPELINE */
+/* ---------------------------------------------- overdue close dates
+   An open deal whose close date has passed is the single most corrosive thing
+   in a pipeline: it is silently wrong, and it drags every forecast down with
+   it. Surface it wherever the rep is, and make fixing it one click. */
+function overdueDeals(rep) {
+  const t = dnum(TODAY());
+  const who = rep === undefined ? VIEW.rep : rep;
+  return live('deals').filter(d =>
+    isOpen(d) && d.closeDate && dnum(d.closeDate) < t &&
+    (who === 'all' || String(d.ownerId) === String(who)))
+    .sort((a, b) => dnum(a.closeDate) - dnum(b.closeDate));
+}
+function overdueBanner() {
+  const od = overdueDeals();
+  if (!od.length) return null;
+  const val = sum(od, d => d.amount);
+  const worst = days(TODAY(), od[0].closeDate);
+  const n = el('div', { class: 'alert' });
+  n.appendChild(el('span', { class: 'ic', html: ico('warn',18) }));
+  n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html:
+    `<b>${od.length} open deals have a close date in the past</b> —
+     ${CFG.currency} ${money(val, { dash: false })} sitting on dates that have already gone.
+     The oldest is <b>${worst} days</b> overdue.
+     <div style="color:var(--ink-3);margin-top:3px">Push the date, or mark it won or lost — until then the forecast is counting a date nobody believes.</div>` }));
+  n.appendChild(el('button', { class: 'btn primary', text: 'Review them', onclick: () => overdueQueue() }));
+  return n;
+}
+/* The fix-it queue: every overdue deal, with the three things you can do to it */
+function overdueQueue() {
+  const body = el('div');
+  const paint = () => {
+    body.innerHTML = '';
+    const od = overdueDeals();
+    if (!od.length) {
+      body.appendChild(el('div', { class: 'empty', html: ico('check',32) +
+        '<h4>Nothing overdue</h4><p>Every open deal has a close date in the future.</p>' }));
+      return;
+    }
+    body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
+      html: `<b>${od.length}</b> open deals ${VIEW.rep === 'all' ? 'across the team' : 'for ' + esc(ownerName(VIEW.rep))} are past their close date,
+             worth ${CFG.currency} ${money(sum(od, d => d.amount), { dash: false })}. Oldest first.` }));
+    od.slice(0, 60).forEach(d => {
+      const late = days(TODAY(), d.closeDate);
+      const row = el('div', { class: 'oq' });
+      row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { style: 'font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
+          text: d.name, title: d.name }),
+        el('div', { class: 'tm', style: 'font-size:var(--fs-sm);color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap;margin-top:3px', html:
+          `<span class="tag sw" style="--sw:${stageColor(d.stageId)}">${esc(stage(d.stageId).label)}</span>
+           <span class="mono">${d.amount ? CFG.currency + ' ' + money(d.amount) : 'no value'}</span>
+           <span class="mono" style="color:var(--critical-ink);font-weight:650">${late}d overdue</span>
+           <span>${esc(ownerName(d.ownerId))}</span>` })
+      ]));
+      const acts = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center' });
+      const dt = el('input', { class: 'inp mono', type: 'date', value: d.closeDate || '',
+        style: 'width:auto;padding:5px 8px', 'aria-label': 'New close date for ' + d.name,
+        onchange: e => {
+          if (!e.target.value) return;
+          const was = d.closeDate; d.closeDate = e.target.value; upsert('deals', d);
+          logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+            html: `Close date moved from ${esc(fdate(was))} to <b>${esc(fdate(d.closeDate))}</b>` });
+          paint(); renderNav();
+        } });
+      acts.appendChild(dt);
+      [['+30d', 30], ['+90d', 90]].forEach(([l, n2]) =>
+        acts.appendChild(el('button', { class: 'btn sm', text: l, onclick: () => {
+          const was = d.closeDate; d.closeDate = addDays(TODAY(), n2); upsert('deals', d);
+          logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+            html: `Close date moved from ${esc(fdate(was))} to <b>${esc(fdate(d.closeDate))}</b>` });
+          paint();
+        } })));
+      acts.appendChild(el('button', { class: 'btn sm', text: 'Won',
+        onclick: () => { closeAll(); askWin(d, (DB.stages.find(x => x.kind === 'won') || {}).id); } }));
+      acts.appendChild(el('button', { class: 'btn sm', style: 'color:var(--critical-ink)', text: 'Lost',
+        onclick: () => { closeAll(); askLoss(d, (DB.stages.find(x => x.kind === 'lost') || {}).id); } }));
+      acts.appendChild(el('button', { class: 'btn sm ghost', html: ico('edit',13), 'aria-label': 'Open ' + d.name,
+        onclick: () => { closeAll(); openDeal(d.id); } }));
+      row.appendChild(acts);
+      body.appendChild(row);
+    });
+    if (od.length > 60) body.appendChild(el('p', { class: 'sub', style: 'margin-top:var(--sp-3)',
+      text: `Showing the 60 most overdue of ${od.length}. Clear these and reopen for the rest.` }));
+  };
+  paint();
+  modal('Deals past their close date', body, [
+    el('button', { class: 'btn', text: 'Done', onclick: () => { closeAll(); render(); } })
+  ], true);
+}
+
+/* Minimised stages are a per-person view preference, so they live in this
+   browser rather than the shared config — two reps watching different stages
+   should not fight over one setting. */
+const MINKEY = CFG.cacheKey + '.minStages';
+function minStages() {
+  try { return JSON.parse(localStorage.getItem(MINKEY) || '[]'); } catch (e) { return []; }
+}
+function toggleStageMin(id) {
+  const cur = minStages();
+  const next = cur.includes(id) ? cur.filter(x => x !== id) : cur.concat([id]);
+  try { localStorage.setItem(MINKEY, JSON.stringify(next)); } catch (e) {}
+  render();
+}
+function expandAllStages() {
+  try { localStorage.removeItem(MINKEY); } catch (e) {}
+  render();
+}
+
 /* The board's own scope: rep + period, and which date the period applies to.
    Close date answers "what lands this quarter"; created date answers "what did
    we actually generate this quarter" — different questions, same board. */
@@ -1923,12 +2199,7 @@ function viewPipeline(root) {
   const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
   const rep = el('select', { class: 'inp', style: 'width:auto;min-width:148px', 'aria-label': 'Sales rep',
     onchange: e => { VIEW.rep = e.target.value; VIEW.page = {}; render(); } });
-  rep.innerHTML = '<option value="all">All sales reps</option>' +
-    activeOwners().map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('') +
-    (DB.owners.some(o => !o.active)
-      ? '<optgroup label="Inactive">' + DB.owners.filter(o => !o.active)
-          .map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('') + '</optgroup>'
-      : '');
+  rep.innerHTML = repOptions('All sales reps');
   bar.appendChild(rep);
   bar.appendChild(periodSeg('pipePeriod'));
   const basis = el('div', { class: 'seg' });
@@ -1939,6 +2210,10 @@ function viewPipeline(root) {
   if (VIEW.rep !== 'all' || VIEW.pipePeriod !== 'all')
     bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Reset filters',
       onclick: () => { VIEW.rep = 'all'; VIEW.pipePeriod = 'all'; VIEW.dateBasis = 'close'; render(); } }));
+  const mins = minStages().filter(id => st.some(s => s.id === id));
+  if (mins.length) bar.appendChild(el('button', { class: 'btn sm',
+    html: ico('board',13) + ` Expand ${mins.length} stage${mins.length > 1 ? 's' : ''}`,
+    onclick: expandAllStages }));
   bar.appendChild(el('div', { style: 'flex:1' }));
   bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
     text: VIEW.pipePeriod === 'all' ? 'Every open deal' : `Open deals with a ${basisLabel} in ${periodBounds(VIEW.pipePeriod).label}` }));
@@ -1960,6 +2235,9 @@ function viewPipeline(root) {
     foot: noVal ? 'these sit at zero in the forecast' : 'every deal is valued' }));
   root.appendChild(tl);
 
+  const ob2 = overdueBanner();
+  if (ob2) root.appendChild(ob2);
+
   if (scope.hidden) root.appendChild(el('div', { class: 'card',
     style: 'margin-bottom:var(--sp-3);border-color:var(--warning);display:flex;gap:var(--sp-3);align-items:center' }, [
     el('span', { html: ico('warn',15), style: 'color:var(--warning)' }),
@@ -1973,15 +2251,29 @@ function viewPipeline(root) {
     const ds = deals.filter(d => d.stageId === s.id)
       .sort((a, b2) => (b2.amount || 0) - (a.amount || 0));
     const total = sum(ds, d => d.amount), fc = sum(ds, weighted);
-    const col = el('div', { class: 'kcol', style: `--stage:${stageColor(s.id)}` });
+    const isMin = minStages().includes(s.id);
+    const col = el('div', { class: 'kcol' + (isMin ? ' min' : ''), style: `--stage:${stageColor(s.id)}` });
     col.dataset.stage = s.id;
+    const kt = el('div', { class: 'kt' }, [
+      el('span', { class: 'bar' }),
+      el('span', { class: 'lbl', text: s.label, title: s.label }),
+      el('span', { class: 'n', text: ds.length }),
+      el('span', { class: 'kmv', text: CFG.currency + ' ' + money(total, { compact: true, dash: false }) }),
+      el('button', { class: 'kmin', title: 'Minimise this stage', 'aria-label': 'Minimise ' + s.label,
+        html: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 5l-6 7 6 7"/></svg>`,
+        onclick: e => { e.stopPropagation(); toggleStageMin(s.id); } })
+    ]);
     col.appendChild(el('header', {}, [
-      el('div', { class: 'kt', html: `<span class="bar"></span><span>${esc(s.label)}</span><span class="n">${ds.length}</span>` }),
+      kt,
       el('div', { class: 'ktot' }, [
         el('div', { class: 'r', html: `<em>Pipeline</em><b>${CFG.currency} ${money(total, { dash: false })}</b>` }),
         el('div', { class: 'r', html: `<em>Forecast · ${Math.round(s.probability*100)}%</em><b class="fc">${CFG.currency} ${money(fc, { dash: false })}</b>` })
       ])
     ]));
+    if (isMin) {
+      col.title = `${s.label} — ${ds.length} deals · ${CFG.currency} ${money(total, { dash: false })}. Click to expand.`;
+      col.addEventListener('click', () => toggleStageMin(s.id));
+    }
     const list = el('div', { class: 'klist' });
     if (!ds.length) list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 4px', text: 'Drop a deal here' }));
     ds.slice(0, 120).forEach(d => list.appendChild(kcard(d, s)));
@@ -2262,8 +2554,11 @@ function viewCompanies(root) {
     key: 'companies', noun: 'companies', rows, defaultSort: 4, defaultDir: -1,
     cols: [
       { h: 'Company', v: c => c.name, r: c =>
-          `<div class="cellmain">${esc(c.name || 'Unnamed')}</div>` +
-          (c.domain ? `<div class="cellsub">${esc(c.domain)}</div>` : '') },
+          `<div style="display:flex;align-items:center;gap:9px;min-width:0">${logoHTML(c, 26)}
+             <div style="min-width:0">
+               <div class="cellmain" style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name || 'Unnamed')}</div>
+               ${c.domain ? `<div class="cellsub">${esc(c.domain)}</div>` : ''}
+             </div></div>` },
       { h: 'Industry', v: c => c.industry || '', r: c => c.industry
           ? `<span class="tag">${esc(c.industry)}</span>` : '<span class="cellsub">—</span>' },
       { h: 'Location', v: c => [c.city, c.country].filter(Boolean).join(', '),
@@ -2678,7 +2973,7 @@ function dealCompanyCard(d) {
     el('button', { class: 'btn sm', text: 'Open account →', onclick: () => openCompany(co.id) })
   ]));
   c.appendChild(el('div', { style: 'display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)' }, [
-    el('span', { class: 'avatar lg', style: `background:${personColor(co.id)}`, text: initials(co.name) }),
+    logoEl(co, 40),
     el('div', { style: 'min-width:0' }, [
       el('div', { style: 'font-weight:650;font-size:var(--fs-lg)', text: co.name || 'Unnamed' }),
       el('div', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
@@ -2946,11 +3241,16 @@ function openCompany(id) {
   const ds = live('deals').filter(d => d.companyId === c.id);
   const ps = live('contacts').filter(p => p.companyId === c.id);
   const head = drawerHead(c.name || 'Unnamed company', [
-    c.industry ? `<span class="tag">${esc(c.industry)}</span>` : null,
-    c.domain ? `<a href="https://${esc(c.domain.replace(/^https?:\/\//,''))}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${esc(c.domain)}</a>` : null,
-    [c.city, c.country].filter(Boolean).length ? `<span>${esc([c.city, c.country].filter(Boolean).join(', '))}</span>` : null,
-    `<span>${ico('user',12)} ${esc(ownerName(c.ownerId))}</span>`
+    c.industry ? el('span', { html: `<span class="tag">${esc(c.industry)}</span>` }) : null,
+    c.domain ? mfact('Domain', cleanDomain(c.domain) || c.domain,
+      { onclick: () => window.open('https://' + (cleanDomain(c.domain) || c.domain), '_blank', 'noopener') }) : null,
+    [c.city, c.country].filter(Boolean).length
+      ? mfact('Location', [c.city, c.country].filter(Boolean).join(', ')) : null,
+    mfact('Account owner', ownerName(c.ownerId)),
+    mfact('Open pipeline', CFG.currency + ' ' + money(sum(ds.filter(isOpen), d => d.amount), { dash: false }), { num: true })
   ], [ el('button', { class: 'btn', html: ico('edit',14) + ' Edit', onclick: () => editCompany(c) }) ]);
+  head.insertBefore(logoEl(c, 44), head.firstChild);
+  head.style.alignItems = 'center';
 
   const [bar, body] = tabbed([
     { label: 'Overview', render: () => {
@@ -2961,16 +3261,7 @@ function openCompany(id) {
         t.appendChild(tile('Lost', money(sum(ds.filter(isLost), d => d.amount)), { cur: true, foot: ds.filter(isLost).length + ' deals lost' }));
         t.appendChild(tile('People', ps.length, { foot: 'contacts on file' }));
         w.appendChild(t);
-        w.appendChild(el('div', { class: 'card' }, [ el('h3', { text: 'Company profile' }), dl([
-          ['Domain', c.domain ? esc(c.domain) : '—'], ['Phone', c.phone ? `<span class="mono">${esc(c.phone)}</span>` : '—'],
-          ['Industry', esc(c.industry || '—')], ['Employees', esc(c.employees || '—')],
-          ['City', esc(c.city || '—')], ['Country', esc(c.country || '—')],
-          ['Lifecycle', c.lifecycleStage ? `<span class="tag info">${esc(c.lifecycleStage)}</span>` : '—'],
-          ['Account type', esc(c.accountType || '—')],
-          ['Segment', esc(c.segment || '—')],
-          ['Created', c.createdAt ? esc(fdate(c.createdAt, 'long')) : '—'],
-          ['HubSpot id', c.hubspotId ? `<span class="mono" style="color:var(--ink-3)">${esc(c.hubspotId)}</span>` : null]
-        ])]));
+        w.appendChild(companyProfileCard(c));
         return w;
       } },
     { label: 'Deals', count: ds.length, render: () => {
@@ -3012,6 +3303,95 @@ function openCompany(id) {
       } }
   ]);
   drawer([head, bar, body]);
+}
+
+/* ---- Company profile: edited in place, with domain-derived fill ---- */
+function companyProfileCard(c) {
+  const card2 = el('div', { class: 'card' });
+  const save = (field, value, label) => {
+    const before = c[field] == null ? '' : String(c[field]);
+    const after = value == null ? '' : String(value);
+    if (before === after) return;
+    c[field] = value; upsert('companies', c);
+    toast(label + ' saved', 'ok');
+  };
+  card2.appendChild(el('div', { class: 'card-head' }, [
+    el('h3', { text: 'Company profile' }), el('div', { class: 'sp' }),
+    el('button', { class: 'btn sm', html: ico('bolt',13) + ' Fill from domain',
+      onclick: () => enrichCompany(c, { loud: true }) }),
+    el('span', { style: 'font-size:var(--fs-xs);color:var(--ink-3)', text: 'changes save as you edit' })
+  ]));
+  const grid = el('div', { class: 'efields' });
+  const dom = el('input', { class: 'inp', value: c.domain || '', placeholder: 'example.ae',
+    onchange: e => {
+      const d = cleanDomain(e.target.value);
+      if (e.target.value.trim() && !d) { toast('That does not look like a domain', 'err'); e.target.value = c.domain || ''; return; }
+      save('domain', d, 'Domain');
+      openCompany(c.id);
+    } });
+  grid.appendChild(efield('Domain', dom, null, 'Drives the logo, and fills the name and country when they are blank.'));
+  grid.appendChild(efield('Company name', el('input', { class: 'inp', value: c.name || '',
+    onchange: e => { const v = e.target.value.trim(); if (!v) { e.target.value = c.name || ''; return toast('A company needs a name', 'err'); }
+      save('name', v, 'Company name'); openCompany(c.id); } })));
+  grid.appendChild(efield('Account owner', ownerSelect(c.ownerId, {
+    onchange: e => { save('ownerId', e.target.value || null, 'Account owner'); openCompany(c.id); } }),
+    null, 'Same picker as the deal owner — active team only.'));
+  grid.appendChild(efield('Phone', el('input', { class: 'inp', value: c.phone || '',
+    onchange: e => save('phone', e.target.value.trim() || null, 'Phone') })));
+  grid.appendChild(efield('Industry', el('input', { class: 'inp', value: c.industry || '', list: 'ind-list-d',
+    onchange: e => save('industry', e.target.value.trim() || null, 'Industry') })));
+  grid.appendChild(efield('Employees', el('input', { class: 'inp', type: 'number', value: c.employees || '',
+    onchange: e => save('employees', e.target.value === '' ? null : Number(e.target.value), 'Employees') })));
+  grid.appendChild(efield('City', el('input', { class: 'inp', value: c.city || '',
+    onchange: e => save('city', e.target.value.trim() || null, 'City') })));
+  grid.appendChild(efield('Country', el('input', { class: 'inp', value: c.country || '', list: 'ctry-list',
+    onchange: e => save('country', e.target.value.trim() || null, 'Country') })));
+  grid.appendChild(efield('Segment', el('input', { class: 'inp', value: c.segment || '',
+    placeholder: 'Commercial gym · Clinical · Hospitality · Residential',
+    onchange: e => save('segment', e.target.value.trim() || null, 'Segment') })));
+  card2.appendChild(grid);
+
+  const dlist = el('datalist', { id: 'ind-list-d' });
+  Array.from(new Set(live('companies').map(x => x.industry).filter(Boolean))).sort()
+    .forEach(i => dlist.appendChild(el('option', { value: i })));
+  card2.appendChild(dlist);
+  const clist = el('datalist', { id: 'ctry-list' });
+  Array.from(new Set(Object.values(CCTLD).concat(live('companies').map(x => x.country).filter(Boolean))))
+    .sort().forEach(i => clist.appendChild(el('option', { value: i })));
+  card2.appendChild(clist);
+
+  const ro = dl([
+    ['Lifecycle', c.lifecycleStage ? `<span class="tag info">${esc(c.lifecycleStage)}</span>` : '—'],
+    ['Account type', esc(c.accountType || '—')],
+    ['Created', c.createdAt ? esc(fdate(c.createdAt, 'long')) : '—'],
+    ['HubSpot id', c.hubspotId ? `<span class="mono" style="color:var(--ink-3)">${esc(c.hubspotId)}</span>` : null]
+  ]);
+  ro.style.cssText = 'margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--line-soft)';
+  card2.appendChild(ro);
+  return card2;
+}
+/* Fills only what is blank. A domain gives a readable name and, through the
+   country-code TLD, a country. It cannot give a city — that needs a paid
+   data provider — so the city is left alone rather than guessed. */
+function enrichCompany(c, o) {
+  o = o || {};
+  const d = cleanDomain(c.domain);
+  if (!d) { if (o.loud) toast('Add a domain first', 'err'); return 0; }
+  const filled = [];
+  const nm = domainToName(d);
+  if (nm && (!c.name || !c.name.trim())) { c.name = nm; filled.push('name'); }
+  const ctry = domainCountry(d);
+  if (ctry && !c.country) { c.country = ctry; filled.push('country'); }
+  if (c.domain !== d) { c.domain = d; }
+  if (filled.length) {
+    upsert('companies', c);
+    if (o.loud) { toast('Filled ' + filled.join(' and ') + ' from the domain', 'ok'); openCompany(c.id); }
+  } else if (o.loud) {
+    const why = !nm && !ctry ? 'nothing could be derived from that domain'
+      : 'name and country are already set';
+    toast('Nothing to fill — ' + why);
+  }
+  return filled.length;
 }
 
 /* ========================================================= CONTACT */
@@ -3242,6 +3622,13 @@ function editCompany(c) {
     segment: el('input', { class: 'inp', value: c.segment || '', placeholder: 'Commercial gym · Clinical · Hospitality · Residential' }),
     ownerId: ownerSelect(c.ownerId)
   };
+  f.domain.addEventListener('change', () => {
+    const d = cleanDomain(f.domain.value);
+    if (!d) return;
+    f.domain.value = d;
+    if (!f.name.value.trim()) { const n = domainToName(d); if (n) f.name.value = n; }
+    if (!f.country.value.trim()) { const k = domainCountry(d); if (k) f.country.value = k; }
+  });
   const dlist = el('datalist', { id: 'ind-list' });
   Array.from(new Set(live('companies').map(x => x.industry).filter(Boolean))).sort()
     .forEach(i => dlist.appendChild(el('option', { value: i })));
@@ -3536,6 +3923,10 @@ function repReviewCard(o, wk, rng) {
     el('div', {}, [ el('div', { class: 'nm', text: o.name }),
       el('div', { class: 'rl', text: `${openD.length} open · ${CFG.currency} ${money(sum(openD, d => d.amount), {compact:true})} pipeline` }) ]),
     el('div', { style: 'flex:1' }),
+    overdueDeals(o.id).length ? el('button', { class: 'tag bad', style: 'border:0;cursor:pointer',
+      title: 'Open deals past their close date — click to fix',
+      text: overdueDeals(o.id).length + ' overdue dates',
+      onclick: () => { VIEW.rep = o.id; renderTopControls(); overdueQueue(); } }) : null,
     tasksLate.length ? el('span', { class: 'tag bad', text: tasksLate.length + ' late tasks' }) : null
   ]));
   const bd = el('div', { class: 'b' });
@@ -3899,6 +4290,39 @@ function viewSettings(root) {
   if (legacy.length) c3b.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
     html: `Still on records from the HubSpot import: ${legacy.map(t => `<b>${esc(t)}</b>`).join(', ')}. They stay selectable until those deals are retagged.` }));
   g.appendChild(c3b.node);
+
+  /* ---- company data from domains ---- */
+  const c3c = card('Company data from domains', 'What a domain can fill in, and what it cannot');
+  const withDom = live('companies').filter(x => cleanDomain(x.domain));
+  const noName = withDom.filter(x => !x.name || !x.name.trim());
+  const noCtry = withDom.filter(x => !x.country && domainCountry(x.domain));
+  const noDom = live('companies').length - withDom.length;
+  c3c.body.appendChild(dl([
+    ['Companies with a domain', `${withDom.length} of ${live('companies').length}`],
+    ['Missing a name', String(noName.length)],
+    ['Country derivable from the TLD', String(noCtry.length)],
+    ['No domain on file', String(noDom)]
+  ]));
+  c3c.body.appendChild(el('button', { class: 'btn primary', style: 'margin-top:var(--sp-3)',
+    html: ico('bolt',14) + ` Fill ${noName.length + noCtry.length} blank fields`,
+    disabled: (noName.length + noCtry.length) ? null : true,
+    onclick: () => confirmDo('Fill blanks from domains',
+      `Sets a name on ${noName.length} companies and a country on ${noCtry.length}, derived from their domains. Existing values are never overwritten.`,
+      'Fill blanks', () => {
+        let n = 0;
+        withDom.forEach(x => { n += enrichCompany(x) ? 1 : 0; });
+        render(); toast(`Updated ${n} companies`, 'ok');
+      }) }));
+  const logoRow = el('div', { class: 'wtoggle', style: 'margin-top:var(--sp-4);cursor:default' });
+  logoRow.appendChild(el('span', { class: 'nm', text: 'Show company logos' }));
+  logoRow.appendChild(el('button', { class: 'tgl' + (logosOn() ? ' on' : ''), 'aria-label': 'Toggle company logos',
+    onclick: () => { DB.config.logos = !logosOn(); DB.config._v = now(); touch('config'); render(); } }));
+  c3c.body.appendChild(logoRow);
+  c3c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.55',
+    text: 'Logos are fetched from public logo and favicon services by domain, falling back to initials when none has one. That means each rep\'s browser sends your customer domains to those services — switch this off if you would rather it did not.' }));
+  c3c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    text: 'A domain gives a readable name and, through a country-code TLD like .ae or .sa, a country. It cannot give a city or a headcount — those need a paid data provider, so nothing here guesses them.' }));
+  g.appendChild(c3c.node);
 
   /* ---- data health ---- */
   const c4 = card('Data health', 'What to clean up so the analytics can be trusted');
@@ -4333,6 +4757,13 @@ document.addEventListener('click', e => {
   const a = e.target.closest('nav.side a');
   if (a) { e.preventDefault(); go(a.getAttribute('href').replace('#','')); }
 });
+
+/* version stamp: gate card, console, and the tab title */
+(function stampVersion() {
+  const g = $('#gate-ver');
+  if (g) g.textContent = `CoreV CRM v${CFG.version} · ${fdate(CFG.released, 'long')}`;
+  console.log(`%cCoreV CRM v${CFG.version}`, 'font-weight:700', '· released ' + CFG.released);
+})();
 
 /* restore theme before anything paints */
 try {
