@@ -424,6 +424,58 @@ a.mfact:hover b{text-decoration:underline}
 .efield select.inp,.efield input.inp{width:100%}
 .efield select.inp:focus,.efield input.inp:focus{border-color:var(--accent)}
 
+/* multi-select chips */
+.multi{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.multi .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 6px 3px 3px;border-radius:99px;
+  background:var(--surface-3);border:1px solid var(--line);font-size:var(--fs-sm);font-weight:550}
+.multi .chip button{background:none;border:0;color:var(--ink-3);cursor:pointer;padding:0 2px;line-height:0}
+.multi .chip button:hover{color:var(--critical-ink)}
+
+/* line items */
+.li{display:grid;grid-template-columns:1fr 70px 108px 74px 104px 30px;gap:8px;align-items:center;
+  padding:8px var(--sp-2);border-bottom:1px solid var(--line-soft)}
+.li:last-of-type{border-bottom:0}
+.li .nm b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .nm span{font-size:var(--fs-xs);color:var(--ink-3)}
+.li input{width:100%;padding:5px 7px;text-align:right;border-radius:var(--r-sm);
+  border:1px solid var(--line);background:var(--surface-2);color:var(--ink-1);font-variant-numeric:tabular-nums}
+.li .tot{text-align:right;font-weight:650;font-variant-numeric:tabular-nums}
+.li-head{display:grid;grid-template-columns:1fr 70px 108px 74px 104px 30px;gap:8px;
+  padding:0 var(--sp-2) 6px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink-3);font-weight:700}
+.li-head span:not(:first-child){text-align:right}
+@media (max-width:700px){
+  .li,.li-head{grid-template-columns:1fr 56px 92px 60px 88px 28px;gap:5px;font-size:var(--fs-sm)}
+}
+.est{display:grid;gap:var(--sp-2);grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:var(--sp-3)}
+.est .b{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px}
+.est .b em{font-style:normal;display:block;font-size:var(--fs-xs);text-transform:uppercase;
+  letter-spacing:.06em;color:var(--ink-3);font-weight:700;margin-bottom:4px}
+.est .b b{font-size:var(--fs-lg);font-variant-numeric:tabular-nums}
+.est .b.total{background:var(--accent-soft);border-color:var(--accent)}
+.est .b.total b{color:var(--accent)}
+
+/* contact staging board */
+.cboard{display:flex;gap:var(--sp-3);overflow-x:auto;padding-bottom:var(--sp-4);align-items:flex-start}
+.ccol{flex:0 0 268px;min-width:0;background:var(--surface-1);border:1px solid var(--line);
+  border-radius:var(--r-lg);display:flex;flex-direction:column;max-height:calc(100vh - 330px)}
+.ccol.drop{border-color:var(--accent);background:var(--accent-soft)}
+.ccol>header{padding:var(--sp-3);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:1;
+  background:var(--surface-1);border-radius:var(--r-lg) var(--r-lg) 0 0}
+.ccol .ct{display:flex;align-items:center;gap:6px;font-weight:650;font-size:var(--fs-md)}
+.ccol .ct .bar{width:4px;height:15px;border-radius:2px;background:var(--st,var(--s1));flex:none}
+.ccol .ct .n{margin-left:auto;font-size:var(--fs-xs);color:var(--ink-3);font-weight:700;
+  background:var(--surface-3);padding:1px 7px;border-radius:99px;font-variant-numeric:tabular-nums}
+.ccol .ch{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;line-height:1.4}
+.clist{padding:var(--sp-2);overflow-y:auto;display:flex;flex-direction:column;gap:var(--sp-2);flex:1;min-height:70px;min-width:0}
+.ccard{background:var(--surface-2);border:1px solid var(--line);border-left:3px solid var(--st,var(--s1));
+  border-radius:var(--r-md);padding:9px 10px;cursor:grab;min-width:0}
+.ccard:hover{box-shadow:var(--shadow-2)}
+.ccard.drag{opacity:.4}
+.ccard .n{font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ccard .m{display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--ink-3);margin-top:4px;min-width:0}
+.ccard .m span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 /* attachments */
 .att{display:flex;align-items:center;gap:var(--sp-3);padding:10px var(--sp-3);border:1px solid var(--line);
   border-radius:var(--r-md);background:var(--surface-1);margin-bottom:var(--sp-2)}
@@ -598,7 +650,7 @@ a.mfact:hover b{text-decoration:underline}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -611,7 +663,7 @@ const CFG = {
   // folder with the sales team (edit rights) so everyone reads/writes the same
   // files; each rep's client merges by record with tombstones.
   root     : 'CoreVCRM',
-  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','config'],
+  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','config'],
   attachDir: 'attachments',
   cacheKey : 'corevcrm.v1',
   autoSyncMs: 120000,
@@ -914,7 +966,7 @@ document.addEventListener('keydown', e => {
    ================================================================ */
 const DB = {
   companies: [], contacts: [], deals: [], tasks: [],
-  commitments: [], reviews: [], activities: [], attachments: [],
+  commitments: [], reviews: [], activities: [], attachments: [], products: [],
   owners: [], stages: [], lossReasons: [],
   config: { widgets: null, targets: {}, theme: 'dark' },
   meta: { exportedAt: null, homeCurrency: CFG.currency }
@@ -1032,7 +1084,7 @@ function saveLocal() {
       db: {
         companies: DB.companies, contacts: DB.contacts, deals: DB.deals, tasks: DB.tasks,
         commitments: DB.commitments, reviews: DB.reviews, activities: DB.activities,
-        attachments: DB.attachments,
+        attachments: DB.attachments, products: DB.products,
         owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons,
         config: DB.config, meta: DB.meta
       }
@@ -1170,7 +1222,7 @@ function mergeRecords(mine, theirs) {
   });
   return Array.from(out.values());
 }
-const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments'];
+const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products'];
 
 async function syncNow(opt) {
   const o = opt || {};
@@ -1233,6 +1285,114 @@ function renderSyncBadge() {
     : SYNC.last ? 'Synced ' + new Date(SYNC.last).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : 'OneDrive ready';
   n.innerHTML = `<span class="dot ${cls}"></span><span>${esc(txt)}</span>`;
+}
+
+/* ================================================================
+   DOMAIN RULES — collaborators, lead status, estimates
+   ================================================================ */
+
+/* ---- who works a deal ----
+   The owner carries the number. A collaborator gets to see and work the deal,
+   so it appears under their filter, but revenue is never counted twice: every
+   per-rep total below uses ownedBy, never worksOn. */
+const collabsOf = d => Array.isArray(d.collaboratorIds) ? d.collaboratorIds
+  : (d.collaboratorId ? [d.collaboratorId] : []);
+const ownedBy = (d, rep) => rep === 'all' || String(d.ownerId) === String(rep);
+const worksOn = (d, rep) => rep === 'all' || String(d.ownerId) === String(rep) ||
+  collabsOf(d).some(id => String(id) === String(rep));
+const isCollabOnly = (d, rep) => rep !== 'all' && String(d.ownerId) !== String(rep) &&
+  collabsOf(d).some(id => String(id) === String(rep));
+
+/* ---- lead status: four stages a contact moves through ---- */
+const LEAD_STAGES = [
+  { id: 'unqualified', label: 'Unqualified', hint: 'Not yet worked, or ruled out' },
+  { id: 'qualified',   label: 'Qualified',   hint: 'Real fit confirmed' },
+  { id: 'followup',    label: 'Follow-up',   hint: 'Waiting on them, needs a next touch' },
+  { id: 'progressing', label: 'Progressing', hint: 'Actively moving toward a deal' }
+];
+const leadStages = () => (DB.config && DB.config.leadStages && DB.config.leadStages.length)
+  ? DB.config.leadStages : LEAD_STAGES;
+const leadStage = id => leadStages().find(s => s.id === id) || null;
+const leadLabel = id => (leadStage(id) || {}).label || null;
+const leadColor = id => {
+  const i = leadStages().findIndex(s => s.id === id);
+  const ramp = ['--seq-6','--seq-4','--seq-3','--seq-2'];
+  return i < 0 ? 'var(--ink-3)' : `var(${ramp[Math.min(i, ramp.length - 1)]})`;
+};
+/* HubSpot's lead statuses, folded into the four. Anything unrecognised is left
+   alone rather than guessed at, and surfaced in Settings for a human to sort. */
+const LEAD_MAP = {
+  attempted_to_contact: 'followup',
+  in_progress: 'progressing',
+  open_deal: 'progressing',
+  connected: 'qualified',
+  open: 'unqualified',
+  new: 'unqualified',
+  unqualified: 'unqualified',
+  bad_timing: 'unqualified'
+};
+function mapLeadStatus(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (leadStages().some(x => x.id === s)) return s;                  // already migrated
+  const inBrackets = (s.match(/\(([^)]+)\)\s*$/) || [])[1] || s;     // "Open (OPEN)" -> "OPEN"
+  const key = inBrackets.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
+  return LEAD_MAP[key] || null;
+}
+/* One-shot, on load: rewrite what maps, leave the rest for a human. */
+function migrateLeadStatus() {
+  let changed = 0, unmapped = 0;
+  DB.contacts.forEach(c => {
+    if (c._del || !c.leadStatus) return;
+    if (leadStages().some(x => x.id === c.leadStatus)) return;
+    const m = mapLeadStatus(c.leadStatus);
+    if (m) { c.leadStatusRaw = c.leadStatus; c.leadStatus = m; c._v = now(); changed++; }
+    else unmapped++;
+  });
+  if (changed) { SYNC.dirty.add('contacts'); saveLocal(); }
+  return { changed, unmapped };
+}
+const unmappedLeads = () => live('contacts')
+  .filter(c => c.leadStatus && !leadStages().some(x => x.id === c.leadStatus));
+
+/* ---- products & line-item estimates ---- */
+const BILLING = [
+  { id: 'once',    label: 'One-time' },
+  { id: 'monthly', label: 'Per month' },
+  { id: 'annual',  label: 'Per year' }
+];
+const billingLabel = id => (BILLING.find(b => b.id === id) || BILLING[0]).label;
+const activeProducts = () => live('products').filter(p => p.active !== false)
+  .sort((a, b) => (a.category || '').localeCompare(b.category || '') || (a.name || '').localeCompare(b.name || ''));
+const lineNet = it => Math.max(0, (Number(it.qty) || 0) * (Number(it.unitPrice) || 0) *
+  (1 - (Number(it.discountPct) || 0) / 100));
+/* One-time value, recurring monthly value, and the contract total that the
+   deal amount follows when it is on auto. */
+function estimate(d) {
+  const items = d.items || [];
+  const months = Number(d.contractMonths) > 0 ? Number(d.contractMonths) : 12;
+  let once = 0, monthly = 0, annual = 0;
+  items.forEach(it => {
+    const n = lineNet(it);
+    if (it.billing === 'monthly') monthly += n;
+    else if (it.billing === 'annual') annual += n;
+    else once += n;
+  });
+  const mrr = monthly + annual / 12;
+  return { items: items.length, once, monthly, annual, mrr, months,
+           recurringOverTerm: mrr * months, total: once + mrr * months };
+}
+const amountAuto = d => (d.amountMode || (d.items && d.items.length ? 'auto' : 'manual')) === 'auto';
+/* Keep the deal value in step with its estimate whenever it is on auto. */
+function syncDealAmount(d, o) {
+  if (!amountAuto(d)) return false;
+  const e = estimate(d);
+  const next = Math.round(e.total);
+  if (!e.items) return false;
+  if (Number(d.amount) === next) return false;
+  d.amount = next;
+  if (!o || o.save !== false) upsert('deals', d);
+  return true;
 }
 
 /* ---------------------------------------------- attachments (OneDrive) */
@@ -1310,7 +1470,7 @@ function exportAll() {
     owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons, config: DB.config,
     companies: live('companies'), contacts: live('contacts'), deals: live('deals'),
     tasks: live('tasks'), commitments: live('commitments'), reviews: live('reviews'),
-    activities: live('activities'), attachments: live('attachments')
+    activities: live('activities'), attachments: live('attachments'), products: live('products')
   };
 }
 function download(name, text, mime) {
@@ -1697,6 +1857,8 @@ const VIEW = {
   period: 'fy',
   pipePeriod: 'all',           // the board has its own period — opt in, so nothing vanishes on open
   dateBasis: 'close',          // pipeline period applies to close date or created date
+  contactPeriod: 'all',        // contacts filter on created date
+  contactView: 'list',
   stageFilter: null,
   sort: {}, page: {}, tableFilter: {},
   week: weekKey()
@@ -1771,10 +1933,14 @@ function periodBounds(which) {
   return { from: '1900-01-01', to: '2999-12-31', label: 'All time' };
 }
 const inPeriod = (d, b) => d && dnum(d) >= dnum(b.from) && dnum(d) <= dnum(b.to);
+/* Visibility follows worksOn, so a collaborator sees the deal under their own
+   filter. Revenue attribution below always uses ownedBy, so nothing is counted
+   twice when a deal has two names on it. */
 function scopedDeals() {
   const all = live('deals');
-  return VIEW.rep === 'all' ? all : all.filter(d => String(d.ownerId) === VIEW.rep);
+  return VIEW.rep === 'all' ? all : all.filter(d => worksOn(d, VIEW.rep));
 }
+const ownedDeals = rep => live('deals').filter(d => ownedBy(d, rep));
 const openTasks = () => live('tasks').filter(t => t.status !== 'done' &&
   (VIEW.rep === 'all' || String(t.ownerId) === VIEW.rep));
 const weighted = d => (d.amount || 0) * stage(d.stageId).probability;
@@ -1902,7 +2068,7 @@ function viewDashboard(root) {
     reps: () => {
       const c = card('Rep leaderboard', `Closed won in ${b.label}, against target`);
       const rows = activeOwners().map(o => {
-        const w = live('deals').filter(d => String(d.ownerId) === o.id && isWon(d) && inPeriod(d.closeDate, b));
+        const w = ownedDeals(o.id).filter(d => isWon(d) && inPeriod(d.closeDate, b));
         const t = repTarget(o.id, b);
         return { label: o.name, value: sum(w, d => d.amount),
                  note: `${w.length} deals` + (t ? ` · ${pct(sum(w, d=>d.amount), t)}% of target` : '') };
@@ -2070,12 +2236,12 @@ function customizeDash() {
    An open deal whose close date has passed is the single most corrosive thing
    in a pipeline: it is silently wrong, and it drags every forecast down with
    it. Surface it wherever the rep is, and make fixing it one click. */
-function overdueDeals(rep) {
+function overdueDeals(rep, o) {
   const t = dnum(TODAY());
   const who = rep === undefined ? VIEW.rep : rep;
+  const match = (o && o.ownedOnly) ? ownedBy : worksOn;
   return live('deals').filter(d =>
-    isOpen(d) && d.closeDate && dnum(d.closeDate) < t &&
-    (who === 'all' || String(d.ownerId) === String(who)))
+    isOpen(d) && d.closeDate && dnum(d.closeDate) < t && match(d, who))
     .sort((a, b) => dnum(a.closeDate) - dnum(b.closeDate));
 }
 function overdueBanner() {
@@ -2329,7 +2495,12 @@ function kcard(d, s) {
      </div>`;
   const foot = el('div', { class: 'm', style: 'margin-top:6px' });
   foot.appendChild(el('span', { class: 'avatar', style: `background:${ownerColor(d.ownerId)};width:20px;height:20px;font-size:9px`,
-    text: initials(ownerName(d.ownerId)), title: ownerName(d.ownerId) }));
+    text: initials(ownerName(d.ownerId)), title: 'Owner: ' + ownerName(d.ownerId) }));
+  collabsOf(d).slice(0, 2).forEach(cid => foot.appendChild(el('span', { class: 'avatar',
+    style: `background:${ownerColor(cid)};width:20px;height:20px;font-size:9px;opacity:.75;margin-left:-7px`,
+    text: initials(ownerName(cid)), title: 'Collaborator: ' + ownerName(cid) })));
+  if (isCollabOnly(d, VIEW.rep)) foot.appendChild(el('span', { class: 'tag info',
+    style: 'font-size:9px;padding:1px 6px', text: 'collab', title: 'Owned by ' + ownerName(d.ownerId) }));
   const tks = live('tasks').filter(t => t.dealId === d.id && t.status !== 'done');
   if (tks.length) {
     const od = tks.filter(t => dnum(t.dueDate) < dnum(TODAY())).length;
@@ -2527,7 +2698,7 @@ function viewCompanies(root) {
     });
   });
   if (VIEW.rep !== 'all') rows = rows.filter(c => String(c.ownerId) === VIEW.rep ||
-    (dealsByCo.get(c.id) || []).some(d => String(d.ownerId) === VIEW.rep));
+    (dealsByCo.get(c.id) || []).some(d => worksOn(d, VIEW.rep)));
   if (tf.ind) rows = rows.filter(c => (c.industry || '') === tf.ind);
   if (tf.hasOpen) rows = rows.filter(c => c._open > 0);
 
@@ -2574,30 +2745,98 @@ function viewCompanies(root) {
 }
 
 /* -------------------------------------------------------- CONTACTS */
-function viewContacts(root) {
-  const tf = VIEW.tableFilter;
+function contactScope() {
   let rows = live('contacts');
   if (VIEW.rep !== 'all') rows = rows.filter(c => String(c.ownerId) === VIEW.rep);
-  if (tf.life) rows = rows.filter(c => (c.lifecycleStage || '') === tf.life);
+  if (VIEW.contactPeriod && VIEW.contactPeriod !== 'all') {
+    const b = periodBounds(VIEW.contactPeriod);
+    rows = rows.filter(c => c.createdAt && inPeriod(c.createdAt, b));
+  }
+  return rows;
+}
+function viewContacts(root) {
+  const tf = VIEW.tableFilter;
+  const scoped = contactScope();
+  let rows = scoped;
+  if (tf.lead === '__none') rows = rows.filter(c => !c.leadStatus);
+  else if (tf.lead === '__other') rows = rows.filter(c => c.leadStatus && !leadStage(c.leadStatus));
+  else if (tf.lead) rows = rows.filter(c => c.leadStatus === tf.lead);
   if (tf.noEmail) rows = rows.filter(c => !c.email);
+  if (tf.noPhone) rows = rows.filter(c => !c.phone);
+
   root.appendChild(viewHead(null, [
+    el('div', { class: 'seg' }, [
+      el('button', { class: VIEW.contactView === 'board' ? '' : 'on', text: 'List',
+        onclick: () => { VIEW.contactView = 'list'; render(); } }),
+      el('button', { class: VIEW.contactView === 'board' ? 'on' : '', text: 'Staging board',
+        onclick: () => { VIEW.contactView = 'board'; render(); } })
+    ]),
     el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
       download('corev-contacts-' + TODAY() + '.csv', toCSV(rows, [
         { h: 'First name', f: c => c.firstName || '' }, { h: 'Last name', f: c => c.lastName || '' },
         { h: 'Email', f: c => c.email || '' }, { h: 'Phone', f: c => c.phone || '' },
         { h: 'Job title', f: c => c.jobTitle || '' }, { h: 'Company', f: c => (getCo(c.companyId) || {}).name || '' },
-        { h: 'Owner', f: c => ownerName(c.ownerId) }, { h: 'Lifecycle', f: c => c.lifecycleStage || '' },
-        { h: 'Lead status', f: c => c.leadStatus || '' }
+        { h: 'Owner', f: c => ownerName(c.ownerId) },
+        { h: 'Lead status', f: c => leadLabel(c.leadStatus) || c.leadStatus || '' },
+        { h: 'Created', f: c => c.createdAt || '' }
       ]), 'text/csv'); toast('CSV exported', 'ok'); } }),
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New contact', onclick: () => editContact(null) })
   ]));
-  const lifes = Array.from(new Set(live('contacts').map(c => c.lifecycleStage).filter(Boolean))).sort();
-  root.appendChild(filterBar([
-    selectFilter('Lifecycle', tf.life || '', [['','All lifecycle stages']].concat(lifes.map(i => [i, i])),
-      v => { tf.life = v || null; VIEW.page.contacts = 0; render(); }, 180),
-    el('button', { class: 'btn' + (tf.noEmail ? ' primary' : ''), text: 'Missing email',
-      onclick: () => { tf.noEmail = !tf.noEmail; VIEW.page.contacts = 0; render(); } })
-  ]));
+
+  /* ---- filters: rep, created-date period ---- */
+  const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rep = el('select', { class: 'inp', style: 'width:auto;min-width:148px', 'aria-label': 'Contact owner',
+    onchange: e => { VIEW.rep = e.target.value; VIEW.page = {}; render(); } });
+  rep.innerHTML = repOptions('All contact owners');
+  bar.appendChild(rep);
+  const seg = el('div', { class: 'seg' });
+  [['m','This month'],['q','Quarter'],['fy','Fiscal year'],['all','All time']].forEach(([v, l]) =>
+    seg.appendChild(el('button', { class: (VIEW.contactPeriod || 'all') === v ? 'on' : '', text: l,
+      onclick: () => { VIEW.contactPeriod = v; VIEW.page.contacts = 0; render(); } })));
+  bar.appendChild(seg);
+  bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)', text: 'by created date' }));
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  if (VIEW.rep !== 'all' || (VIEW.contactPeriod && VIEW.contactPeriod !== 'all') || tf.lead || tf.noEmail || tf.noPhone)
+    bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Reset filters', onclick: () => {
+      VIEW.rep = 'all'; VIEW.contactPeriod = 'all'; tf.lead = null; tf.noEmail = false; tf.noPhone = false;
+      VIEW.page.contacts = 0; render(); } }));
+  root.appendChild(bar);
+
+  /* ---- summary ---- */
+  const noEmail = scoped.filter(c => !c.email).length;
+  const noPhone = scoped.filter(c => !c.phone).length;
+  const noStatus = scoped.filter(c => !c.leadStatus).length;
+  const noReach = scoped.filter(c => !c.email && !c.phone).length;
+  const tl = el('div', { class: 'tiles' });
+  const t = (label, n, key, icon, foot) => tile(label, n.toLocaleString(), { icon, foot,
+    onclick: key ? () => { if (key === 'noEmail') { tf.noEmail = !tf.noEmail; tf.noPhone = false; }
+      else if (key === 'noPhone') { tf.noPhone = !tf.noPhone; tf.noEmail = false; }
+      else if (key === 'noStatus') { tf.lead = tf.lead === '__none' ? null : '__none'; }
+      VIEW.page.contacts = 0; VIEW.contactView = 'list'; render(); } : null });
+  tl.appendChild(t('Contacts', scoped.length, null, 'user',
+    VIEW.rep === 'all' ? 'in the current period' : ownerName(VIEW.rep)));
+  tl.appendChild(t('Missing email', noEmail, 'noEmail', 'mail', pct(noEmail, scoped.length) + '% of these contacts'));
+  tl.appendChild(t('Missing phone', noPhone, 'noPhone', 'phone', pct(noPhone, scoped.length) + '% of these contacts'));
+  tl.appendChild(t('No lead status', noStatus, 'noStatus', 'flag', 'not yet staged'));
+  tl.appendChild(t('No way to reach them', noReach, null, 'warn', 'no email and no phone'));
+  root.appendChild(tl);
+
+  /* ---- lead-status tabs ---- */
+  const tabs = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:var(--sp-3)' });
+  const chip = (id, label, n, color) => tabs.appendChild(el('button', {
+    class: 'btn sm' + ((tf.lead || '') === id ? ' primary' : ''),
+    onclick: () => { tf.lead = id || null; VIEW.page.contacts = 0; render(); },
+    html: (color ? `<span style="width:8px;height:8px;border-radius:2px;background:${color};display:inline-block;margin-right:5px"></span>` : '') +
+          esc(label) + ` <b style="opacity:.7;margin-left:4px">${n}</b>` }));
+  chip('', 'All', scoped.length, null);
+  leadStages().forEach(st => chip(st.id, st.label, scoped.filter(c => c.leadStatus === st.id).length, leadColor(st.id)));
+  chip('__none', 'Not staged', noStatus, 'var(--ink-3)');
+  const other = scoped.filter(c => c.leadStatus && !leadStage(c.leadStatus)).length;
+  if (other) chip('__other', 'Unmapped', other, 'var(--warning)');
+  root.appendChild(tabs);
+
+  if (VIEW.contactView === 'board') return contactBoard(root, scoped);
+
   dataTable(root, {
     key: 'contacts', noun: 'contacts', rows, defaultSort: 0, defaultDir: 1,
     cols: [
@@ -2611,16 +2850,88 @@ function viewContacts(root) {
       { h: 'Company', v: c => (getCo(c.companyId) || {}).name || '',
         r: c => { const co = getCo(c.companyId); return co ? esc(co.name) : '<span class="cellsub">—</span>'; } },
       { h: 'Email', v: c => c.email || '', r: c => c.email
-          ? `<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>` : '<span class="cellsub">—</span>' },
+          ? `<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>` : '<span class="tag warn">missing</span>' },
       { h: 'Phone', v: c => c.phone || '', r: c => c.phone
-          ? `<span class="mono">${esc(c.phone)}</span>` : '<span class="cellsub">—</span>' },
-      { h: 'Lifecycle', v: c => c.lifecycleStage || '', r: c => c.lifecycleStage
-          ? `<span class="tag info">${esc(c.lifecycleStage)}</span>` : '<span class="cellsub">—</span>' },
+          ? `<span class="mono">${esc(c.phone)}</span>` : '<span class="tag warn">missing</span>' },
+      { h: 'Lead status', v: c => { const i = leadStages().findIndex(x => x.id === c.leadStatus); return i < 0 ? 99 : i; },
+        r: c => leadStatusCell(c) },
       { h: 'Owner', v: c => ownerName(c.ownerId), r: c => ownerCell(c.ownerId) },
+      { h: 'Created', num: true, v: c => dnum(c.createdAt), r: c => c.createdAt
+          ? `<span class="mono">${fdate(c.createdAt)}</span>` : '<span class="cellsub">—</span>' },
       { h: 'Deals', num: true, v: c => (c.dealIds || []).length, r: c => (c.dealIds || []).length || '<span class="cellsub">—</span>' }
     ],
     onRow: c => openContact(c.id)
   });
+}
+const leadStatusCell = c => {
+  if (!c.leadStatus) return '<span class="tag">not staged</span>';
+  const st = leadStage(c.leadStatus);
+  if (!st) return `<span class="tag warn" title="Not one of the four stages">${esc(c.leadStatus)}</span>`;
+  return `<span class="tag sw" style="--sw:${leadColor(st.id)}">${esc(st.label)}</span>`;
+};
+
+/* ---- staging board: drag a contact through the four stages ---- */
+function contactBoard(root, scoped) {
+  const board = el('div', { class: 'cboard' });
+  const cols = leadStages().concat([{ id: '__none', label: 'Not staged', hint: 'No status set yet' }]);
+  cols.forEach(st => {
+    const list = st.id === '__none'
+      ? scoped.filter(c => !c.leadStatus)
+      : scoped.filter(c => c.leadStatus === st.id);
+    const col = el('div', { class: 'ccol', style: `--st:${st.id === '__none' ? 'var(--ink-3)' : leadColor(st.id)}` });
+    col.appendChild(el('header', {}, [
+      el('div', { class: 'ct', html: `<span class="bar"></span><span>${esc(st.label)}</span><span class="n">${list.length}</span>` }),
+      el('div', { class: 'ch', text: st.hint || '' })
+    ]));
+    const inner = el('div', { class: 'clist' });
+    if (!list.length) inner.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 4px',
+      text: 'Drop a contact here' }));
+    list.slice(0, 80).forEach(c => inner.appendChild(contactCard(c)));
+    if (list.length > 80) inner.appendChild(el('div', { style: 'text-align:center;padding:8px' }, [
+      el('button', { class: 'btn sm ghost', text: `+${list.length - 80} more — open list`,
+        onclick: () => { VIEW.tableFilter.lead = st.id; VIEW.contactView = 'list'; render(); } })
+    ]));
+    col.appendChild(inner);
+    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
+    col.addEventListener('dragleave', () => col.classList.remove('drop'));
+    col.addEventListener('drop', e => {
+      e.preventDefault(); col.classList.remove('drop');
+      const c = getCt(e.dataTransfer.getData('text/plain'));
+      if (!c) return;
+      const next = st.id === '__none' ? null : st.id;
+      if ((c.leadStatus || null) === next) return;
+      setLeadStatus(c, next);
+    });
+    board.appendChild(col);
+  });
+  root.appendChild(board);
+}
+function contactCard(c) {
+  const co = getCo(c.companyId);
+  const n = el('div', { class: 'ccard', draggable: 'true',
+    style: `--st:${c.leadStatus ? leadColor(c.leadStatus) : 'var(--ink-3)'}` });
+  n.appendChild(el('span', { class: 'n', text: c.fullName || c.email || '—', title: c.fullName || c.email || '' }));
+  const m = el('div', { class: 'm' });
+  if (co) m.appendChild(el('span', { text: co.name, title: co.name }));
+  else if (c.jobTitle) m.appendChild(el('span', { text: c.jobTitle }));
+  if (!c.email) m.appendChild(el('span', { class: 'tag warn', style: 'font-size:9px;padding:1px 5px', text: 'no email' }));
+  if (!c.phone) m.appendChild(el('span', { class: 'tag warn', style: 'font-size:9px;padding:1px 5px', text: 'no phone' }));
+  m.appendChild(el('span', { class: 'avatar', style: `background:${ownerColor(c.ownerId)};width:18px;height:18px;font-size:8px;margin-left:auto;flex:none`,
+    text: initials(ownerName(c.ownerId)), title: ownerName(c.ownerId) }));
+  n.appendChild(m);
+  n.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', c.id); n.classList.add('drag'); });
+  n.addEventListener('dragend', () => n.classList.remove('drag'));
+  n.addEventListener('click', () => openContact(c.id));
+  return n;
+}
+function setLeadStatus(c, next) {
+  const was = leadLabel(c.leadStatus) || c.leadStatus || 'not staged';
+  c.leadStatus = next;
+  upsert('contacts', c);
+  logAct({ contactId: c.id, ownerId: c.ownerId, kind: 'stage',
+    html: `<b>${esc(c.fullName || c.email || 'Contact')}</b> moved from ${esc(was)} to <b>${esc(leadLabel(next) || 'not staged')}</b>` });
+  toast(`${c.fullName || 'Contact'} → ${leadLabel(next) || 'not staged'}`, 'ok');
+  render();
 }
 
 /* ----------------------------------------------------------- TASKS */
@@ -2747,10 +3058,10 @@ function drawerHead(title, metaNodes, actions) {
   h.appendChild(el('button', { class: 'btn icon ghost', html: ico('x',17), 'aria-label': 'Close', onclick: closeAll }));
   return h;
 }
-function tabbed(tabs) {
+function tabbed(tabs, initialLabel) {
   const bar = el('div', { class: 'tabs' });
   const body = el('div', { class: 'body' });
-  let cur = 0;
+  let cur = Math.max(0, tabs.findIndex(t => t.label === initialLabel));
   function paint() {
     Array.from(bar.children).forEach((b, i) => b.className = i === cur ? 'on' : '');
     body.innerHTML = '';
@@ -2772,7 +3083,8 @@ const dl = pairs => {
 };
 
 /* ============================================================ DEAL */
-function openDeal(id) {
+const openDealTab = (d, tab) => openDeal(d.id, tab);
+function openDeal(id, tab) {
   const d = getDl(id); if (!d) return toast('Deal not found', 'err');
   const s = stage(d.stageId), co = getCo(d.companyId);
   const head = drawerHead(d.name, [
@@ -2781,6 +3093,9 @@ function openDeal(id) {
              : el('span', { html: '<span class="tag warn">no value set</span>' }),
     isOpen(d) ? mfact('Weighted', CFG.currency + ' ' + money(weighted(d)), { num: true,
       title: `Weighted: ${Math.round(s.probability * 100)}% of ${CFG.currency} ${money(d.amount)}` }) : null,
+    (d.items || []).length ? mfact('Estimate', (d.items || []).length + ' line' + ((d.items || []).length > 1 ? 's' : ''),
+      { onclick: () => openDeal(d.id, 'Products'),
+        title: amountAuto(d) ? 'Deal value follows the estimate' : 'Deal value set by hand' }) : null,
     co ? mfact('Company', co.name, { onclick: () => openCompany(co.id) }) : null,
     mfact('Owner', ownerName(d.ownerId)),
     d.closeDate ? mfact('Close', fdate(d.closeDate, 'long'), { num: true }) : null,
@@ -2791,12 +3106,13 @@ function openDeal(id) {
 
   const tabs = [
     { label: 'Overview', render: () => dealOverview(d) },
+    { label: 'Products', count: (d.items || []).length, render: () => dealProducts(d) },
     { label: 'Contact', count: (d.contactIds || []).length, render: () => dealPeople(d) },
     { label: 'Tasks', count: live('tasks').filter(t => t.dealId === d.id && t.status !== 'done').length, render: () => dealTasks(d) },
     { label: 'Attachments', count: attachmentsFor(d.id).length, render: () => dealFiles(d) },
     { label: 'Activity', render: () => dealActivity(d) }
   ];
-  const [bar, body] = tabbed(tabs);
+  const [bar, body] = tabbed(tabs, tab);
   const foot = el('div', { class: 'foot' });
   foot.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Task', onclick: () => editTask(null, { dealId: d.id, ownerId: d.ownerId }) }));
   foot.appendChild(el('button', { class: 'btn', html: ico('note',14) + ' Log note', onclick: () => logNote(d) }));
@@ -2906,10 +3222,22 @@ function dealDetailsCard(d) {
   grid.appendChild(efield('Deal owner', ownerSelect(d.ownerId, {
     onchange: e => save('ownerId', e.target.value || null, 'Deal owner') })));
 
-  grid.appendChild(efield('Deal collaborator', ownerSelect(d.collaboratorId, {
-    emptyLabel: 'None', exclude: d.ownerId,
-    onchange: e => save('collaboratorId', e.target.value || null, 'Deal collaborator') }),
-    null, 'A second rep working the deal — they see it in their own pipeline filter.'));
+  const cm = ownerMulti(collabsOf(d), d.ownerId);
+  const cmWrap = el('div');
+  cmWrap.appendChild(cm.node);
+  cmWrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:6px', text: 'Save collaborators',
+    onclick: () => {
+      const next = cm.get();
+      const before = collabsOf(d).join(',');
+      if (next.join(',') === before) return toast('No change');
+      d.collaboratorIds = next; d.collaboratorId = null;
+      upsert('deals', d);
+      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+        html: next.length ? `Collaborators set to <b>${esc(next.map(ownerName).join(', '))}</b>` : 'Collaborators cleared' });
+      toast('Collaborators saved', 'ok'); openDeal(d.id);
+    } }));
+  grid.appendChild(efield('Deal collaborators', cmWrap, 'wide',
+    'Other reps working this deal. It shows under their rep filter too, while the value still counts to the owner alone.'));
 
   const typ = el('select', { class: 'inp',
     onchange: e => save('dealType', e.target.value || null, 'Deal type') });
@@ -2930,9 +3258,11 @@ function dealDetailsCard(d) {
     onchange: e => save('demoDate', e.target.value || null, 'Demo date') }),
     null, 'When the XS1 / XP1 demo is booked or was delivered.'));
 
+  const autoAmt = amountAuto(d) && (d.items || []).length;
   grid.appendChild(efield(`Deal value (${CFG.currency})`, el('input', { class: 'inp', type: 'number', min: '0', step: '1000',
-    value: d.amount == null ? '' : d.amount,
-    onchange: e => save('amount', e.target.value === '' ? null : Number(e.target.value), 'Deal value') })));
+    value: d.amount == null ? '' : d.amount, disabled: autoAmt || null,
+    onchange: e => save('amount', e.target.value === '' ? null : Number(e.target.value), 'Deal value') }),
+    null, autoAmt ? 'Driven by the estimate on the Products tab.' : null));
 
   c.appendChild(grid);
 
@@ -3400,10 +3730,11 @@ function openContact(id) {
   const co = getCo(c.companyId);
   const ds = live('deals').filter(d => (d.contactIds || []).includes(c.id));
   const head = drawerHead(c.fullName || c.email || 'Unnamed contact', [
-    c.jobTitle ? `<span>${esc(c.jobTitle)}</span>` : null,
-    co ? el('a', { href: 'javascript:void 0', style: 'color:var(--accent);text-decoration:none', text: co.name,
-      onclick: e => { e.preventDefault(); openCompany(co.id); } }) : null,
-    c.lifecycleStage ? `<span class="tag info">${esc(c.lifecycleStage)}</span>` : null
+    el('span', { html: leadStatusCell(c) }),
+    c.jobTitle ? mfact('Title', c.jobTitle) : null,
+    co ? mfact('Company', co.name, { onclick: () => openCompany(co.id) }) : null,
+    mfact('Owner', ownerName(c.ownerId)),
+    c.createdAt ? mfact('Added', fdate(c.createdAt, 'long'), { num: true }) : null
   ], [ el('button', { class: 'btn', html: ico('edit',14) + ' Edit', onclick: () => editContact(c) }) ]);
 
   const body = el('div', { class: 'body' });
@@ -3415,12 +3746,27 @@ function openContact(id) {
   act.appendChild(el('button', { class: 'btn primary', html: ico('plus',14) + ' New deal',
     onclick: () => editDeal(null, { companyId: c.companyId, contactIds: [c.id], name: co ? co.name : (c.fullName || '') }) }));
   body.appendChild(act);
+  /* lead status — the stage this contact sits in, changed in place */
+  const stCard = el('div', { class: 'card', style: 'margin-bottom:var(--sp-3)' });
+  stCard.appendChild(el('label', { class: 'fl', text: 'Lead status' }));
+  const stepper = el('div', { class: 'stepper', style: 'margin:0' });
+  leadStages().forEach(st => stepper.appendChild(el('button', {
+    class: c.leadStatus === st.id ? 'cur' : '', title: st.hint || '',
+    html: `${esc(st.label)}`,
+    onclick: () => { setLeadStatus(c, c.leadStatus === st.id ? null : st.id); openContact(c.id); } })));
+  stCard.appendChild(stepper);
+  if (c.leadStatus && !leadStage(c.leadStatus)) stCard.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;color:var(--warning)',
+    html: ico('warn',12) + ` Imported status “${esc(c.leadStatus)}” is outside the four stages — pick one above to replace it.` }));
+  else if (!c.leadStatus) stCard.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
+    text: 'Not staged yet. Pick a stage so this contact shows on the staging board.' }));
+  body.appendChild(stCard);
+
   body.appendChild(el('div', { class: 'card' }, [ el('h3', { text: 'Contact details' }), dl([
-    ['Email', c.email ? `<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>` : '—'],
-    ['Phone', c.phone ? `<span class="mono">${esc(c.phone)}</span>` : '—'],
+    ['Email', c.email ? `<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>` : '<span class="tag warn">missing</span>'],
+    ['Phone', c.phone ? `<span class="mono">${esc(c.phone)}</span>` : '<span class="tag warn">missing</span>'],
     ['Job title', esc(c.jobTitle || '—')], ['Company', co ? esc(co.name) : '—'],
     ['City', esc(c.city || '—')], ['Country', esc(c.country || '—')],
-    ['Lifecycle', esc(c.lifecycleStage || '—')], ['Lead status', esc(c.leadStatus || '—')],
     ['Owner', esc(ownerName(c.ownerId))], ['Created', c.createdAt ? esc(fdate(c.createdAt, 'long')) : '—'],
     ['HubSpot id', c.hubspotId ? `<span class="mono" style="color:var(--ink-3)">${esc(c.hubspotId)}</span>` : null]
   ])]));
@@ -3456,6 +3802,38 @@ function fld(label, node, hint) {
   if (hint) w.appendChild(el('div', { style: 'font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;line-height:1.5', text: hint }));
   return w;
 }
+/* Multi-select for collaborators: a chip per person, plus an add control. */
+function ownerMulti(values, excludeId) {
+  let chosen = (values || []).map(String).filter(v => v && v !== String(excludeId));
+  const node = el('div', { class: 'multi' });
+  const paint = () => {
+    node.innerHTML = '';
+    chosen.forEach(id => {
+      const o = DB.owners.find(x => x.id === id);
+      node.appendChild(el('span', { class: 'chip' }, [
+        el('span', { class: 'avatar', style: `background:${ownerColor(id)};width:18px;height:18px;font-size:8px`,
+          text: initials(ownerName(id)) }),
+        el('span', { text: ownerName(id) + (o && !o.active ? ' (inactive)' : '') }),
+        el('button', { html: ico('x',11), 'aria-label': 'Remove ' + ownerName(id),
+          onclick: () => { chosen = chosen.filter(x => x !== id); paint(); } })
+      ]));
+    });
+    const left = activeOwners().filter(o => !chosen.includes(o.id) && o.id !== String(excludeId));
+    if (left.length) {
+      const add = el('select', { class: 'inp', style: 'width:auto;min-width:150px',
+        'aria-label': 'Add a collaborator',
+        onchange: e => { if (!e.target.value) return; chosen = chosen.concat([e.target.value]); paint(); } });
+      add.appendChild(el('option', { value: '', text: chosen.length ? '+ Add another…' : '+ Add a collaborator…' }));
+      left.forEach(o => add.appendChild(el('option', { value: o.id, text: o.name })));
+      node.appendChild(add);
+    } else if (!chosen.length) {
+      node.appendChild(el('span', { style: 'color:var(--ink-3);font-size:var(--fs-sm)', text: 'No one else available' }));
+    }
+  };
+  paint();
+  return { node, get: () => chosen.slice(), set: v => { chosen = (v || []).map(String); paint(); } };
+}
+
 /* Assignment picker. Only active people can be chosen. A record that already
    belongs to someone who has since left keeps that owner — it is shown as the
    current value so saving does not silently reassign it — but no *other*
@@ -3555,7 +3933,7 @@ function editDeal(d, pre) {
   DB.stages.sort((a,b) => a.order - b.order).forEach(s => stg.appendChild(
     el('option', { value: s.id, text: `${s.label} — ${Math.round(s.probability*100)}%`, selected: d.stageId === s.id || null })));
   const own = ownerSelect(d.ownerId);
-  const collab = ownerSelect(d.collaboratorId, { emptyLabel: 'None' });
+  const collab = ownerMulti(collabsOf(d), d.ownerId);
   const close = el('input', { class: 'inp', type: 'date', value: d.closeDate || '' });
   const demo = el('input', { class: 'inp', type: 'date', value: d.demoDate || '' });
   const typ = el('select', { class: 'inp' });
@@ -3573,7 +3951,7 @@ function editDeal(d, pre) {
     fld(`Value (${CFG.currency})`, amount), fld('Expected close date', close) ]));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('Stage', stg), fld('Deal owner', own) ]));
   body.appendChild(el('div', { class: 'field-row' }, [
-    fld('Deal collaborator', collab, 'A second rep working this deal.'),
+    fld('Deal collaborators', collab.node, 'Other reps who work this deal — it shows under their filter too.'),
     fld('Demo date', demo) ]));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('Deal type', typ), fld('Priority', pri) ]));
   body.appendChild(fld('Next step', nxt));
@@ -3591,7 +3969,7 @@ function editDeal(d, pre) {
       d.companyId = cp.get() || pendingCo || d.companyId || null;
       d.amount = amount.value === '' ? null : Number(amount.value);
       d.stageId = stg.value; d.ownerId = own.value || null;
-      d.collaboratorId = (collab.value && collab.value !== own.value) ? collab.value : null;
+      d.collaboratorIds = collab.get().filter(id => id !== own.value); d.collaboratorId = null;
       d.closeDate = close.value || null; d.demoDate = demo.value || null;
       d.dealType = typ.value || null;
       d.priority = pri.value || null; d.nextStep = nxt.value.trim() || null;
@@ -3672,9 +4050,13 @@ function editContact(c, pre) {
     jobTitle: el('input', { class: 'inp', value: c.jobTitle || '' }),
     city: el('input', { class: 'inp', value: c.city || '' }),
     country: el('input', { class: 'inp', value: c.country || '' }),
-    lifecycleStage: el('input', { class: 'inp', value: c.lifecycleStage || '' }),
-    leadStatus: el('input', { class: 'inp', value: c.leadStatus || '' })
   };
+  const lead = el('select', { class: 'inp' });
+  lead.appendChild(el('option', { value: '', text: 'Not staged' }));
+  leadStages().forEach(st => lead.appendChild(el('option', { value: st.id, text: st.label,
+    selected: c.leadStatus === st.id || null })));
+  if (c.leadStatus && !leadStage(c.leadStatus)) lead.appendChild(el('option', {
+    value: c.leadStatus, text: c.leadStatus + ' (imported)', selected: true }));
   const own = ownerSelect(c.ownerId);
   const cp = coPicker(c.companyId);
   const body = el('div');
@@ -3683,8 +4065,7 @@ function editContact(c, pre) {
   body.appendChild(fld('Job title', f.jobTitle));
   body.appendChild(fld('Company', cp.node));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('City', f.city), fld('Country', f.country) ]));
-  body.appendChild(el('div', { class: 'field-row' }, [ fld('Lifecycle stage', f.lifecycleStage), fld('Lead status', f.leadStatus) ]));
-  body.appendChild(fld('Owner', own));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Lead status', lead), fld('Owner', own) ]));
   modal(isNew ? 'New contact' : 'Edit contact', body, [
     isNew ? null : el('button', { class: 'btn danger', html: ico('trash',14) + ' Delete',
       onclick: () => confirmDo('Delete contact', `“${c.fullName || c.email}” will be removed for everyone on the next sync.`, 'Delete', () => {
@@ -3693,6 +4074,7 @@ function editContact(c, pre) {
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
     el('button', { class: 'btn primary', text: isNew ? 'Create' : 'Save', onclick: () => {
       Object.keys(f).forEach(k => c[k] = f[k].value.trim() || null);
+      c.leadStatus = lead.value || null;
       c.fullName = [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || null;
       if (!c.fullName) { f.firstName.focus(); return toast('A contact needs a name or an email', 'err'); }
       c.ownerId = own.value || null;
@@ -3836,6 +4218,386 @@ const doSearch = debounce(() => {
   box.classList.add('on');
 }, 140);
 /* ================================================================
+   PRODUCTS — the admin-managed catalogue, and the line-item estimate
+   that drives a deal's value.
+   ================================================================ */
+
+/* Role gate. This is a UI guard, not a security boundary: anyone with write
+   access to the shared OneDrive folder can edit the JSON directly. It keeps
+   reps out of the catalogue by accident, nothing more. */
+function isAdmin() {
+  const me = DB.owners.find(o => o.id === currentOwnerId());
+  return !me || me.role === 'admin' || me.role === 'manager';
+}
+
+/* -------------------------------------------------- catalogue admin */
+function productsCard() {
+  const c = card('Product catalogue', 'What reps pick from when building a deal estimate');
+  const ps = live('products');
+  const byCat = groupBy(ps, p => p.category || 'Uncategorised');
+  c.body.appendChild(dl([
+    ['Products', String(ps.length)],
+    ['Active', String(ps.filter(p => p.active !== false).length)],
+    ['Categories', String(byCat.size)],
+    ['Deals with an estimate', String(live('deals').filter(d => (d.items || []).length).length)]
+  ]));
+  const bts = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' });
+  bts.appendChild(el('button', { class: 'btn primary', html: ico('list',14) + ' Manage products',
+    onclick: productManager }));
+  if (!ps.length) bts.appendChild(el('button', { class: 'btn', html: ico('bolt',14) + ' Create starter catalogue',
+    onclick: starterCatalogue }));
+  c.body.appendChild(bts);
+  if (!isAdmin()) c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
+    text: 'You are signed in as a rep, so the catalogue is read-only here. Ask an admin to add or change products.' }));
+  return c.node;
+}
+function productManager() {
+  const body = el('div');
+  const paint = () => {
+    body.innerHTML = '';
+    const ps = live('products');
+    const top = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+    if (isAdmin()) {
+      top.appendChild(el('button', { class: 'btn primary', html: ico('plus',14) + ' New product',
+        onclick: () => editProduct(null, paint) }));
+      top.appendChild(el('button', { class: 'btn', html: ico('clip',14) + ' Import CSV',
+        onclick: () => importProductsCSV(paint) }));
+    }
+    top.appendChild(el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
+      download('corev-products-' + TODAY() + '.csv', toCSV(ps, [
+        { h: 'SKU', f: p => p.sku || '' }, { h: 'Name', f: p => p.name },
+        { h: 'Category', f: p => p.category || '' },
+        { h: 'List price', f: p => p.listPrice == null ? '' : p.listPrice },
+        { h: 'Billing', f: p => p.billing || 'once' },
+        { h: 'Active', f: p => p.active === false ? 'no' : 'yes' },
+        { h: 'Notes', f: p => p.notes || '' }
+      ]), 'text/csv'); toast('CSV exported', 'ok'); } }));
+    body.appendChild(top);
+
+    if (!ps.length) {
+      body.appendChild(el('div', { class: 'empty', html: ico('list',32) +
+        `<h4>No products yet</h4><p>Add the XS1 and XP1 configurations you sell, plus the OxeAI tiers, and reps can build an estimate on any deal instead of typing a number.</p>` }));
+      if (isAdmin()) body.appendChild(el('div', { style: 'text-align:center' }, [
+        el('button', { class: 'btn', text: 'Create starter catalogue', onclick: () => { starterCatalogue(); paint(); } })
+      ]));
+      return;
+    }
+    const host = el('div');
+    dataTable(host, {
+      key: 'products', noun: 'products', rows: ps, per: 40, defaultSort: 1, defaultDir: 1,
+      cols: [
+        { h: 'SKU', v: p => p.sku || '', r: p => p.sku ? `<span class="mono">${esc(p.sku)}</span>` : '<span class="cellsub">—</span>' },
+        { h: 'Product', v: p => p.name, r: p =>
+            `<div class="cellmain">${esc(p.name)}</div>${p.notes ? `<div class="cellsub">${esc(p.notes)}</div>` : ''}` },
+        { h: 'Category', v: p => p.category || '', r: p => p.category ? `<span class="tag">${esc(p.category)}</span>` : '<span class="cellsub">—</span>' },
+        { h: `List price`, num: true, v: p => p.listPrice || 0,
+          r: p => p.listPrice ? `<span class="mono">${money(p.listPrice)}</span>` : '<span class="tag warn">not set</span>' },
+        { h: 'Billing', v: p => p.billing || 'once', r: p => `<span class="tag">${esc(billingLabel(p.billing))}</span>` },
+        { h: 'Status', v: p => p.active === false ? 0 : 1,
+          r: p => p.active === false ? '<span class="tag">inactive</span>' : '<span class="tag good">active</span>' }
+      ],
+      onRow: p => isAdmin() ? editProduct(p, paint) : toast('Only an admin can edit the catalogue')
+    });
+    body.appendChild(host);
+  };
+  paint();
+  modal('Product catalogue', body, [
+    el('button', { class: 'btn primary', text: 'Done', onclick: () => { closeAll(); render(); } })
+  ], true);
+}
+function editProduct(p, after) {
+  const isNew = !p;
+  p = p || { active: true, billing: 'once', currency: CFG.currency };
+  const f = {
+    name: el('input', { class: 'inp', value: p.name || '', placeholder: 'e.g. XS1 PEAK PLUS' }),
+    sku: el('input', { class: 'inp', value: p.sku || '', placeholder: 'XS1-PP' }),
+    category: el('input', { class: 'inp', value: p.category || '', list: 'prod-cat',
+      placeholder: 'Hardware · Subscription · Installation · Accessory' }),
+    listPrice: el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: p.listPrice == null ? '' : p.listPrice }),
+    notes: el('input', { class: 'inp', value: p.notes || '' })
+  };
+  const bill = el('select', { class: 'inp' });
+  BILLING.forEach(b => bill.appendChild(el('option', { value: b.id, text: b.label, selected: (p.billing || 'once') === b.id || null })));
+  const act = el('select', { class: 'inp' });
+  [['1','Active'],['0','Inactive']].forEach(([v, l]) =>
+    act.appendChild(el('option', { value: v, text: l, selected: String(p.active === false ? 0 : 1) === v || null })));
+  const cats = el('datalist', { id: 'prod-cat' });
+  Array.from(new Set(live('products').map(x => x.category).filter(Boolean)))
+    .concat(['Hardware','Subscription','Installation','Accessory','Service'])
+    .filter((v, i, a) => a.indexOf(v) === i).sort()
+    .forEach(v => cats.appendChild(el('option', { value: v })));
+
+  const body = el('div');
+  body.appendChild(cats);
+  body.appendChild(fld('Product name *', f.name));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('SKU', f.sku), fld('Category', f.category) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [
+    fld(`List price (${CFG.currency})`, f.listPrice, 'The default a rep sees. They can still change it per deal.'),
+    fld('Billing', bill, 'One-time feeds the deal value directly; recurring is multiplied by the contract term.') ]));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Status', act), fld('Note', f.notes) ]));
+  modal(isNew ? 'New product' : 'Edit product', body, [
+    isNew ? null : el('button', { class: 'btn danger', html: ico('trash',14) + ' Delete',
+      onclick: () => {
+        const used = live('deals').filter(d => (d.items || []).some(i => i.productId === p.id)).length;
+        confirmDo('Delete product',
+          used ? `${p.name} is on ${used} deal estimates. Deleting it removes it from the catalogue; the line items already on those deals keep their name and price.`
+               : `${p.name} will be removed from the catalogue.`,
+          'Delete', () => { remove('products', p.id); closeAll(); if (after) { productManager(); } render(); });
+      } }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); productManager(); } }),
+    el('button', { class: 'btn primary', text: isNew ? 'Add product' : 'Save', onclick: () => {
+      if (!f.name.value.trim()) { f.name.focus(); return toast('A product needs a name', 'err'); }
+      p.name = f.name.value.trim(); p.sku = f.sku.value.trim() || null;
+      p.category = f.category.value.trim() || null;
+      p.listPrice = f.listPrice.value === '' ? null : Number(f.listPrice.value);
+      p.billing = bill.value; p.active = act.value === '1';
+      p.notes = f.notes.value.trim() || null; p.currency = CFG.currency;
+      upsert('products', p);
+      closeAll(); productManager(); toast(isNew ? 'Product added' : 'Saved', 'ok');
+    } })
+  ].filter(Boolean));
+}
+/* Names taken from the deal and contact records already in the CRM. Prices are
+   deliberately blank — I am not going to invent your price list. */
+function starterCatalogue() {
+  const seed = [
+    ['XS1-PEAK',      'XS1 PEAK',            'Hardware',     'once'],
+    ['XS1-PEAKPLUS',  'XS1 PEAK PLUS',       'Hardware',     'once'],
+    ['XS1-FLOWPLUS',  'XS1 FLOW PLUS',       'Hardware',     'once'],
+    ['XP1-APEX',      'XP1 APEX',            'Hardware',     'once'],
+    ['OXEAI-BASIC',   'OxeAI Basic',         'Subscription', 'monthly'],
+    ['OXEAI-PREM',    'OxeAI Premium',       'Subscription', 'monthly'],
+    ['INSTALL',       'Delivery & installation', 'Installation', 'once'],
+    ['TRAINING',      'Onboarding & training',   'Service',      'once']
+  ];
+  let n = 0;
+  seed.forEach(([sku, name, category, billing]) => {
+    if (live('products').some(p => p.sku === sku)) return;
+    upsert('products', { sku, name, category, billing, listPrice: null, active: true, currency: CFG.currency });
+    n++;
+  });
+  toast(`${n} products added — set their prices in the catalogue`, 'ok');
+}
+function importProductsCSV(after) {
+  const file = el('input', { type: 'file', accept: '.csv,text/csv', class: 'inp' });
+  modal('Import products', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
+      html: 'Columns matched loosely: <b>SKU</b>, <b>Name</b>, <b>Category</b>, <b>List price</b>, <b>Billing</b> (once / monthly / annual), <b>Active</b>, <b>Notes</b>. Rows match on SKU, so re-importing updates rather than duplicates.' }),
+    fld('File', file)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); productManager(); } }),
+    el('button', { class: 'btn primary', text: 'Import', onclick: () => {
+      const fl = file.files[0]; if (!fl) return toast('Choose a file first', 'err');
+      const rd = new FileReader();
+      rd.onload = () => {
+        try {
+          const rows = parseCSV(rd.result);
+          if (rows.length < 2) throw new Error('no data rows');
+          const hdr = rows[0].map(NORM);
+          let added = 0, updated = 0;
+          rows.slice(1).forEach(r => {
+            const sku = pick(r, hdr, ['sku','code','product code']);
+            const name = pick(r, hdr, ['name','product','product name','description']);
+            if (!sku && !name) return;
+            const bRaw = (pick(r, hdr, ['billing','billing frequency','recurrence']) || 'once').toLowerCase();
+            const billing = /month/.test(bRaw) ? 'monthly' : /year|annual/.test(bRaw) ? 'annual' : 'once';
+            const priceRaw = pick(r, hdr, ['list price','price','unit price','amount']);
+            const activeRaw = (pick(r, hdr, ['active','status']) || 'yes').toLowerCase();
+            let p = sku ? live('products').find(x => x.sku === sku) : live('products').find(x => NORM(x.name) === NORM(name));
+            const patch = {
+              sku: sku || (p && p.sku) || null, name: name || (p && p.name) || sku,
+              category: pick(r, hdr, ['category','type','group']) || (p && p.category) || null,
+              listPrice: priceRaw == null ? (p ? p.listPrice : null) : Number(String(priceRaw).replace(/[^0-9.\-]/g, '')) || null,
+              billing, active: !/^(no|false|0|inactive)$/.test(activeRaw),
+              notes: pick(r, hdr, ['notes','note','comment']) || (p && p.notes) || null,
+              currency: CFG.currency
+            };
+            if (p) { upsert('products', Object.assign(p, patch)); updated++; }
+            else { upsert('products', patch); added++; }
+          });
+          closeAll(); productManager(); render();
+          toast(`${added} added, ${updated} updated`, 'ok');
+        } catch (e) { toast('Import failed: ' + e.message, 'err'); }
+      };
+      rd.readAsText(fl);
+    } })
+  ]);
+}
+
+/* ------------------------------------------- the estimate on a deal */
+function dealProducts(d) {
+  const w = el('div');
+  const items = d.items || [];
+  const e = estimate(d);
+  const auto = amountAuto(d);
+
+  w.appendChild(el('div', { class: 'card-head' }, [
+    el('h3', { text: 'Estimate' }), el('div', { class: 'sp' }),
+    el('button', { class: 'btn sm', html: ico('plus',13) + ' Add product', onclick: () => addLineItem(d) }),
+    el('button', { class: 'btn sm ghost', html: ico('edit',13) + ' Custom line', onclick: () => addLineItem(d, true) })
+  ]));
+
+  if (!activeProducts().length) w.appendChild(el('div', { class: 'card',
+    style: 'margin-bottom:var(--sp-3);border-color:var(--warning)' }, [
+    el('div', { style: 'display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap' }, [
+      el('span', { html: ico('warn',15), style: 'color:var(--warning)' }),
+      el('div', { style: 'flex:1;line-height:1.5', text: 'The product catalogue is empty, so there is nothing to pick from yet. Add products once and every rep builds estimates from the same list.' }),
+      isAdmin() ? el('button', { class: 'btn sm', text: 'Open catalogue', onclick: productManager }) : null
+    ].filter(Boolean))
+  ]));
+
+  if (!items.length) {
+    w.appendChild(el('div', { class: 'empty', html: ico('list',30) +
+      '<h4>No line items yet</h4><p>Build the configuration you are quoting — hardware, subscription, installation — and the deal value follows the total.</p>' }));
+  } else {
+    const box = el('div', { class: 'card', style: 'padding:var(--sp-3)' });
+    box.appendChild(el('div', { class: 'li-head' }, [
+      el('span', { text: 'Product' }), el('span', { text: 'Qty' }),
+      el('span', { text: 'Unit ' + CFG.currency }), el('span', { text: 'Disc %' }),
+      el('span', { text: 'Line total' }), el('span', { text: '' })
+    ]));
+    items.forEach((it, idx) => {
+      const row = el('div', { class: 'li' });
+      row.appendChild(el('div', { class: 'nm', html:
+        `<b title="${esc(it.name)}">${esc(it.name)}</b>
+         <span>${esc(billingLabel(it.billing))}${it.sku ? ' · ' + esc(it.sku) : ''}</span>` }));
+      const mk = (key, step, min) => el('input', { type: 'number', step: step, min: min == null ? '0' : min,
+        value: it[key] == null ? '' : it[key], 'aria-label': key + ' for ' + it.name,
+        onchange: ev => {
+          const v = ev.target.value === '' ? 0 : Number(ev.target.value);
+          it[key] = key === 'discountPct' ? Math.max(0, Math.min(100, v)) : Math.max(0, v);
+          d.items = items; upsert('deals', d); syncDealAmount(d);
+          openDealTab(d, 'Products');
+        } });
+      row.appendChild(mk('qty', '1'));
+      row.appendChild(mk('unitPrice', '100'));
+      row.appendChild(mk('discountPct', '5'));
+      row.appendChild(el('div', { class: 'tot', text: money(lineNet(it), { dash: false }) }));
+      row.appendChild(el('button', { class: 'btn icon ghost', html: ico('trash',13),
+        'aria-label': 'Remove ' + it.name,
+        onclick: () => {
+          d.items = items.filter((_, i) => i !== idx);
+          upsert('deals', d); syncDealAmount(d);
+          logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note', html: `Removed <b>${esc(it.name)}</b> from the estimate` });
+          openDealTab(d, 'Products');
+        } }));
+      box.appendChild(row);
+    });
+    w.appendChild(box);
+  }
+
+  /* ---- totals ---- */
+  const est = el('div', { class: 'est' });
+  est.appendChild(el('div', { class: 'b', html: `<em>One-time</em><b>${CFG.currency} ${money(e.once, { dash: false })}</b>` }));
+  est.appendChild(el('div', { class: 'b', html: `<em>Recurring / month</em><b>${CFG.currency} ${money(e.mrr, { dash: false })}</b>` }));
+  est.appendChild(el('div', { class: 'b', html: `<em>Over ${e.months} months</em><b>${CFG.currency} ${money(e.recurringOverTerm, { dash: false })}</b>` }));
+  est.appendChild(el('div', { class: 'b total', html: `<em>Contract value</em><b>${CFG.currency} ${money(e.total, { dash: false })}</b>` }));
+  w.appendChild(est);
+
+  const ctl = el('div', { class: 'card', style: 'margin-top:var(--sp-3)' });
+  const grid = el('div', { class: 'efields' });
+  const months = el('input', { class: 'inp', type: 'number', min: '1', max: '120',
+    value: e.months, onchange: ev => {
+      d.contractMonths = Math.max(1, Math.min(120, Number(ev.target.value) || 12));
+      upsert('deals', d); syncDealAmount(d); openDealTab(d, 'Products');
+    } });
+  grid.appendChild(efield('Contract term (months)', months, null,
+    'Multiplies the recurring lines. One-time lines are unaffected.'));
+  const mode = el('select', { class: 'inp', onchange: ev => {
+    d.amountMode = ev.target.value;
+    if (d.amountMode === 'auto') syncDealAmount(d); else upsert('deals', d);
+    openDealTab(d, 'Products'); renderNav();
+  } });
+  [['auto','Follow the estimate'],['manual','Set by hand']].forEach(([v, l]) =>
+    mode.appendChild(el('option', { value: v, text: l, selected: (auto ? 'auto' : 'manual') === v || null })));
+  grid.appendChild(efield('Deal value', mode, null,
+    auto ? 'The deal value updates whenever a line item changes.'
+         : 'The estimate is kept for reference but the deal value stays where you set it.'));
+  const amt = el('input', { class: 'inp mono', type: 'number', value: d.amount == null ? '' : d.amount,
+    disabled: auto || null, style: 'text-align:right',
+    onchange: ev => { d.amount = ev.target.value === '' ? null : Number(ev.target.value);
+      upsert('deals', d); toast('Deal value saved', 'ok'); openDealTab(d, 'Products'); } });
+  grid.appendChild(efield(`Deal value (${CFG.currency})`, amt));
+  ctl.appendChild(grid);
+  if (auto && items.length && Math.round(e.total) !== Number(d.amount || 0))
+    ctl.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;color:var(--warning)',
+      html: ico('warn',12) + ' The deal value and the estimate have drifted apart — reopen this tab to resync.' }));
+  w.appendChild(ctl);
+
+  if (items.length) w.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);margin-top:var(--sp-3);flex-wrap:wrap' }, [
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export estimate CSV', onclick: () => {
+      download(`estimate-${(d.name || 'deal').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-${TODAY()}.csv`,
+        toCSV(items, [
+          { h: 'SKU', f: i => i.sku || '' }, { h: 'Product', f: i => i.name },
+          { h: 'Billing', f: i => billingLabel(i.billing) }, { h: 'Qty', f: i => i.qty },
+          { h: 'Unit ' + CFG.currency, f: i => i.unitPrice }, { h: 'Discount %', f: i => i.discountPct || 0 },
+          { h: 'Line total', f: i => Math.round(lineNet(i)) }
+        ]), 'text/csv');
+      toast('Estimate exported', 'ok'); } }),
+    el('button', { class: 'btn danger', text: 'Clear estimate', onclick: () =>
+      confirmDo('Clear estimate', `Removes all ${items.length} line items from ${d.name}. The deal value stays as it is.`, 'Clear', () => {
+        d.items = []; d.amountMode = 'manual'; upsert('deals', d); openDealTab(d, 'Products'); toast('Estimate cleared'); }) })
+  ]));
+  return w;
+}
+function addLineItem(d, custom) {
+  const prods = activeProducts();
+  if (!custom && !prods.length) return toast('No products in the catalogue yet', 'err');
+  const nameIn = el('input', { class: 'inp', placeholder: 'e.g. Custom bundle discount' });
+  const qty = el('input', { class: 'inp', type: 'number', min: '1', step: '1', value: '1' });
+  const price = el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: '' });
+  const disc = el('input', { class: 'inp', type: 'number', min: '0', max: '100', step: '5', value: '0' });
+  const bill = el('select', { class: 'inp' });
+  BILLING.forEach(b => bill.appendChild(el('option', { value: b.id, text: b.label })));
+  let chosen = null;
+
+  const body = el('div');
+  if (!custom) {
+    const sel = el('select', { class: 'inp', onchange: e => {
+      chosen = prods.find(p => p.id === e.target.value) || null;
+      if (!chosen) return;
+      price.value = chosen.listPrice == null ? '' : chosen.listPrice;
+      bill.value = chosen.billing || 'once';
+      nameIn.value = chosen.name;
+    } });
+    sel.appendChild(el('option', { value: '', text: 'Choose a product…' }));
+    Array.from(groupBy(prods, p => p.category || 'Uncategorised')).forEach(([cat, list]) => {
+      const g = el('optgroup', { label: cat });
+      list.forEach(p => g.appendChild(el('option', { value: p.id,
+        text: p.name + (p.listPrice ? ` — ${CFG.currency} ${money(p.listPrice)}` : ' — price not set') })));
+      sel.appendChild(g);
+    });
+    body.appendChild(fld('Product *', sel));
+  }
+  body.appendChild(fld(custom ? 'Description *' : 'Shown as', nameIn));
+  body.appendChild(el('div', { class: 'field-row' }, [
+    fld('Quantity', qty), fld(`Unit price (${CFG.currency})`, price) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Discount %', disc), fld('Billing', bill) ]));
+
+  modal(custom ? 'Add a custom line' : 'Add a product', body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); openDealTab(d, 'Products'); } }),
+    el('button', { class: 'btn primary', text: 'Add to estimate', onclick: () => {
+      if (!custom && !chosen) return toast('Pick a product first', 'err');
+      const nm = nameIn.value.trim() || (chosen && chosen.name);
+      if (!nm) { nameIn.focus(); return toast('This line needs a description', 'err'); }
+      const it = {
+        id: uid('L'), productId: chosen ? chosen.id : null, sku: chosen ? chosen.sku : null,
+        name: nm, qty: Math.max(1, Number(qty.value) || 1),
+        unitPrice: price.value === '' ? 0 : Number(price.value),
+        discountPct: Math.max(0, Math.min(100, Number(disc.value) || 0)),
+        billing: bill.value
+      };
+      d.items = (d.items || []).concat([it]);
+      if (d.amountMode == null) d.amountMode = 'auto';
+      upsert('deals', d); syncDealAmount(d);
+      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+        html: `Added <b>${esc(nm)}</b> ×${it.qty} to the estimate` });
+      closeAll(); openDealTab(d, 'Products'); toast('Added to estimate', 'ok');
+    } })
+  ]);
+}
+/* ================================================================
    WEEKLY REVIEW — the meeting view: commitments, what landed,
    problems raised and the solutions agreed, week over week.
    ================================================================ */
@@ -3909,7 +4671,7 @@ function viewReview(root) {
 function repReviewCard(o, wk, rng) {
   const r = reviewFor(wk, o.id);
   const b = { from: rng.from, to: rng.to };
-  const mine = live('deals').filter(d => String(d.ownerId) === o.id);
+  const mine = ownedDeals(o.id);
   const commits = live('commitments').filter(c => c.week === wk && String(c.ownerId) === o.id);
   const won  = mine.filter(d => isWon(d)  && inPeriod(d.closeDate, b));
   const lost = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
@@ -3923,9 +4685,9 @@ function repReviewCard(o, wk, rng) {
     el('div', {}, [ el('div', { class: 'nm', text: o.name }),
       el('div', { class: 'rl', text: `${openD.length} open · ${CFG.currency} ${money(sum(openD, d => d.amount), {compact:true})} pipeline` }) ]),
     el('div', { style: 'flex:1' }),
-    overdueDeals(o.id).length ? el('button', { class: 'tag bad', style: 'border:0;cursor:pointer',
+    overdueDeals(o.id, { ownedOnly: true }).length ? el('button', { class: 'tag bad', style: 'border:0;cursor:pointer',
       title: 'Open deals past their close date — click to fix',
-      text: overdueDeals(o.id).length + ' overdue dates',
+      text: overdueDeals(o.id, { ownedOnly: true }).length + ' overdue dates',
       onclick: () => { VIEW.rep = o.id; renderTopControls(); overdueQueue(); } }) : null,
     tasksLate.length ? el('span', { class: 'tag bad', text: tasksLate.length + ' late tasks' }) : null
   ]));
@@ -4040,7 +4802,7 @@ function exportReview(wk) {
   L.push(`Closed won: ${CFG.currency} ${money(sum(won, d => d.amount), {dash:false})} (${won.length} deals)`);
   L.push(`Closed lost: ${CFG.currency} ${money(sum(lost, d => d.amount), {dash:false})} (${lost.length} deals)`, '');
   activeOwners().forEach(o => {
-    const mine = live('deals').filter(d => String(d.ownerId) === o.id);
+    const mine = ownedDeals(o.id);
     const oc = commits.filter(c => String(c.ownerId) === o.id);
     const ow = mine.filter(d => isWon(d) && inPeriod(d.closeDate, b));
     const ol = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
@@ -4149,7 +4911,7 @@ function viewForecast(root) {
   rc.appendChild(el('h3', { text: 'Rep comparison' }));
   rc.appendChild(el('p', { class: 'sub', text: `Closed in ${b.label}; pipeline is current` }));
   const rows = activeOwners().map(o => {
-    const mine = live('deals').filter(d => String(d.ownerId) === o.id);
+    const mine = ownedDeals(o.id);
     const op = mine.filter(isOpen);
     const w = mine.filter(d => isWon(d) && inPeriod(d.closeDate, b));
     const l = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
@@ -4204,7 +4966,7 @@ function viewSettings(root) {
         v: o => ((DB.config.targets || {})[o.id] || {})[b.label] || 0,
         r: o => { const v = ((DB.config.targets || {})[o.id] || {})[b.label];
           return v ? `<span class="mono">${money(v)}</span>` : '<span class="cellsub">not set</span>'; } },
-      { h: 'Open deals', num: true, v: o => live('deals').filter(d => String(d.ownerId) === o.id && isOpen(d)).length }
+      { h: 'Open deals', num: true, v: o => ownedDeals(o.id).filter(isOpen).length }
     ],
     onRow: o => editOwner(o)
   });
@@ -4237,6 +4999,38 @@ function viewSettings(root) {
   });
   c2.body.appendChild(list);
   g.appendChild(c2.node);
+
+  g.appendChild(productsCard());
+
+  /* ---- lead status ---- */
+  const c3l = card('Contact lead status', 'The four stages a contact moves through on the staging board');
+  const cs = live('contacts');
+  const rowsL = leadStages().map(st => ({ st, n: cs.filter(x => x.leadStatus === st.id).length }));
+  const lsList = el('div', { style: 'display:flex;flex-direction:column;gap:6px' });
+  rowsL.forEach(({ st, n }) => {
+    const row = el('div', { class: 'wtoggle', style: 'cursor:default' });
+    row.appendChild(el('span', { style: `width:5px;height:22px;border-radius:2px;background:${leadColor(st.id)};flex:none` }));
+    row.appendChild(el('span', { class: 'nm' }, [
+      el('span', { text: st.label }),
+      el('span', { style: 'display:block;font-size:var(--fs-xs);color:var(--ink-3);font-weight:500', text: st.hint || '' })
+    ]));
+    row.appendChild(el('span', { class: 'mono', style: 'color:var(--ink-3)', text: n.toLocaleString() + ' contacts' }));
+    lsList.appendChild(row);
+  });
+  c3l.body.appendChild(lsList);
+  const unstaged = cs.filter(x => !x.leadStatus).length;
+  const unmapped = unmappedLeads();
+  c3l.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: `<b>${unstaged.toLocaleString()}</b> contacts have no status yet and sit in the <b>Not staged</b> column.` }));
+  c3l.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.55',
+    text: 'Migrated from HubSpot: Attempted to Contact → Follow-up, In Progress and Open Deal → Progressing, Connected → Qualified, New / Open / Unqualified → Unqualified. The original value is kept on each record.' }));
+  if (unmapped.length) {
+    c3l.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;color:var(--warning);line-height:1.55',
+      html: ico('warn',12) + ` <b>${unmapped.length}</b> contacts carry a status outside the four. Nothing was guessed for them.` }));
+    c3l.body.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)', text: 'Review them',
+      onclick: () => { VIEW.tableFilter.lead = '__other'; VIEW.contactView = 'list'; go('contacts'); } }));
+  }
+  g.appendChild(c3l.node);
 
   /* ---- loss reasons ---- */
   const c3 = card('Reasons for losing', 'The picker shown when a deal moves to Closed Lost');
@@ -4689,9 +5483,30 @@ async function boot() {
     touch('config');
   }
   reindex(); rebuildStages();
+  runMigrations();
   VIEW.name = (location.hash.replace('#','') || 'dashboard');
   render();
   if (SYNC.mode === 'onedrive' && SYNC.dirty.size) scheduleSync();
+}
+/* One-shot data migrations, safe to run on every load. */
+function runMigrations() {
+  // single collaborator -> list
+  let c = 0;
+  DB.deals.forEach(d => {
+    if (d._del) return;
+    if (!Array.isArray(d.collaboratorIds)) {
+      d.collaboratorIds = d.collaboratorId ? [String(d.collaboratorId)] : [];
+      if (d.collaboratorId) { d.collaboratorId = null; c++; }
+    }
+  });
+  if (c) SYNC.dirty.add('deals');
+  // HubSpot lead statuses -> the four stages
+  const lead = migrateLeadStatus();
+  if (lead.changed) {
+    console.log(`Lead status migrated on ${lead.changed} contacts` +
+      (lead.unmapped ? `, ${lead.unmapped} left unmapped for review` : ''));
+  }
+  if (c || lead.changed) { saveLocal(); scheduleSync(); }
 }
 const DEFAULT_STAGES = [
   { id: 'bd',       label: 'Business Development',       probability: .10, kind: 'open', order: 1 },
