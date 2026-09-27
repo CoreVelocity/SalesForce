@@ -99,8 +99,30 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 /* ============================ shell ============================ */
 #app{display:none;min-height:100vh}
-#app.on{display:grid;grid-template-columns:var(--sidebar-w) 1fr;grid-template-rows:var(--topbar-h) 1fr;
+#app.on{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);grid-template-rows:var(--topbar-h) 1fr;
   grid-template-areas:"brand topbar" "nav main"}
+/* collapsed nav: icons only, so the working area gets the width back */
+#app.rail{--sidebar-w:58px}
+#app.rail .brand b,#app.rail .brand span,#app.rail nav.side a span,#app.rail nav.side .grp,
+#app.rail .side-foot .row span:not(.dot),#app.rail .mobile-only{display:none}
+#app.rail nav.side a{justify-content:center;padding:9px 0}
+#app.rail nav.side a .pill{position:absolute;top:2px;right:6px;margin:0;font-size:9px;padding:0 4px}
+#app.rail nav.side a{position:relative}
+#app.rail .side-foot{padding:var(--sp-2);text-align:center}
+#app.rail .side-foot .btn{width:100%;justify-content:center;padding:4px}
+#app.rail .brand{justify-content:center;padding:0;gap:0}
+#app.rail .railbtn svg{transform:rotate(180deg)}
+.railbtn{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r-sm);
+  background:transparent;border:0;color:rgba(255,255,255,.62);cursor:pointer;flex:none}
+.railbtn:hover{background:rgba(255,255,255,.12);color:#fff}
+@media (max-width:900px){.railbtn{display:none}#app.rail{--sidebar-w:0px}}
+
+/* build version, always visible */
+#verbar{position:fixed;right:10px;bottom:8px;z-index:60;font-size:10px;letter-spacing:.05em;
+  color:var(--ink-3);background:var(--surface-1);border:1px solid var(--line-soft);
+  border-radius:99px;padding:3px 9px;font-variant-numeric:tabular-nums;pointer-events:none;
+  opacity:.72;user-select:none}
+@media print{#verbar{display:none}}
 
 .brand{grid-area:brand;display:flex;align-items:center;gap:var(--sp-3);padding:0 var(--sp-4);
   background:var(--brand-navy);border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
@@ -306,7 +328,12 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .tile{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--sp-4)}
 .tile .lbl{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);
   font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:5px}
-.tile .val{font-size:var(--fs-2xl);font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.tile .val{font-size:var(--fs-2xl);font-weight:700;letter-spacing:-.02em;line-height:1.15;
+  min-width:0;white-space:nowrap;display:flex;align-items:baseline;gap:3px}
+.tile .val>span.num{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tile .val.fit-m{font-size:var(--fs-xl)}
+.tile .val.fit-s{font-size:var(--fs-lg)}
+.tile .val.fit-xs{font-size:var(--fs-md)}
 .tile .val .cur{font-size:var(--fs-md);color:var(--ink-3);font-weight:600;margin-right:3px}
 .tile .foot{margin-top:7px;font-size:var(--fs-sm);color:var(--ink-3);display:flex;align-items:center;gap:6px}
 .tile .delta{font-weight:650;display:inline-flex;align-items:center;gap:3px}
@@ -618,6 +645,10 @@ a.mfact:hover b{text-decoration:underline}
       <circle cx="33" cy="17" r="3" fill="#F04E23"/>
     </svg>
     <div><b>CoreV</b><span>Sales CRM</span></div>
+    <div style="flex:1"></div>
+    <button class="railbtn" id="railbtn" title="Collapse the menu" aria-label="Collapse the menu">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5l-6 7 6 7"/></svg>
+    </button>
   </div>
 
   <nav class="side" id="nav"></nav>
@@ -649,6 +680,7 @@ a.mfact:hover b{text-decoration:underline}
 <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
 <div class="tip" id="tip" role="status"></div>
 <div id="toasts" aria-live="polite"></div>
+<div id="verbar"></div>
 <script>
 /* ================================================================
    CoreV Sales CRM — single-file internal tool
@@ -659,7 +691,7 @@ a.mfact:hover b{text-decoration:underline}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -886,6 +918,41 @@ function logoHTML(co, size) {
     data-fb="${esc(fb)}" onload="logoLoaded()" onerror="logoFallback(this)"></span>`;
 }
 
+/* ------------------------------------------------- country -> region
+   Sales regions as CoreV actually works them: the GCC home market first,
+   then the wider Middle East, then everywhere else. */
+const REGIONS = [
+  ['GCC',            ['United Arab Emirates','Saudi Arabia','Qatar','Kuwait','Bahrain','Oman']],
+  ['Levant & Iraq',  ['Jordan','Lebanon','Syria','Iraq','Palestine']],
+  ['North Africa',   ['Egypt','Morocco','Tunisia','Algeria','Libya','Sudan']],
+  ['Türkiye & Iran', ['Turkey','Iran','Azerbaijan','Armenia']],
+  ['South Asia',     ['India','Pakistan','Bangladesh','Sri Lanka','Nepal']],
+  ['Asia Pacific',   ['China','Hong Kong','Taiwan','Japan','South Korea','Singapore','Malaysia',
+                      'Thailand','Indonesia','Philippines','Vietnam','Australia','New Zealand','Kazakhstan','Uzbekistan']],
+  ['Europe',         ['United Kingdom','Ireland','France','Germany','Spain','Italy','Portugal',
+                      'Netherlands','Belgium','Switzerland','Austria','Sweden','Norway','Denmark',
+                      'Finland','Iceland','Poland','Czechia','Greece','Russia','Ukraine','Romania',
+                      'Hungary','Lithuania','Latvia','Malta','Cyprus']],
+  ['Americas',       ['United States','Canada','Mexico','Brazil','Argentina','Chile','Colombia']],
+  ['Sub-Saharan Africa', ['South Africa','Nigeria','Kenya','Ghana','Ethiopia','Tanzania','Uganda']]
+];
+const REGION_OF = (() => {
+  const m = new Map();
+  REGIONS.forEach(([r, list]) => list.forEach(c => m.set(c.toLowerCase(), r)));
+  return m;
+})();
+const regionNames = () => REGIONS.map(r => r[0]);
+/* Uses the stored country, falling back to the domain's country-code TLD. */
+function regionOf(co) {
+  if (!co) return null;
+  if (co.region) return co.region;
+  const c = (co.country || '').trim().toLowerCase();
+  if (c && REGION_OF.has(c)) return REGION_OF.get(c);
+  const fromDomain = domainCountry(co.domain);
+  if (fromDomain && REGION_OF.has(fromDomain.toLowerCase())) return REGION_OF.get(fromDomain.toLowerCase());
+  return c ? 'Other' : null;
+}
+
 /* --------------------------------------------------------------- icons */
 const I = {
   grid:  '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>',
@@ -941,6 +1008,7 @@ function drawer(nodes) {
   nodes.forEach(n => d.appendChild(n));
   d.classList.add('on'); openScrim(closeAll);
   d.scrollTop = 0;
+  if (typeof fitTiles === 'function') fitTiles(d);
 }
 function modal(title, bodyNode, footNodes, wide) {
   const m = $('#modal');
@@ -1872,7 +1940,13 @@ function tile(label, value, o) {
   o = o || {};
   const n = el('div', { class: 'tile' });
   n.appendChild(el('div', { class: 'lbl', html: (o.icon ? ico(o.icon, 13) : '') + esc(label) }));
-  n.appendChild(el('div', { class: 'val mono', html: (o.cur ? `<span class="cur">${CFG.currency}</span>` : '') + esc(value) }));
+  /* Length is only a first guess — fitTiles() measures after layout and steps
+     the size down until the figure actually fits, whatever the column width. */
+  const str = String(value);
+  const len = str.length + (o.cur ? 4 : 0);
+  const guess = len > 13 ? ' fit-s' : len > 10 ? ' fit-m' : '';
+  n.appendChild(el('div', { class: 'val mono' + guess, title: (o.cur ? CFG.currency + ' ' : '') + str,
+    html: (o.cur ? `<span class="cur">${CFG.currency}</span>` : '') + `<span class="num">${esc(str)}</span>` }));
   if (o.delta != null) {
     const up = o.delta >= 0, good = o.inverse ? !up : up;
     n.appendChild(el('div', { class: 'foot', html:
@@ -1889,6 +1963,22 @@ function tile(label, value, o) {
   if (o.onclick) { n.style.cursor = 'pointer'; n.addEventListener('click', o.onclick); }
   return n;
 }
+/* A number that does not fit its tile is worse than a smaller number, so step
+   the type down until it does. Measured, not guessed, because the same tile is
+   200px wide on the dashboard and 120px in a drawer. */
+const FITS = ['', 'fit-m', 'fit-s', 'fit-xs'];
+function fitTiles(root) {
+  $$('.tile .val', root || document).forEach(v => {
+    const n = v.querySelector('.num');
+    if (!n) return;
+    for (const step of FITS) {
+      FITS.forEach(c => c && v.classList.remove(c));
+      if (step) v.classList.add(step);
+      if (n.scrollWidth <= n.clientWidth + 1) return;
+    }
+  });
+}
+
 /* charts are measured off layout width — redraw on resize */
 addEventListener('resize', debounce(() => { if (VIEW.name) render(); }, 220));
 /* ================================================================
@@ -1901,6 +1991,7 @@ const VIEW = {
   pipePeriod: 'all',           // the board has its own period — opt in, so nothing vanishes on open
   dateBasis: 'close',          // pipeline period applies to close date or created date
   contactPeriod: 'all',        // contacts filter on created date
+  coPeriod: 'all',             // companies filter on created date
   contactView: 'list',
   stageFilter: null,
   sort: {}, page: {}, tableFilter: {},
@@ -1928,6 +2019,7 @@ function renderNav() {
     let c = null;
     try { c = item.count ? item.count() : null; } catch (e) {}
     const a = el('a', { class: VIEW.name === item.id ? 'on' : '', href: '#' + item.id,
+      title: item.label + (c ? ` (${c})` : ''),
       html: ico(item.icon, 16) + `<span>${esc(item.label)}</span>` +
         (c ? `<span class="pill${item.alert && c ? ' alert' : ''}">${c > 999 ? '999+' : c}</span>` : '') });
     n.appendChild(a);
@@ -2729,50 +2821,131 @@ function exportDeals(rows) {
 }
 
 /* ------------------------------------------------------- COMPANIES */
-function viewCompanies(root) {
-  const tf = VIEW.tableFilter;
+function companyScope() {
   const dealsByCo = groupBy(live('deals').filter(d => d.companyId), d => d.companyId);
   let rows = live('companies').map(c => {
     const ds = dealsByCo.get(c.id) || [];
+    const open = ds.filter(isOpen);
     return Object.assign({}, c, {
-      _open: ds.filter(isOpen).length, _pipe: sum(ds.filter(isOpen), d => d.amount),
-      _won: sum(ds.filter(isWon), d => d.amount), _deals: ds.length,
+      _open: open.length, _pipe: sum(open, d => d.amount),
+      _won: sum(ds.filter(isWon), d => d.amount), _lost: sum(ds.filter(isLost), d => d.amount),
+      _deals: ds.length, _region: regionOf(c),
       _people: live('contacts').filter(p => p.companyId === c.id).length
     });
   });
   if (VIEW.rep !== 'all') rows = rows.filter(c => String(c.ownerId) === VIEW.rep ||
     (dealsByCo.get(c.id) || []).some(d => worksOn(d, VIEW.rep)));
+  if (VIEW.coPeriod && VIEW.coPeriod !== 'all') {
+    const b = periodBounds(VIEW.coPeriod);
+    rows = rows.filter(c => c.createdAt && inPeriod(c.createdAt, b));
+  }
+  return rows;
+}
+function viewCompanies(root) {
+  const tf = VIEW.tableFilter;
+  const scoped = companyScope();
+  let rows = scoped;
+  if (tf.region === '__none') rows = rows.filter(c => !c._region);
+  else if (tf.region) rows = rows.filter(c => c._region === tf.region);
   if (tf.ind) rows = rows.filter(c => (c.industry || '') === tf.ind);
   if (tf.hasOpen) rows = rows.filter(c => c._open > 0);
+  if (tf.noDomain) rows = rows.filter(c => !cleanDomain(c.domain));
 
   root.appendChild(viewHead(null, [
     el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
       download('corev-companies-' + TODAY() + '.csv', toCSV(rows, [
         { h: 'Company', f: c => c.name }, { h: 'Domain', f: c => c.domain || '' },
         { h: 'Industry', f: c => c.industry || '' }, { h: 'City', f: c => c.city || '' },
-        { h: 'Country', f: c => c.country || '' }, { h: 'Owner', f: c => ownerName(c.ownerId) },
-        { h: 'Lifecycle', f: c => c.lifecycleStage || '' }, { h: 'Contacts', f: c => c._people },
-        { h: 'Open deals', f: c => c._open }, { h: 'Open pipeline', f: c => c._pipe || '' },
-        { h: 'Won value', f: c => c._won || '' }
+        { h: 'Country', f: c => c.country || '' }, { h: 'Region', f: c => c._region || '' },
+        { h: 'Account owner', f: c => ownerName(c.ownerId) },
+        { h: 'Contacts', f: c => c._people }, { h: 'Open deals', f: c => c._open },
+        { h: 'Open pipeline', f: c => c._pipe || '' }, { h: 'Won value', f: c => c._won || '' },
+        { h: 'Created', f: c => c.createdAt || '' }
       ]), 'text/csv'); toast('CSV exported', 'ok'); } }),
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New company', onclick: () => editCompany(null) })
   ]));
-  const inds = Array.from(new Set(live('companies').map(c => c.industry).filter(Boolean))).sort();
-  root.appendChild(filterBar([
-    selectFilter('Industry', tf.ind || '', [['','All industries']].concat(inds.map(i => [i, i])),
-      v => { tf.ind = v || null; VIEW.page.companies = 0; render(); }, 190),
-    el('button', { class: 'btn' + (tf.hasOpen ? ' primary' : ''), text: 'With open deals',
-      onclick: () => { tf.hasOpen = !tf.hasOpen; VIEW.page.companies = 0; render(); } })
-  ]));
+
+  /* ---- filters ---- */
+  const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rep = el('select', { class: 'inp', style: 'width:auto;min-width:150px', 'aria-label': 'Account owner',
+    onchange: e => { VIEW.rep = e.target.value; VIEW.page = {}; render(); } });
+  rep.innerHTML = repOptions('All account owners');
+  bar.appendChild(rep);
+  const seg = el('div', { class: 'seg' });
+  [['m','This month'],['q','Quarter'],['fy','Fiscal year'],['all','All time']].forEach(([v, l]) =>
+    seg.appendChild(el('button', { class: (VIEW.coPeriod || 'all') === v ? 'on' : '', text: l,
+      onclick: () => { VIEW.coPeriod = v; VIEW.page.companies = 0; render(); } })));
+  bar.appendChild(seg);
+  bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)', text: 'by created date' }));
+  const regionsPresent = regionNames().filter(r => scoped.some(c => c._region === r));
+  const noRegion = scoped.filter(c => !c._region).length;
+  bar.appendChild(selectFilter('Region', tf.region || '',
+    [['','All regions']].concat(regionsPresent.map(r => [r, `${r} (${scoped.filter(c => c._region === r).length})`]))
+      .concat(noRegion ? [['__none', `No country set (${noRegion})`]] : []),
+    v => { tf.region = v || null; VIEW.page.companies = 0; render(); }, 175));
+  const inds = Array.from(new Set(scoped.map(c => c.industry).filter(Boolean))).sort();
+  bar.appendChild(selectFilter('Industry', tf.ind || '', [['','All industries']].concat(inds.map(i => [i, i])),
+    v => { tf.ind = v || null; VIEW.page.companies = 0; render(); }, 185));
+  bar.appendChild(el('button', { class: 'btn' + (tf.hasOpen ? ' primary' : ''), text: 'With open deals',
+    onclick: () => { tf.hasOpen = !tf.hasOpen; VIEW.page.companies = 0; render(); } }));
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  if (VIEW.rep !== 'all' || (VIEW.coPeriod && VIEW.coPeriod !== 'all') || tf.region || tf.ind || tf.hasOpen || tf.noDomain)
+    bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Reset filters', onclick: () => {
+      VIEW.rep = 'all'; VIEW.coPeriod = 'all'; tf.region = null; tf.ind = null;
+      tf.hasOpen = false; tf.noDomain = false; VIEW.page.companies = 0; render(); } }));
+  root.appendChild(bar);
+
+  /* ---- summary ---- */
+  const withOpen = scoped.filter(c => c._open > 0);
+  const noDom = scoped.filter(c => !cleanDomain(c.domain)).length;
+  const tl = el('div', { class: 'tiles' });
+  tl.appendChild(tile('Accounts', scoped.length.toLocaleString(), { icon: 'bldg',
+    foot: VIEW.rep === 'all' ? 'in the current period' : ownerName(VIEW.rep) }));
+  tl.appendChild(tile('With open deals', withOpen.length.toLocaleString(), { icon: 'board',
+    foot: pct(withOpen.length, scoped.length) + '% of these accounts',
+    onclick: () => { tf.hasOpen = !tf.hasOpen; VIEW.page.companies = 0; render(); } }));
+  tl.appendChild(tile('Open pipeline', money(sum(scoped, c => c._pipe)), { cur: true, icon: 'chart',
+    foot: sum(scoped, c => c._open) + ' open deals' }));
+  tl.appendChild(tile('Won to date', money(sum(scoped, c => c._won)), { cur: true, icon: 'check',
+    foot: 'across these accounts' }));
+  tl.appendChild(tile('No domain on file', noDom.toLocaleString(), { icon: 'warn',
+    foot: 'no logo, no enrichment',
+    onclick: () => { tf.noDomain = !tf.noDomain; VIEW.page.companies = 0; render(); } }));
+  root.appendChild(tl);
+
+  /* ---- breakdown ---- */
+  const g = el('div', { class: 'grid2', style: 'margin-bottom:var(--sp-4)' });
+  const c1 = card('Open pipeline by region', 'Where the value sits geographically');
+  const regRows = regionNames().concat(['Other']).map(r => {
+    const list = scoped.filter(c => c._region === r);
+    return { label: r, value: sum(list, c => c._pipe), n: list.length,
+             note: `${list.length} accounts · ${sum(list, c => c._open)} open deals` };
+  }).filter(r => r.n).sort((a, b) => b.value - a.value);
+  if (noRegion) regRows.push({ label: 'No country set', value: sum(scoped.filter(c => !c._region), c => c._pipe),
+    n: noRegion, note: `${noRegion} accounts` });
+  chartHBar(c1.body, regRows, { yLabel: 'Open pipeline ' + CFG.currency, xLabel: 'Region' });
+  g.appendChild(c1.node);
+
+  const c2 = card('Accounts by industry', 'Top ten by open pipeline');
+  const indRows = Array.from(groupBy(scoped.filter(c => c.industry), c => c.industry),
+    ([k, list]) => ({ label: k, value: sum(list, c => c._pipe), n: list.length,
+                      note: `${list.length} accounts` }))
+    .sort((a, b) => b.value - a.value).slice(0, 10);
+  chartHBar(c2.body, indRows, { yLabel: 'Open pipeline ' + CFG.currency, xLabel: 'Industry' });
+  g.appendChild(c2.node);
+  root.appendChild(g);
+
   dataTable(root, {
-    key: 'companies', noun: 'companies', rows, defaultSort: 4, defaultDir: -1,
+    key: 'companies', noun: 'companies', rows, defaultSort: 5, defaultDir: -1,
     cols: [
       { h: 'Company', v: c => c.name, r: c =>
           `<div style="display:flex;align-items:center;gap:9px;min-width:0">${logoHTML(c, 26)}
              <div style="min-width:0">
                <div class="cellmain" style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name || 'Unnamed')}</div>
-               ${c.domain ? `<div class="cellsub">${esc(c.domain)}</div>` : ''}
+               ${c.domain ? `<div class="cellsub">${esc(c.domain)}</div>` : '<div class="cellsub" style="color:var(--warning)">no domain</div>'}
              </div></div>` },
+      { h: 'Region', v: c => c._region || '', r: c => c._region
+          ? `<span class="tag">${esc(c._region)}</span>` : '<span class="cellsub">—</span>' },
       { h: 'Industry', v: c => c.industry || '', r: c => c.industry
           ? `<span class="tag">${esc(c.industry)}</span>` : '<span class="cellsub">—</span>' },
       { h: 'Location', v: c => [c.city, c.country].filter(Boolean).join(', '),
@@ -2787,7 +2960,6 @@ function viewCompanies(root) {
   });
 }
 
-/* -------------------------------------------------------- CONTACTS */
 function contactScope() {
   let rows = live('contacts');
   if (VIEW.rep !== 'all') rows = rows.filter(c => String(c.ownerId) === VIEW.rep);
@@ -3243,7 +3415,7 @@ function dealOverview(d) {
   w.appendChild(el('label', { class: 'fl', text: 'Sales stage' }));
   w.appendChild(step);
 
-  const t = el('div', { class: 'tiles', style: 'grid-template-columns:repeat(auto-fit,minmax(140px,1fr))' });
+  const t = el('div', { class: 'tiles', style: 'grid-template-columns:repeat(auto-fit,minmax(158px,1fr))' });
   t.appendChild(tile('Value', d.amount ? money(d.amount) : '—', { cur: !!d.amount }));
   t.appendChild(tile('Weighted', isOpen(d) ? money(weighted(d)) : '—', { cur: isOpen(d), foot: `${Math.round(stage(d.stageId).probability*100)}% probability` }));
   t.appendChild(tile('Age', d.createdAt ? days(TODAY(), d.createdAt) + ' days' : '—', { foot: d.createdAt ? 'created ' + fdate(d.createdAt, 'long') : '' }));
@@ -3674,6 +3846,7 @@ function openCompany(id) {
       { onclick: () => window.open('https://' + (cleanDomain(c.domain) || c.domain), '_blank', 'noopener') }) : null,
     [c.city, c.country].filter(Boolean).length
       ? mfact('Location', [c.city, c.country].filter(Boolean).join(', ')) : null,
+    regionOf(c) ? mfact('Region', regionOf(c)) : null,
     mfact('Account owner', ownerName(c.ownerId)),
     mfact('Open pipeline', CFG.currency + ' ' + money(sum(ds.filter(isOpen), d => d.amount), { dash: false }), { num: true })
   ], [ el('button', { class: 'btn', html: ico('edit',14) + ' Edit', onclick: () => editCompany(c) }) ]);
@@ -3683,7 +3856,7 @@ function openCompany(id) {
   const [bar, body] = tabbed([
     { label: 'Overview', render: () => {
         const w = el('div');
-        const t = el('div', { class: 'tiles', style: 'grid-template-columns:repeat(auto-fit,minmax(135px,1fr))' });
+        const t = el('div', { class: 'tiles', style: 'grid-template-columns:repeat(auto-fit,minmax(158px,1fr))' });
         t.appendChild(tile('Open pipeline', money(sum(ds.filter(isOpen), d => d.amount)), { cur: true, foot: ds.filter(isOpen).length + ' open deals' }));
         t.appendChild(tile('Won to date', money(sum(ds.filter(isWon), d => d.amount)), { cur: true, foot: ds.filter(isWon).length + ' deals won' }));
         t.appendChild(tile('Lost', money(sum(ds.filter(isLost), d => d.amount)), { cur: true, foot: ds.filter(isLost).length + ' deals lost' }));
@@ -3789,6 +3962,7 @@ function companyProfileCard(c) {
   card2.appendChild(clist);
 
   const ro = dl([
+    ['Region', regionOf(c) ? `<span class="tag">${esc(regionOf(c))}</span>` : '<span style="color:var(--ink-3)">set a country to place this account in a region</span>'],
     ['Lifecycle', c.lifecycleStage ? `<span class="tag info">${esc(c.lifecycleStage)}</span>` : '—'],
     ['Account type', esc(c.accountType || '—')],
     ['Created', c.createdAt ? esc(fdate(c.createdAt, 'long')) : '—'],
@@ -4159,8 +4333,10 @@ function editContact(c, pre) {
   const own = ownerSelect(c.ownerId);
   const cp = coPicker(c.companyId);
   const body = el('div');
-  body.appendChild(el('div', { class: 'field-row' }, [ fld('First name', f.firstName), fld('Last name', f.lastName) ]));
-  body.appendChild(el('div', { class: 'field-row' }, [ fld('Email', f.email), fld('Phone', f.phone) ]));
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-3);font-size:var(--fs-sm);line-height:1.55',
+    text: 'Name, email and phone are all required — a contact you cannot reach is one nobody can work.' }));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('First name *', f.firstName), fld('Last name *', f.lastName) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Email *', f.email), fld('Phone *', f.phone) ]));
   body.appendChild(fld('Job title', f.jobTitle));
   body.appendChild(fld('Company', cp.node));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('City', f.city), fld('Country', f.country) ]));
@@ -4172,10 +4348,31 @@ function editContact(c, pre) {
     el('div', { style: 'flex:1' }),
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
     el('button', { class: 'btn primary', text: isNew ? 'Create' : 'Save', onclick: () => {
+      /* A contact nobody can reach is a contact nobody works, so the four
+         fields that make one usable are required on the form. Records that
+         came in from HubSpot short of them are left alone until edited. */
+      const problems = [];
+      const mark = (node, bad) => node.style.borderColor = bad ? 'var(--critical)' : '';
+      const first = f.firstName.value.trim(), last = f.lastName.value.trim();
+      const email = f.email.value.trim(), phone = f.phone.value.trim();
+      mark(f.firstName, !first); if (!first) problems.push('first name');
+      mark(f.lastName, !last);   if (!last)  problems.push('last name');
+      const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+      mark(f.email, !emailOk);
+      if (!email) problems.push('email'); else if (!emailOk) problems.push('a valid email');
+      const phoneOk = phone.replace(/[^0-9]/g, '').length >= 7;
+      mark(f.phone, !phoneOk);
+      if (!phone) problems.push('phone'); else if (!phoneOk) problems.push('a usable phone number');
+      if (problems.length) {
+        const firstBad = [f.firstName, f.lastName, f.email, f.phone].find(n => n.style.borderColor);
+        if (firstBad) firstBad.focus();
+        return toast('Still needed: ' + problems.join(', '), 'err');
+      }
+      const dupe = live('contacts').find(x => x.id !== c.id && (x.email || '').toLowerCase() === email.toLowerCase());
+      if (dupe && isNew) { f.email.focus(); return toast(`${dupe.fullName || email} already uses that email`, 'err'); }
       Object.keys(f).forEach(k => c[k] = f[k].value.trim() || null);
       c.leadStatus = lead.value || null;
-      c.fullName = [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || null;
-      if (!c.fullName) { f.firstName.focus(); return toast('A contact needs a name or an email', 'err'); }
+      c.fullName = [c.firstName, c.lastName].filter(Boolean).join(' ');
       c.ownerId = own.value || null;
       c.companyId = cp.get() || pendingCo || c.companyId || null;
       const saved = upsert('contacts', c);
@@ -5657,6 +5854,7 @@ function render() {
     }
     root.scrollTop = name === VIEW.lastName ? scroll : 0;
     VIEW.lastName = name;
+    fitTiles(root);
   } finally { rendering = false; }
 }
 
@@ -5783,12 +5981,27 @@ document.addEventListener('click', e => {
   if (a) { e.preventDefault(); go(a.getAttribute('href').replace('#','')); }
 });
 
-/* version stamp: gate card, console, and the tab title */
+/* version stamp: gate card, the always-on badge, and the console */
 (function stampVersion() {
   const g = $('#gate-ver');
   if (g) g.textContent = `CoreV CRM v${CFG.version} · ${fdate(CFG.released, 'long')}`;
+  const v = $('#verbar');
+  if (v) v.textContent = `CoreV CRM v${CFG.version} · ${CFG.released}`;
   console.log(`%cCoreV CRM v${CFG.version}`, 'font-weight:700', '· released ' + CFG.released);
 })();
+
+/* nav rail: collapsed state is this person's preference, kept in this browser */
+const RAILKEY = CFG.cacheKey + '.rail';
+function setRail(on) {
+  $('#app').classList.toggle('rail', !!on);
+  const b = $('#railbtn');
+  if (b) { b.title = on ? 'Expand the menu' : 'Collapse the menu';
+    b.setAttribute('aria-label', b.title); }
+  try { localStorage.setItem(RAILKEY, on ? '1' : '0'); } catch (e) {}
+  if ($('#app').classList.contains('on')) render();
+}
+$('#railbtn').addEventListener('click', () => setRail(!$('#app').classList.contains('rail')));
+try { if (localStorage.getItem(RAILKEY) === '1') $('#app').classList.add('rail'); } catch (e) {}
 
 /* restore theme before anything paints */
 try {
