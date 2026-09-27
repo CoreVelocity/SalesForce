@@ -618,6 +618,22 @@ a.mfact:hover b{text-decoration:underline}
 .picklist .pick .nm{font-weight:600;font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .picklist .pick .sub{font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}
 
+/* device counts on the picked deals */
+.unitrows{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--sp-4)}
+.unitrow{display:flex;gap:var(--sp-2);align-items:center;padding:7px 10px;border-radius:var(--r-sm);
+  background:var(--surface-2);border:1px solid var(--line-soft)}
+.unitrow .nm{flex:1;min-width:0;font-size:var(--fs-sm);font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.unitrow .u{flex:none;display:flex;align-items:center;gap:5px;font-size:var(--fs-xs);color:var(--ink-3)}
+.unitrow .u input{width:62px;padding:4px 7px;text-align:right}
+@media (max-width:620px){.unitrow{flex-wrap:wrap}.unitrow .nm{flex:1 0 100%}}
+
+/* the monthly roll-up: a combined row that reads as a total */
+table.dt.rollup td{vertical-align:top}
+table.dt.rollup tr.tot{background:var(--surface-3)}
+table.dt.rollup tr.tot td{border-top:2px solid var(--line);font-weight:650}
+table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
+
 /* toast */
 #toasts{position:fixed;bottom:var(--sp-4);left:50%;transform:translateX(-50%);z-index:500;
   display:flex;flex-direction:column;gap:var(--sp-2);align-items:center;pointer-events:none}
@@ -732,7 +748,7 @@ a.mfact:hover b{text-decoration:underline}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -1120,6 +1136,107 @@ function stageColor(id) {
   const o = openStages(), i = o.findIndex(x => x.id === id);
   return `var(${seq[Math.min(Math.max(i,0), seq.length-1)]})`;
 }
+/* ================================================================
+   ACCESS — three roles. This is a UI and write-path guard, not a
+   security boundary: anyone with write access to the shared OneDrive
+   folder can edit the JSON directly. It stops accidents and keeps the
+   catalogue, stages and team list in one pair of hands.
+   ================================================================ */
+const ROLES = [
+  ['admin', 'Admin',     'Everything, including Settings — the team, roles, regions, stages, products, fields and targets'],
+  ['write', 'Sales rep', 'Can create and edit deals, contacts, companies, tasks and commitments'],
+  ['read',  'Read only', 'Can see everything and export, but change nothing']
+];
+/* older records said rep / manager / viewer */
+const ROLE_MAP = { admin:'admin', manager:'write', rep:'write', write:'write', read:'read', viewer:'read' };
+const roleLabel = r => (ROLES.find(x => x[0] === (ROLE_MAP[r] || 'write')) || ROLES[1])[1];
+
+/* Who the signed-in person is, matched on their Microsoft address and
+   then their name. Deliberately NOT currentOwnerId(), which falls back to
+   the first admin so that "New deal" has a sensible owner — using that
+   here would hand admin to anyone whose email is not on the team list. */
+function meOwner() {
+  if (!AUTH.user) return null;
+  const mail = String(AUTH.user.username || '').toLowerCase();
+  const nm   = String(AUTH.user.name || '').toLowerCase();
+  return DB.owners.find(o => (o.email || '').toLowerCase() === mail && mail) ||
+         DB.owners.find(o => (o.name  || '').toLowerCase() === nm   && nm) || null;
+}
+/* An admin nobody can sign in as is not an admin. Every record migrated out
+   of HubSpot came across without an email, so until at least one admin has
+   one, matching a sign-in to a person is guesswork — and locking everyone
+   out of Settings on a guess would leave no way back in. So roles only bite
+   once an admin is actually reachable by email. */
+const reachableAdmin = () => DB.owners.some(o => (ROLE_MAP[o.role] || '') === 'admin' &&
+  o.active !== false && String(o.email || '').includes('@'));
+const rolesArmed = () => !!AUTH.user && reachableAdmin();
+function myRole() {
+  if (!DB.owners.length) return 'admin';              // first run — someone has to add the team
+  if (!AUTH.user) return 'admin';                     // demo / local mode on this machine only
+  const me = meOwner();
+  if (me) return me.active === false ? 'read' : (ROLE_MAP[me.role] || 'write');
+  return reachableAdmin() ? 'read' : 'admin';         // signed in but matched to nobody
+}
+const isAdmin = () => myRole() === 'admin';
+const isReadOnly = () => myRole() === 'read';
+
+/* Writes that are not the person's doing — migrations, the seed import,
+   the sync merge — must go through whatever the role is. */
+let SYS = 0;
+function sysWrite(fn) { SYS++; try { return fn(); } finally { SYS--; } }
+let _roWarned = 0;
+function canWrite(quiet) {
+  if (SYS || !isReadOnly()) return true;
+  if (!quiet && Date.now() - _roWarned > 4000) {
+    _roWarned = Date.now();
+    if (typeof toast === 'function') toast('You have read-only access. Ask an admin to change your role in Settings.', 'err');
+  }
+  return false;
+}
+
+/* ---- sales regions: which team a rep sits in, for the monthly review ---- */
+const DEFAULT_SALES_REGIONS = ['Dubai', 'Abu Dhabi', 'International'];
+const salesRegions = () => (DB.config.salesRegions && DB.config.salesRegions.length)
+  ? DB.config.salesRegions.slice() : DEFAULT_SALES_REGIONS.slice();
+const UNASSIGNED_REGION = 'Unassigned';
+function ownerRegion(id) {
+  const o = DB.owners.find(x => x.id === String(id));
+  const r = o && o.salesRegion;
+  return (r && salesRegions().includes(r)) ? r : UNASSIGNED_REGION;
+}
+/* Every region that has someone in it, in the configured order, with
+   Unassigned last so nobody's numbers quietly vanish from the roll-up. */
+function regionsInPlay(owners) {
+  const list = owners || activeOwners();
+  const have = new Set(list.map(o => ownerRegion(o.id)));
+  const out = salesRegions().filter(r => have.has(r));
+  if (have.has(UNASSIGNED_REGION)) out.push(UNASSIGNED_REGION);
+  return out;
+}
+
+/* ---- months, and the weeks that make one up ---- */
+const monthKey = d => String(d || TODAY()).slice(0, 7);
+function monthShift(mk, n) {
+  const y = +mk.slice(0,4), m = +mk.slice(5,7) - 1 + n;
+  const d = new Date(Date.UTC(y, m, 1));
+  return d.toISOString().slice(0, 7);
+}
+const monthLabel = mk => `${MON[+mk.slice(5,7) - 1]} ${mk.slice(0,4)}`;
+const MONTH_FULL = ['January','February','March','April','May','June',
+  'July','August','September','October','November','December'];
+const monthLongLabel = mk => `${MONTH_FULL[+mk.slice(5,7) - 1]} ${mk.slice(0,4)}`;
+/* Every ISO week touching the month — so September 2026 is W1 31 Aug–06 Sep
+   through W5 28 Sep–04 Oct, matching how the team already counts weeks. */
+function weeksOfMonth(mk) {
+  const b = mBounds(mk + '-01');
+  const end = weekKey(b.to);
+  const out = [];
+  let k = weekKey(b.from);
+  for (let i = 0; i < 6; i++) { out.push(k); if (k === end) break; k = weekShift(k, 1); }
+  return out;
+}
+const weekOfMonthLabel = (mk, wk) => 'W' + (weeksOfMonth(mk).indexOf(wk) + 1);
+
 const ownerName = id => (DB.owners.find(o => o.id === String(id)) || {}).name || 'Unassigned';
 const activeOwners = () => DB.owners.filter(o => o.active).sort((a,b) => a.name.localeCompare(b.name));
 
@@ -1184,6 +1301,7 @@ function batch(fn) {
 }
 
 function upsert(shard, rec) {
+  if (!canWrite()) return rec;
   if (!rec.id) rec.id = uid(shard[0].toUpperCase());
   stamp(rec);
   const arr = DB[shard];
@@ -1199,6 +1317,7 @@ function upsert(shard, rec) {
   return out;
 }
 function remove(shard, id) {
+  if (!canWrite()) return;
   const arr = DB[shard], i = arr.findIndex(r => r.id === id);
   if (i < 0) return;
   arr[i]._del = true; stamp(arr[i]);
@@ -2036,7 +2155,7 @@ const VIEW = {
   contactView: 'list',
   stageFilter: null,
   sort: {}, page: {}, tableFilter: {},
-  week: weekKey()
+  week: weekKey(), month: monthKey(), monthWeek: null, monthRegion: null
 };
 const NAV = [
   { g: 'Sell' },
@@ -2050,12 +2169,14 @@ const NAV = [
   { id: 'contacts',  label: 'Contacts',  icon: 'user',  count: () => live('contacts').length },
   { g: 'Manage' },
   { id: 'review',    label: 'Commitment review', icon: 'flag' },
+  { id: 'monthly',   label: 'Monthly review', icon: 'cal' },
   { id: 'forecast',  label: 'Forecast & analytics', icon: 'chart' },
-  { id: 'settings',  label: 'Settings',  icon: 'cog' }
+  { id: 'settings',  label: 'Settings',  icon: 'cog', admin: true }
 ];
 function renderNav() {
   const n = $('#nav'); n.innerHTML = '';
   NAV.forEach(item => {
+    if (item.admin && !isAdmin()) return;
     if (item.g) { n.appendChild(el('div', { class: 'grp', text: item.g })); return; }
     let c = null;
     try { c = item.count ? item.count() : null; } catch (e) {}
@@ -2083,6 +2204,11 @@ function renderNav() {
   ]));
   f.appendChild(el('div', { class: 'row', style: 'margin-top:6px;opacity:.75', text:
     (AUTH.user ? AUTH.user.name || AUTH.user.username : 'Local session') }));
+  const rr = myRole();
+  f.appendChild(el('div', { class: 'row', style: 'margin-top:6px' }, [
+    el('span', { class: 'tag ' + (rr === 'admin' ? 'info' : rr === 'read' ? 'warn' : ''),
+      title: (ROLES.find(x => x[0] === rr) || [])[2] || '', text: roleLabel(rr) })
+  ]));
   f.appendChild(el('div', { class: 'row mono', style: 'margin-top:6px;opacity:.6;letter-spacing:.04em',
     text: 'v' + CFG.version, title: 'CoreV CRM v' + CFG.version + ' · released ' + CFG.released }));
   n.appendChild(f);
@@ -2101,13 +2227,54 @@ addEventListener('hashchange', () => {
 });
 
 /* ------------------------------------------------------- scoping */
+/* The period filter. Grouped so a long list stays readable, and every
+   option resolves to real dates — the labels weeks and months carry are the
+   concrete range, not "this week", because a target is stored against the
+   label and a moving label would attach to whichever week happened to be
+   current when it was typed. */
+const PERIODS = [
+  ['Weeks', [
+    ['w-1', 'Last week'], ['w0', 'This week'], ['w1', 'Next week'],
+    ['w2', 'In 2 weeks'], ['w3', 'In 3 weeks'], ['wn4', 'Next 4 weeks']
+  ]],
+  ['Months', [
+    ['m-1', 'Last month'], ['m0', 'This month'], ['m1', 'Next month'], ['mn3', 'Next 3 months']
+  ]],
+  ['Longer', [
+    ['q', 'This quarter'], ['fy', 'Fiscal year'], ['all', 'All time']
+  ]]
+];
+const periodName = v => {
+  for (const [, list] of PERIODS) { const hit = list.find(x => x[0] === v); if (hit) return hit[1]; }
+  return 'This fiscal year';
+};
 function periodBounds(which) {
   const p = which || VIEW.period;
-  if (p === 'fy') return fyBounds();
-  if (p === 'q')  return qBounds();
-  if (p === 'm')  return mBounds();
-  return { from: '1900-01-01', to: '2999-12-31', label: 'All time' };
+  if (p === 'fy') return Object.assign(fyBounds(), { grain: 'year' });
+  if (p === 'q')  return Object.assign(qBounds(), { grain: 'quarter' });
+  if (p === 'm' || p === 'm0') return Object.assign(mBounds(), { grain: 'month' });
+  let m;
+  if ((m = /^w(-?\d+)$/.exec(p))) {
+    const k = weekShift(weekKey(), +m[1]), r = weekRange(k);
+    return { from: r.from, to: r.to, label: weekLabel(k), week: k, grain: 'week' };
+  }
+  if ((m = /^wn(\d+)$/.exec(p))) {
+    const r = weekRange(weekKey()), to = weekRange(weekShift(weekKey(), +m[1] - 1)).to;
+    return { from: r.from, to, label: `${fdate(r.from)} – ${fdate(to)}`, grain: 'week' };
+  }
+  if ((m = /^m(-?\d+)$/.exec(p))) {
+    const b = mBounds(monthShift(monthKey(), +m[1]) + '-01');
+    return Object.assign(b, { grain: 'month' });
+  }
+  if ((m = /^mn(\d+)$/.exec(p))) {
+    const a = mBounds(), z = mBounds(monthShift(monthKey(), +m[1] - 1) + '-01');
+    return { from: a.from, to: z.to, label: `${a.label} – ${z.label}`, grain: 'month' };
+  }
+  return { from: '1900-01-01', to: '2999-12-31', label: 'All time', grain: 'all' };
 }
+/* Targets are stored against the period label, so they only make sense for a
+   period that names itself the same way every time you look at it. */
+const targetablePeriod = b => b.grain !== 'week' && b.label !== 'All time';
 const inPeriod = (d, b) => d && dnum(d) >= dnum(b.from) && dnum(d) <= dnum(b.to);
 /* Visibility follows worksOn, so a collaborator sees the deal under their own
    filter. Revenue attribution below always uses ownedBy, so nothing is counted
@@ -2129,6 +2296,11 @@ function repOptions(allLabel) {
     activeOwners().map(o => `<option value="${esc(o.id)}"${VIEW.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
 }
 function renderTopControls() {
+  /* Read-only people keep every filter and every view; what goes away is the
+     way in to creating something. The write guard in the store is the real
+     stop — this just keeps dead buttons off the screen. */
+  const nb = $('#newbtn');
+  if (nb) nb.style.display = isReadOnly() ? 'none' : '';
   const s = $('#repfilter');
   // a filter left pointing at someone who has since gone inactive falls back to all
   if (VIEW.rep !== 'all' && !activeOwners().some(o => o.id === VIEW.rep)) VIEW.rep = 'all';
@@ -2137,12 +2309,21 @@ function renderTopControls() {
 }
 function periodSeg(key) {
   key = key || 'period';
-  const seg = el('div', { class: 'seg' });
-  [['m','This month'],['q','Quarter'],['fy','Fiscal year'],['all','All time']].forEach(([v, l]) => {
-    seg.appendChild(el('button', { class: VIEW[key] === v ? 'on' : '', text: l,
-      onclick: () => { VIEW[key] = v; render(); } }));
+  const cur = VIEW[key];
+  const sel = el('select', { class: 'inp', style: 'width:auto;min-width:172px',
+    'aria-label': 'Period', onchange: e => { VIEW[key] = e.target.value; VIEW.page = {}; render(); } });
+  PERIODS.forEach(([grp, list]) => {
+    const og = el('optgroup', { label: grp });
+    list.forEach(([v, l]) => og.appendChild(el('option', { value: v, text: l,
+      selected: cur === v || (v === 'm0' && cur === 'm') || null })));
+    sel.appendChild(og);
   });
-  return seg;
+  const b = periodBounds(cur);
+  const wrap = el('div', { style: 'display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap' });
+  wrap.appendChild(sel);
+  if (b.label !== 'All time') wrap.appendChild(el('span', { class: 'sub mono',
+    style: 'white-space:nowrap', text: b.label }));
+  return wrap;
 }
 function viewHead(title, right) {
   const h = el('div', { style: 'display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-4)' });
@@ -2185,8 +2366,10 @@ function viewDashboard(root) {
 
   root.appendChild(viewHead(null, [
     periodSeg(),
-    el('button', { class: 'btn', html: ico('cog',14) + ' Customize', onclick: customizeDash })
+    isReadOnly() ? null : el('button', { class: 'btn', html: ico('cog',14) + ' Customize', onclick: customizeDash })
   ]));
+  const rb = rolesBanner();
+  if (rb) root.appendChild(rb);
   const ob = overdueBanner();
   if (ob) root.appendChild(ob);
   const order = widgetOrder().filter(id => !widgetOff().includes(id));
@@ -2429,6 +2612,21 @@ function overdueDeals(rep, o) {
     isOpen(d) && d.closeDate && dnum(d.closeDate) < t && match(d, who))
     .sort((a, b) => dnum(a.closeDate) - dnum(b.closeDate));
 }
+/* Roles cannot be enforced until an admin is reachable by email, and that is
+   worth saying out loud rather than leaving everyone quietly at full access. */
+function rolesBanner() {
+  if (!AUTH.user || reachableAdmin() || !DB.owners.length) return null;
+  const noMail = DB.owners.filter(o => o.active !== false && !String(o.email || '').includes('@')).length;
+  const n = el('div', { class: 'alert' });
+  n.appendChild(el('span', { class: 'ic', html: ico('warn',18) }));
+  n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html:
+    `<b>Read / write / admin is not being enforced yet</b> — every record came out of HubSpot without an email address, ` +
+    `so a sign-in cannot be matched to a person. ${noMail} active ${noMail === 1 ? 'person has' : 'people have'} no email on file. ` +
+    `Put the Microsoft address on each person in Settings, starting with the admin, and roles take effect from that moment. ` +
+    `Until then everyone who signs in has full access.` }));
+  n.appendChild(el('button', { class: 'btn sm', text: 'Open the team list', onclick: () => go('settings') }));
+  return n;
+}
 function overdueBanner() {
   const od = overdueDeals();
   if (!od.length) return null;
@@ -2670,7 +2868,7 @@ function kcard(d, s) {
   const co = getCo(d.companyId);
   const late = d.closeDate && dnum(d.closeDate) < dnum(TODAY());
   const soon = d.closeDate && !late && days(d.closeDate, TODAY()) <= 14;
-  const n = el('div', { class: 'kcard', draggable: 'true', style: `--stage:${stageColor(s.id)}` });
+  const n = el('div', { class: 'kcard', draggable: isReadOnly() ? null : 'true', style: `--stage:${stageColor(s.id)}` });
   n.innerHTML =
     `<span class="n" title="${esc(d.name)}">${esc(d.name)}</span>
      <div class="m">
@@ -3204,7 +3402,7 @@ function contactBoard(root, scoped) {
 }
 function contactCard(c) {
   const co = getCo(c.companyId);
-  const n = el('div', { class: 'ccard', draggable: 'true',
+  const n = el('div', { class: 'ccard', draggable: isReadOnly() ? null : 'true',
     style: `--st:${c.leadStatus ? leadColor(c.leadStatus) : 'var(--ink-3)'}` });
   n.appendChild(el('span', { class: 'n', text: c.fullName || c.email || '—', title: c.fullName || c.email || '' }));
   const m = el('div', { class: 'm' });
@@ -4577,13 +4775,7 @@ const doSearch = debounce(() => {
    that drives a deal's value.
    ================================================================ */
 
-/* Role gate. This is a UI guard, not a security boundary: anyone with write
-   access to the shared OneDrive folder can edit the JSON directly. It keeps
-   reps out of the catalogue by accident, nothing more. */
-function isAdmin() {
-  const me = DB.owners.find(o => o.id === currentOwnerId());
-  return !me || me.role === 'admin' || me.role === 'manager';
-}
+/* isAdmin() / canWrite() live in the store, beside the role model. */
 
 /* -------------------------------------------------- catalogue admin */
 function productsCard() {
@@ -4983,10 +5175,23 @@ const CONF_LEVELS = [90, 70, 50, 30];
 const staleDays = p => p >= .6 ? 30 : p >= .4 ? 21 : 14;
 const STALE_PENALTY = 0.5;
 
+/* The monthly review asks "when did this last move?" of a few hundred deals
+   per render. Scanning the whole activity log each time is one pass too many,
+   so it is folded into a map once and reused until the log grows. */
+let _SINCE = null, _SINCE_N = -1;
+function stageSinceMap() {
+  if (_SINCE && _SINCE_N === DB.activities.length) return _SINCE;
+  const m = new Map();
+  DB.activities.forEach(a => {
+    if (a._del || a.kind !== 'stage' || !a.dealId || !a.at) return;
+    const day = String(a.at).slice(0, 10), cur = m.get(a.dealId);
+    if (!cur || day > cur) m.set(a.dealId, day);
+  });
+  _SINCE = m; _SINCE_N = DB.activities.length;
+  return m;
+}
 function stageSince(d) {
-  const a = DB.activities.filter(x => !x._del && x.dealId === d.id && x.kind === 'stage' && x.at)
-    .sort((p, q) => (q.at || '').localeCompare(p.at || ''))[0];
-  return (a && String(a.at).slice(0, 10)) || d.stageChangedAt || d.createdAt || null;
+  return stageSinceMap().get(d.id) || d.stageChangedAt || d.createdAt || null;
 }
 function daysInStage(d) {
   const s = stageSince(d);
@@ -4998,6 +5203,34 @@ function isStale(d) {
   const n = daysInStage(d);
   return n != null && n > staleDays(stage(d.stageId).probability);
 }
+
+/* ---- device counts on a commitment ------------------------------------
+   The tracker asked each rep for forecast XS1 / XP1 units alongside the
+   money. Here the counts hang off the individual commitment, and they are
+   pre-filled from the deal's own estimate when it has one — the product
+   lines are matched on the SKU prefix, so XS1-PEAKPLUS ×2 reads as 2 XS1.
+   A rep can still type over it; a typed value wins and is remembered. */
+const DEFAULT_UNIT_LINES = ['XS1', 'XP1'];
+const unitLines = () => (DB.config.unitLines && DB.config.unitLines.length)
+  ? DB.config.unitLines.slice() : DEFAULT_UNIT_LINES.slice();
+function autoUnits(d) {
+  const out = {};
+  if (!d) return out;
+  unitLines().forEach(L => {
+    const up = L.toUpperCase();
+    const n = sum((d.items || []).filter(it => String(it.sku || '').toUpperCase().startsWith(up)),
+      it => Number(it.qty) || 0);
+    if (n) out[L] = n;
+  });
+  return out;
+}
+function unitsOf(c) {
+  if (c && c.units && typeof c.units === 'object' && Object.keys(c.units).length) return c.units;
+  return autoUnits(c && getDl(c.dealId));
+}
+const unitTotal = (recs, line) => sum(recs, c => Number(unitsOf(c)[line]) || 0);
+const unitSummary = recs => unitLines().map(L => [L, unitTotal(recs, L)]).filter(([, n]) => n);
+const unitText = recs => unitSummary(recs).map(([L, n]) => `${n} ${L}`).join(' · ');
 
 /* ---- commitments: one record per deal, per rep, per week, per slot ---- */
 const slotOf = c => c.slot === 'best' ? 'best' : 'commit';
@@ -5055,8 +5288,13 @@ function repWeek(o, wk, rng) {
   const pipeline = sum(openD, d => d.amount);
   const target = repTarget(o.id, mBounds(rng.to));
 
+  const units = {};
+  unitLines().forEach(L => { const n = unitTotal(cRecs, L) + unitTotal(bRecs, L); if (n) units[L] = n; });
+  const commitUnits = {};
+  unitLines().forEach(L => { const n = unitTotal(cRecs, L); if (n) commitUnits[L] = n; });
+
   const denom = Math.max(forecast, wonVal);
-  return { o, r, wk, rng,
+  return { o, r, wk, rng, units, commitUnits,
     cRecs, bRecs, commitDeals, bestDeals, commitVal, bestVal,
     topProb, stale, penalty, forecast, sigOn, score, tier,
     openD, won, lost, wonVal, lostVal, pipeline,
@@ -5118,6 +5356,12 @@ function viewReview(root) {
   t.appendChild(tile('Closed won in week', money(wonVal), { cur: true, icon: 'bolt',
     foot: target ? `${pct(wonVal, target)}% of the ${fdate(rng.to,'month')} target` : `${sum(W, x => x.won.length)} won · ${sum(W, x => x.lost.length)} lost`,
     meter: target ? pct(wonVal, target) : null }));
+  if (unitLines().length) {
+    const allRecs = W.reduce((a, x) => a.concat(x.cRecs, x.bRecs), []);
+    const us = unitSummary(allRecs);
+    t.appendChild(tile('Devices committed', us.length ? us.map(([, n]) => n).reduce((a, b) => a + b, 0) : '0',
+      { icon: 'board', foot: us.length ? us.map(([L, n]) => `${n} ${L}`).join(' · ') : 'no device counts entered' }));
+  }
   t.appendChild(tile('Open pipeline', money(pipeline), { cur: true, icon: 'grid',
     foot: target ? `${(pipeline / target).toFixed(1)}× coverage of target` : `${sum(W, x => x.openD.length)} open deals`,
     onclick: () => go('pipeline') }));
@@ -5156,6 +5400,9 @@ function viewReview(root) {
       { h: 'Coverage', num: true, v: x => x.coverage || 0,
         r: x => x.coverage == null ? '<span class="cellsub">no target</span>'
               : `<span class="tag ${covTag(x.coverage)}">${x.coverage.toFixed(1)}×</span>` },
+      { h: 'Devices', num: true, v: x => unitLines().reduce((t, L) => t + (x.units[L] || 0), 0),
+        r: x => { const n = unitLines().filter(L => x.units[L]);
+          return n.length ? n.map(L => `${x.units[L]} ${esc(L)}`).join('<br>') : '<span class="cellsub">—</span>'; } },
       { h: 'Score', num: true, v: x => x.score,
         r: x => `<span class="tag ${x.tier === 'hot' ? 'good' : x.tier === 'warm' ? 'warn' : 'bad'}">${x.score}</span>` +
                 `<div class="cellsub">${x.sigOn}/${SIGNALS.length} signals</div>` }
@@ -5254,6 +5501,9 @@ function repReviewCard(x) {
     ? `${Math.round(x.topProb * 100)}%${x.stale ? ` <span class="tag bad">stale ×0.5</span>` : ''}`
     : '<span style="color:var(--ink-3)">—</span>');
   add('Weighted forecast', `${CFG.currency} ${money(x.forecast, { dash: false })}`);
+  if (unitLines().length) add('Devices', Object.keys(x.units).length
+    ? unitLines().filter(L => x.units[L]).map(L => `${x.units[L]} ${esc(L)}`).join(' · ')
+    : '<span style="color:var(--ink-3)">none counted</span>');
   add('Won this week',  `<span style="color:var(--good-ink)">${CFG.currency} ${money(x.wonVal, { dash: false })}</span>`);
   add('Lost this week', `<span style="color:var(--critical-ink)">${CFG.currency} ${money(x.lostVal, { dash: false })}</span>`);
   bd.appendChild(kv);
@@ -5300,7 +5550,10 @@ function repReviewCard(x) {
            <span class="mono" style="color:var(--ink-3)"> · ${CFG.currency} ${money(commitValue(c), { dash: false })}</span>
            ${d ? ` <span class="tag ${state}">${esc(stage(d.stageId).label)}</span>` : ''}
            ${stale ? ` <span class="tag bad" title="No stage movement in ${age} days">${age}d in stage</span>` : ''}
+           ${unitText([c]) ? ` <span class="tag info">${esc(unitText([c]))}</span>` : ''}
            ${c.note ? `<div style="color:var(--ink-3);margin-top:3px">${esc(c.note)}</div>` : ''}` }),
+        locked ? null : el('button', { html: ico('grid',12), title: 'Devices on this commitment',
+          onclick: () => editUnits(c) }),
         locked ? null : el('button', { html: ico('x',12), 'aria-label': 'Remove',
           onclick: () => { remove('commitments', c.id); render(); } })
       ].filter(Boolean)));
@@ -5392,6 +5645,37 @@ function repReviewCard(x) {
   return n;
 }
 
+/* Devices on one commitment, after the fact. */
+function editUnits(c) {
+  const d = getDl(c.dealId);
+  const cur = unitsOf(c);
+  const ins = {};
+  const rows = el('div', { class: 'field-row' });
+  unitLines().forEach(L => {
+    ins[L] = el('input', { class: 'inp', type: 'number', min: '0', step: '1',
+      value: cur[L] != null ? cur[L] : '', placeholder: '0' });
+    rows.appendChild(fld(L + ' units', ins[L]));
+  });
+  const auto = autoUnits(d);
+  modal('Devices — ' + (d ? d.name : 'commitment'), el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
+      html: Object.keys(auto).length
+        ? `The estimate on this deal adds up to <b>${esc(unitLines().filter(L => auto[L]).map(L => auto[L] + ' ' + L).join(' · '))}</b>. Leave a box empty to keep following the estimate.`
+        : 'This deal has no product lines yet, so nothing can be counted automatically — type the device counts in.' }),
+    rows
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      const u = {};
+      unitLines().forEach(L => { const v = ins[L].value;
+        if (v !== '') u[L] = Math.max(0, Number(v) || 0); });
+      c.units = Object.keys(u).length ? u : null;
+      upsert('commitments', c);
+      closeAll(); render(); toast('Devices saved', 'ok');
+    } })
+  ]);
+}
+
 function addReviewItem(r, key, label, ph) {
   const ta = el('textarea', { class: 'inp', rows: 3, placeholder: ph });
   modal('Add to ' + label.toLowerCase() + ' — ' + ownerName(r.ownerId), el('div', {}, [ fld(label, ta) ]), [
@@ -5422,7 +5706,8 @@ function addCommitment(wk, ownerId, slot) {
   function paintSeg() { Array.from(seg.children).forEach((b, i) => b.classList.toggle('on', ['commit','best'][i] === sl)); }
 
   const q = el('input', { class: 'inp', placeholder: 'Search open deals…', oninput: () => paint() });
-  let lastFocus = null;
+  const units = new Map();          // dealId -> { XS1: n, ... } as typed here
+  const unitHost = el('div');
   const note = el('input', { class: 'inp', placeholder: 'What has to happen for these to land?' });
   const list = el('div', { class: 'picklist' });
   const bar = el('div', { class: 'picksum' });
@@ -5453,7 +5738,8 @@ function addCommitment(wk, ownerId, slot) {
         onchange: e => {
           e.target.checked ? picked.add(d.id) : picked.delete(d.id);
           row.classList.toggle('on', e.target.checked);
-          lastFocus = d.id; updateSum();
+          if (!e.target.checked) units.delete(d.id);
+          updateSum(); paintUnits();
         } }));
       row.appendChild(el('div', { style: 'flex:1;min-width:0', html:
         `<div class="nm">${esc(d.name)}</div>
@@ -5468,6 +5754,34 @@ function addCommitment(wk, ownerId, slot) {
     });
     updateSum();
   }
+  /* Device counts for the ticked deals, seeded from each deal's estimate. */
+  function paintUnits() {
+    unitHost.innerHTML = '';
+    const ids = Array.from(picked);
+    if (!ids.length || !unitLines().length) return;
+    unitHost.appendChild(el('label', { class: 'fl', text: 'Devices committed' }));
+    unitHost.appendChild(el('p', { class: 'sub', style: 'margin:0 0 8px;line-height:1.55',
+      text: 'Pre-filled from each deal\u2019s estimate where there is one. Type over anything that is wrong.' }));
+    const wrap = el('div', { class: 'unitrows' });
+    ids.forEach(id => {
+      const d = getDl(id); if (!d) return;
+      const cur = units.get(id) || autoUnits(d);
+      const row = el('div', { class: 'unitrow' });
+      row.appendChild(el('div', { class: 'nm', title: d.name, text: d.name }));
+      unitLines().forEach(L => {
+        const inp = el('input', { class: 'inp', type: 'number', min: '0', step: '1',
+          value: cur[L] != null ? cur[L] : '', placeholder: '0', 'aria-label': `${L} units for ${d.name}`,
+          oninput: e => {
+            const o = Object.assign({}, units.get(id) || autoUnits(d));
+            if (e.target.value === '') delete o[L]; else o[L] = Math.max(0, Number(e.target.value) || 0);
+            units.set(id, o);
+          } });
+        row.appendChild(el('label', { class: 'u' }, [ el('span', { text: L }), inp ]));
+      });
+      wrap.appendChild(row);
+    });
+    unitHost.appendChild(wrap);
+  }
   function updateSum() {
     const tot = sum(Array.from(picked), id => (getDl(id) || {}).amount || 0);
     bar.innerHTML = `<b>${picked.size}</b> selected · <span class="mono">${CFG.currency} ${money(tot, { dash: false })}</span>` +
@@ -5476,14 +5790,14 @@ function addCommitment(wk, ownerId, slot) {
     if (go) { go.disabled = !picked.size; go.textContent = picked.size
       ? `Add ${picked.size} to ${SLOTS[sl].toLowerCase()}` : 'Add to ' + SLOTS[sl].toLowerCase(); }
   }
-  paint();
+  paint(); paintUnits();
 
   modal(`Commit deals for ${weekLabel(wk)}`, el('div', {}, [
     el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
       html: '<b>Commit</b> is what the rep is personally standing behind this week. <b>Best case</b> is what could land if everything breaks right. The weighted forecast is built from both.' }),
     el('div', { class: 'field-row' }, [ fld('Rep', own), fld('Slot', seg) ]),
     fld('Find deals', q),
-    bar, list,
+    bar, list, unitHost,
     fld('Note', note, 'Applied to every deal picked here.')
   ]), [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
@@ -5493,8 +5807,10 @@ function addCommitment(wk, ownerId, slot) {
       const txt = note.value.trim() || null;
       batch(() => Array.from(picked).forEach(id => {
         const d = getDl(id); if (!d) return;
+        const u = units.get(d.id) || autoUnits(d);
         upsert('commitments', { week: wk, dealId: d.id, ownerId: d.ownerId, slot: sl,
-          amount: d.amount || 0, note: txt, stageAt: d.stageId });
+          amount: d.amount || 0, note: txt, stageAt: d.stageId,
+          units: Object.keys(u).length ? u : null });
         logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'commit',
           html: `Picked <b>${esc(d.name)}</b> as <b>${esc(SLOTS[sl].toLowerCase())}</b> for ${esc(weekLabel(wk))}` });
       }));
@@ -5530,6 +5846,7 @@ function exportReview(wk) {
     L.push(`- Pipeline ${m(x.pipeline)} · Won ${m(x.wonVal)} · Lost ${m(x.lostVal)}`);
     L.push(`- Accuracy ${x.accuracy == null ? '—' : Math.round(x.accuracy*100) + '%'} · Commit variance ${x.variance == null ? '—' : signed(x.variance)} · Attainment ${x.attain == null ? 'no target' : Math.round(x.attain*100) + '%'} · Coverage ${x.coverage == null ? 'no target' : x.coverage.toFixed(1) + '×'}`);
     L.push(`- Buyer signals ${x.sigOn}/${SIGNALS.length} (${SIGNALS.filter(([k]) => (r.signals||{})[k]).map(([,l]) => l).join(', ') || 'none ticked'}) · score ${x.score} ${x.tier}`);
+    if (Object.keys(x.units).length) L.push(`- Devices: ${unitLines().filter(k => x.units[k]).map(k => `${x.units[k]} ${k}`).join(' · ')}`);
     if (r.confidence) L.push(`- Confidence: ${r.confidence}%`);
     if (r.action)  L.push(`- Next action: ${r.action}`);
     if (r.blocked) L.push(`- Blocker: ${r.blocked}`);
@@ -5539,7 +5856,8 @@ function exportReview(wk) {
       recs.forEach(c => { const d = getDl(c.dealId);
         L.push(`- ${d ? d.name : (c.note || 'commitment')} — ${m(commitValue(c))}${
           d ? ` — ${stage(d.stageId).label}${isWon(d) ? ' · WON' : isLost(d) ? ' · LOST' : ''}` : ''}${
-          d && isStale(d) ? ` — stale, ${daysInStage(d)}d in stage` : ''}${c.note ? ` — ${c.note}` : ''}`); });
+          d && isStale(d) ? ` — stale, ${daysInStage(d)}d in stage` : ''}${
+          unitText([c]) ? ` — ${unitText([c])}` : ''}${c.note ? ` — ${c.note}` : ''}`); });
     });
     if (x.lost.length) { L.push('', '**Lost, and why**');
       x.lost.forEach(d => L.push(`- ${d.name} — ${m(d.amount)} — ${d.lossReason || 'reason not recorded'}${d.lostTo ? ` (to ${d.lostTo})` : ''}`)); }
@@ -5592,9 +5910,23 @@ function viewForecast(root) {
     foot: target ? `${pct(sum(won, d => d.amount), target)}% of ${CFG.currency} ${money(target, {compact:true})}` : `${won.length} deals`,
     meter: target ? pct(sum(won, d => d.amount), target) : null }));
   const gap = target - sum(won, d => d.amount);
+  /* A target is stored against the period label, so the tile says which
+     period this one belongs to and offers the way to set it — "where is
+     that 1.5M coming from" should be answerable from the tile itself. */
   t.appendChild(tile('Gap to target', target ? money(Math.max(0, gap)) : '—', { cur: !!target, icon: 'bolt',
-    foot: target ? (gap <= 0 ? 'target met' : `coverage ${(sum(openD.filter(d => inPeriod(d.closeDate,b)), d=>d.amount) / Math.max(gap,1)).toFixed(1)}×`) : 'set a target in Settings' }));
+    footHtml: true,
+    foot: target
+      ? `${gap <= 0 ? 'target met' : `coverage ${(sum(openD.filter(d => inPeriod(d.closeDate,b)), d=>d.amount) / Math.max(gap,1)).toFixed(1)}×`} · target ${CFG.currency} ${money(target, {compact:true})} for ${esc(b.label)}`
+      : targetablePeriod(b)
+        ? (isAdmin() ? `no target for ${esc(b.label)} — click to set one` : `no target set for ${esc(b.label)}`)
+        : 'targets are set by month, quarter or year',
+    onclick: (isAdmin() && targetablePeriod(b)) ? () => editTargets() : null }));
   root.appendChild(t);
+  if (targetablePeriod(b)) root.appendChild(el('p', { class: 'sub',
+    style: 'margin:-4px 0 var(--sp-4);line-height:1.55', html:
+    `Targets are set per person per period in <b>Settings \u2192 Sales team &amp; targets</b>, and the one in play here is the ` +
+    `<b>${esc(b.label)}</b> column${VIEW.rep === 'all' ? ' summed across the active team, or the team override if one is set' : ''}. ` +
+    `Switch the period above and you are looking at a different target.` }));
 
   const g = el('div', { class: 'grid2' });
 
@@ -5687,9 +6019,319 @@ function viewForecast(root) {
   root.appendChild(rc);
 }
 /* ================================================================
+   MONTHLY REVIEW — the month seen by region, and week by week.
+
+   This is the tracker's monthly screen rebuilt on CRM records: the
+   weekly forecast bars across the month, the region roll-up with the
+   combined line underneath, and a drill-down into any single week. A
+   rep belongs to a region (Settings → Sales regions); everything here
+   groups by that, with anyone unassigned kept visible rather than
+   dropped so the combined row always reconciles.
+   ================================================================ */
+
+/* One region's numbers for a set of weeks. Money and devices come from
+   what reps actually committed in those weeks; pipeline is current and
+   closed is what landed inside the month, both attributed by owner so a
+   collaborator never double-counts. */
+function regionRoll(region, weeks, mb) {
+  const owners = activeOwners().filter(o => region === 'all' || ownerRegion(o.id) === region);
+  const ids = new Set(owners.map(o => String(o.id)));
+  const mine = c => ids.has(String(c.ownerId));
+  const cRecs = weeks.reduce((a, k) => a.concat(commitsIn(k, null, 'commit').filter(mine)), []);
+  const bRecs = weeks.reduce((a, k) => a.concat(commitsIn(k, null, 'best').filter(mine)), []);
+
+  // the weighted forecast is built per rep per week, exactly as the
+  // commitment review does it, then added up — never re-derived here
+  let forecast = 0, locked = 0, slots = 0;
+  weeks.forEach(k => {
+    const rng = weekRange(k);
+    owners.forEach(o => {
+      const x = repWeek(o, k, rng);
+      forecast += x.forecast;
+      if (x.cRecs.length || x.bRecs.length || x.r.locked) { slots++; if (x.r.locked) locked++; }
+    });
+  });
+
+  const deals = live('deals').filter(d => ids.has(String(d.ownerId)));
+  const openD = deals.filter(isOpen);
+  const won  = deals.filter(d => isWon(d)  && inPeriod(d.closeDate, mb));
+  const lost = deals.filter(d => isLost(d) && inPeriod(d.closeDate, mb));
+  const units = {};
+  unitLines().forEach(L => { const n = unitTotal(cRecs, L) + unitTotal(bRecs, L); if (n) units[L] = n; });
+
+  return { region, owners, cRecs, bRecs,
+    commit: sum(cRecs, commitValue), best: sum(bRecs, commitValue), forecast,
+    pipeline: sum(openD, d => d.amount), weightedPipe: sum(openD, weighted), openN: openD.length,
+    closed: sum(won, d => d.amount), wonN: won.length,
+    lostVal: sum(lost, d => d.amount), lostN: lost.length,
+    quotes: deals.filter(d => isOpen(d) && attachmentsFor(d.id).length && inPeriod(d.closeDate, mb)).length,
+    units, locked, slots,
+    target: sum(owners, o => repTarget(o.id, mb)) };
+}
+
+function viewMonthly(root) {
+  const mk = VIEW.month || monthKey();
+  VIEW.month = mk;
+  const mb = mBounds(mk + '-01');
+  const weeks = weeksOfMonth(mk);
+  const sel = VIEW.monthWeek && weeks.includes(VIEW.monthWeek) ? VIEW.monthWeek : null;
+  const scope = sel ? [sel] : weeks;
+
+  root.appendChild(viewHead(null, [
+    el('div', { class: 'seg' }, [
+      el('button', { html: '‹', title: 'Previous month',
+        onclick: () => { VIEW.month = monthShift(mk, -1); VIEW.monthWeek = null; render(); } }),
+      el('button', { class: 'on', text: monthLongLabel(mk) }),
+      el('button', { html: '›', title: 'Next month',
+        onclick: () => { VIEW.month = monthShift(mk, 1); VIEW.monthWeek = null; render(); } })
+    ]),
+    mk !== monthKey() ? el('button', { class: 'btn', text: 'This month',
+      onclick: () => { VIEW.month = monthKey(); VIEW.monthWeek = null; render(); } }) : null,
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export month', onclick: () => exportMonthly(mk) }),
+    isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('flag',14) + ' Commit deals',
+      onclick: () => addCommitment(sel || weekKey()) })
+  ]));
+
+  const regions = regionsInPlay();
+  const rolls = regions.map(r => regionRoll(r, scope, mb));
+  const all = regionRoll('all', scope, mb);
+
+  /* ---- headline for the month (or the selected week) */
+  const t = el('div', { class: 'tiles' });
+  const scopeLabel = sel ? `${weekOfMonthLabel(mk, sel)} · ${weekLabel(sel)}` : monthLabel(mk);
+  t.appendChild(tile('Commit', money(all.commit), { cur: true, icon: 'flag',
+    foot: `${all.cRecs.length} deals · ${scopeLabel}` }));
+  t.appendChild(tile('Best case', money(all.best), { cur: true, icon: 'up',
+    foot: `${all.bRecs.length} deals` }));
+  t.appendChild(tile('Weighted forecast', money(all.forecast), { cur: true, icon: 'chart',
+    foot: '(commit + best case) × stage weight' }));
+  t.appendChild(tile('Closed won', money(all.closed), { cur: true, icon: 'check',
+    foot: all.target ? `${pct(all.closed, all.target)}% of ${CFG.currency} ${money(all.target, {compact:true})}`
+                     : `${all.wonN} deals in ${monthLabel(mk)}`,
+    meter: all.target ? pct(all.closed, all.target) : null }));
+  if (unitLines().length) {
+    const us = unitLines().filter(L => all.units[L]);
+    t.appendChild(tile('Devices', us.length ? us.reduce((a, L) => a + all.units[L], 0) : '0',
+      { icon: 'board', foot: us.length ? us.map(L => `${all.units[L]} ${L}`).join(' · ') : 'no device counts entered' }));
+  }
+  t.appendChild(tile('Open pipeline', money(all.pipeline), { cur: true, icon: 'grid',
+    foot: all.target ? `${(all.pipeline / all.target).toFixed(1)}× coverage` : `${all.openN} open deals`,
+    onclick: () => go('pipeline') }));
+  root.appendChild(t);
+
+  /* ---- the month's weeks, as bars you can click into */
+  const wc = card('Weekly forecast across ' + monthLabel(mk),
+    'Weighted forecast per week — click a bar to look at just that week');
+  const wrows = weeks.map(k => {
+    const r = regionRoll('all', [k], mb);
+    return { k, label: `${weekOfMonthLabel(mk, k)} · ${weekLabel(k)}`, short: weekOfMonthLabel(mk, k),
+      value: Math.round(r.forecast),
+      note: `commit ${CFG.currency} ${money(r.commit, {compact:true})} · best case ${CFG.currency} ${money(r.best, {compact:true})}`,
+      onclick: () => { VIEW.monthWeek = VIEW.monthWeek === k ? null : k; render(); } };
+  });
+  chartBar(wc.body, wrows, { yLabel: 'Weighted ' + CFG.currency, xLabel: 'Week' });
+  const chips = el('div', { class: 'seg', style: 'margin-top:var(--sp-3);flex-wrap:wrap' });
+  chips.appendChild(el('button', { class: sel ? '' : 'on', text: 'Whole month',
+    onclick: () => { VIEW.monthWeek = null; render(); } }));
+  weeks.forEach(k => chips.appendChild(el('button', { class: sel === k ? 'on' : '',
+    title: weekLabel(k), text: weekOfMonthLabel(mk, k),
+    onclick: () => { VIEW.monthWeek = k; render(); } })));
+  wc.body.appendChild(chips);
+  root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [wc.node]));
+
+  /* ---- region roll-up, combined row last */
+  const rc = card(`By region — ${scopeLabel}`,
+    'Commit, best case and devices are what reps picked in these weeks; pipeline is current, closed is what landed in the month');
+  const tb = el('table', { class: 'dt rollup' });
+  const heads = ['Region', 'Commit', 'Best case', 'Forecast', 'Pipeline', 'Closed won', 'Lost']
+    .concat(unitLines()).concat(['Quotes', 'Submitted']);
+  tb.appendChild(el('thead', {}, [ el('tr', {}, heads.map((h, i) =>
+    el('th', { class: i ? 'num' : '', text: h }))) ]));
+  const body = el('tbody');
+  const rowFor = (r, combined) => {
+    const cells = [
+      el('td', { html: combined ? '<b>Combined</b>'
+        : `<b>${esc(r.region)}</b><div class="cellsub">${r.owners.length} rep${r.owners.length === 1 ? '' : 's'}</div>` }),
+      el('td', { class: 'num mono', html: money(r.commit) }),
+      el('td', { class: 'num mono', style: 'color:var(--ink-2)', html: money(r.best) }),
+      el('td', { class: 'num mono', html: money(r.forecast) }),
+      el('td', { class: 'num mono', style: 'color:var(--ink-2)',
+        html: money(r.pipeline) + `<div class="cellsub">${r.openN} open</div>` }),
+      el('td', { class: 'num mono', style: 'color:var(--good-ink)',
+        html: money(r.closed) + `<div class="cellsub">${r.wonN} deals</div>` }),
+      el('td', { class: 'num mono', style: 'color:var(--critical-ink)',
+        html: money(r.lostVal) + `<div class="cellsub">${r.lostN} deals</div>` })
+    ].concat(unitLines().map(L => el('td', { class: 'num mono',
+        html: r.units[L] ? String(r.units[L]) : '<span class="cellsub">—</span>' })))
+     .concat([
+      el('td', { class: 'num mono', html: r.quotes ? String(r.quotes) : '<span class="cellsub">—</span>' }),
+      el('td', { class: 'num', html: r.slots
+        ? `<span class="tag ${r.locked === r.slots ? 'good' : 'warn'}">${r.locked}/${r.slots}</span>`
+        : '<span class="cellsub">nothing entered</span>' })
+    ]);
+    const tr = el('tr', combined ? { class: 'tot' } : {});
+    cells.forEach(c => tr.appendChild(c));
+    if (!combined) {
+      tr.style.cursor = 'pointer';
+      tr.addEventListener('click', e => { if (!e.target.closest('button,a')) {
+        VIEW.monthRegion = VIEW.monthRegion === r.region ? null : r.region; render(); } });
+    }
+    return tr;
+  };
+  rolls.forEach(r => body.appendChild(rowFor(r, false)));
+  body.appendChild(rowFor(all, true));
+  tb.appendChild(body);
+  rc.body.appendChild(el('div', { class: 'tw' }, [tb]));
+  if (!regions.length) rc.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
+    text: 'No active reps yet. Add your team in Settings and give each person a sales region.' }));
+  else if (regions.includes(UNASSIGNED_REGION)) rc.body.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: `Some reps have no region set, so their numbers sit under <b>Unassigned</b>. ` +
+      (isAdmin() ? 'Set one on each person in Settings → the team table.'
+                 : 'An admin can set one in Settings.') }));
+  root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [rc.node]));
+
+  /* ---- region split of the month's committed value */
+  if (rolls.length > 1) {
+    const g = el('div', { class: 'grid2', style: 'margin-bottom:var(--sp-3)' });
+    const c1 = card('Commit by region', scopeLabel);
+    chartHBar(c1.body, rolls.map(r => ({ label: r.region, value: Math.round(r.commit),
+      note: `${r.cRecs.length} deals · forecast ${CFG.currency} ${money(r.forecast, {compact:true})}` }))
+      .sort((a, b) => b.value - a.value), { xLabel: CFG.currency });
+    g.appendChild(c1.node);
+    const c2 = card('Closed won by region', monthLabel(mk));
+    chartHBar(c2.body, rolls.map(r => ({ label: r.region, value: Math.round(r.closed),
+      note: `${r.wonN} deals · ${r.target ? pct(r.closed, r.target) + '% of target' : 'no target set'}` }))
+      .sort((a, b) => b.value - a.value), { xLabel: CFG.currency, color: 'var(--s3)' });
+    g.appendChild(c2.node);
+    root.appendChild(g);
+  }
+
+  /* ---- the reps, grouped by region */
+  const only = VIEW.monthRegion && regions.includes(VIEW.monthRegion) ? VIEW.monthRegion : null;
+  if (only) root.appendChild(el('div', { style: 'display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-3)' }, [
+    el('span', { class: 'sub', html: `Showing <b>${esc(only)}</b> only` }),
+    el('button', { class: 'btn sm ghost', text: 'Show every region',
+      onclick: () => { VIEW.monthRegion = null; render(); } })
+  ]));
+  (only ? [only] : regions).forEach(region => {
+    const owners = activeOwners().filter(o => ownerRegion(o.id) === region);
+    if (!owners.length) return;
+    const rr = regionRoll(region, scope, mb);
+    const head = card(region, `${owners.length} rep${owners.length === 1 ? '' : 's'} · commit ${
+      CFG.currency} ${money(rr.commit, {dash:false})} · forecast ${CFG.currency} ${money(rr.forecast, {dash:false})}${
+      unitLines().filter(L => rr.units[L]).length
+        ? ' · ' + unitLines().filter(L => rr.units[L]).map(L => `${rr.units[L]} ${L}`).join(' · ') : ''}`);
+    const host = el('div'); head.body.appendChild(host);
+    dataTable(host, {
+      key: 'mrep-' + region, noun: 'reps', rows: owners.map(o => monthRepRow(o, scope, mb)), per: 30,
+      defaultSort: 1, defaultDir: -1,
+      cols: [
+        { h: 'Rep', v: r => r.o.name, r: r => ownerCell(r.o.id) },
+        { h: 'Commit', num: true, v: r => r.commit,
+          r: r => `<span class="mono">${money(r.commit)}</span><div class="cellsub">${r.cN} deals</div>` },
+        { h: 'Best case', num: true, v: r => r.best,
+          r: r => `<span class="mono" style="color:var(--ink-2)">${money(r.best)}</span>` },
+        { h: 'Forecast', num: true, v: r => r.forecast, r: r => `<span class="mono">${money(r.forecast)}</span>` },
+        { h: 'Pipeline', num: true, v: r => r.pipeline,
+          r: r => `<span class="mono" style="color:var(--ink-2)">${money(r.pipeline)}</span>` },
+        { h: 'Closed won', num: true, v: r => r.closed,
+          r: r => `<span class="mono" style="color:var(--good-ink)">${money(r.closed)}</span><div class="cellsub">${r.wonN} deals</div>` }
+      ].concat(unitLines().map(L => ({ h: L, num: true, v: r => r.units[L] || 0,
+        r: r => r.units[L] ? String(r.units[L]) : '<span class="cellsub">—</span>' })))
+       .concat([
+        { h: 'vs target', num: true, v: r => r.target ? r.closed / r.target : 0, r: r => {
+            if (!r.target) return '<span class="cellsub">no target</span>';
+            const p = pct(r.closed, r.target);
+            return `<span class="tag ${p >= 100 ? 'good' : p >= 60 ? 'warn' : 'bad'}">${p}%</span>`; } },
+        { h: 'Submitted', num: true, v: r => r.locked, r: r => r.slots
+            ? `<span class="tag ${r.locked === r.slots ? 'good' : 'warn'}">${r.locked}/${r.slots}</span>`
+            : '<span class="cellsub">—</span>' }
+      ]),
+      onRow: r => { VIEW.rep = r.o.id; VIEW.week = sel || weeks[0]; renderTopControls(); go('review'); }
+    });
+    root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [head.node]));
+  });
+}
+
+function monthRepRow(o, weeks, mb) {
+  let commit = 0, best = 0, forecast = 0, cN = 0, bN = 0, locked = 0, slots = 0;
+  const units = {}, recs = [];
+  weeks.forEach(k => {
+    const x = repWeek(o, k, weekRange(k));
+    commit += x.commitVal; best += x.bestVal; forecast += x.forecast;
+    cN += x.cRecs.length; bN += x.bRecs.length;
+    recs.push.apply(recs, x.cRecs.concat(x.bRecs));
+    if (x.cRecs.length || x.bRecs.length || x.r.locked) { slots++; if (x.r.locked) locked++; }
+  });
+  unitLines().forEach(L => { const n = unitTotal(recs, L); if (n) units[L] = n; });
+  const mine = ownedDeals(o.id);
+  const won = mine.filter(d => isWon(d) && inPeriod(d.closeDate, mb));
+  return { o, commit, best, forecast, cN, bN, units, locked, slots,
+    pipeline: sum(mine.filter(isOpen), d => d.amount),
+    closed: sum(won, d => d.amount), wonN: won.length,
+    target: repTarget(o.id, mb) };
+}
+
+function exportMonthly(mk) {
+  const mb = mBounds(mk + '-01');
+  const weeks = weeksOfMonth(mk);
+  const cur = CFG.currency, m = v => `${cur} ${money(v, { dash: false })}`;
+  const L = [`# CoreV monthly review — ${monthLongLabel(mk)}`, ''];
+  const all = regionRoll('all', weeks, mb);
+  L.push(`Commit ${m(all.commit)} · Best case ${m(all.best)} · Weighted forecast ${m(all.forecast)}`);
+  L.push(`Closed won ${m(all.closed)} (${all.wonN} deals) · Closed lost ${m(all.lostVal)} (${all.lostN} deals)`);
+  L.push(`Open pipeline ${m(all.pipeline)} across ${all.openN} deals${
+    all.target ? ` · target ${m(all.target)} (${pct(all.closed, all.target)}% achieved)` : ''}`);
+  if (Object.keys(all.units).length)
+    L.push(`Devices ${unitLines().filter(k => all.units[k]).map(k => `${all.units[k]} ${k}`).join(' · ')}`);
+  L.push('');
+
+  L.push('## By week');
+  weeks.forEach(k => {
+    const r = regionRoll('all', [k], mb);
+    L.push(`- ${weekOfMonthLabel(mk, k)} (${weekLabel(k)}): commit ${m(r.commit)} · best case ${m(r.best)} · forecast ${m(r.forecast)}${
+      r.slots ? ` · ${r.locked}/${r.slots} submitted` : ''}`);
+  });
+  L.push('');
+
+  regionsInPlay().forEach(region => {
+    const r = regionRoll(region, weeks, mb);
+    L.push(`## ${region}`);
+    L.push(`- Reps: ${r.owners.map(o => o.name).join(', ') || 'none'}`);
+    L.push(`- Commit ${m(r.commit)} · Best case ${m(r.best)} · Forecast ${m(r.forecast)}`);
+    L.push(`- Pipeline ${m(r.pipeline)} · Closed won ${m(r.closed)} · Closed lost ${m(r.lostVal)}`);
+    if (r.target) L.push(`- Target ${m(r.target)} — ${pct(r.closed, r.target)}% achieved`);
+    if (Object.keys(r.units).length)
+      L.push(`- Devices ${unitLines().filter(k => r.units[k]).map(k => `${r.units[k]} ${k}`).join(' · ')}`);
+    r.owners.forEach(o => {
+      const row = monthRepRow(o, weeks, mb);
+      L.push(`  - ${o.name}: commit ${m(row.commit)} · forecast ${m(row.forecast)} · closed ${m(row.closed)}${
+        Object.keys(row.units).length ? ' · ' + unitLines().filter(k => row.units[k]).map(k => `${row.units[k]} ${k}`).join(' · ') : ''}${
+        row.slots ? ` · ${row.locked}/${row.slots} weeks submitted` : ''}`);
+    });
+    L.push('');
+  });
+  download(`corev-monthly-review-${mk}.md`, L.join('\n'), 'text/markdown');
+  toast('Month exported', 'ok');
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
+  /* Settings is where the team, roles, regions, stages, products, fields and
+     targets live, so it is admin-only. Everyone else gets told who to ask. */
+  if (!isAdmin()) {
+    root.appendChild(el('div', { class: 'empty' }, [
+      el('div', { html: ico('cog', 34) }),
+      el('h4', { text: 'Settings is admin-only' }),
+      el('p', { html: `You are signed in with <b>${esc(myRoleDescription())}</b> access. The team list, roles and regions, ` +
+        'sales stages, the product catalogue, custom fields and the targets are all changed here, and only an admin can open it. ' +
+        (adminNames().length ? `Ask ${esc(adminNames().join(' or '))} if something needs changing.` : '') }),
+      el('button', { class: 'btn', text: 'Back to dashboard', onclick: () => go('dashboard') })
+    ]));
+    return;
+  }
   root.appendChild(viewHead(null, []));
   const g = el('div', { class: 'grid2' });
 
@@ -5702,7 +6344,11 @@ function viewSettings(root) {
     key: 'owners', noun: 'people', rows, per: 30, defaultSort: 0, defaultDir: 1,
     cols: [
       { h: 'Name', v: o => o.name, r: o => ownerCell(o.id) },
-      { h: 'Role', v: o => o.role || 'rep', r: o => `<span class="tag ${o.role === 'admin' ? 'info' : ''}">${esc(o.role || 'rep')}</span>` },
+      { h: 'Role', v: o => roleLabel(o.role), r: o => {
+          const r = ROLE_MAP[o.role] || 'write';
+          return `<span class="tag ${r === 'admin' ? 'info' : r === 'read' ? 'warn' : ''}">${esc(roleLabel(o.role))}</span>`; } },
+      { h: 'Region', v: o => ownerRegion(o.id), r: o => { const r = ownerRegion(o.id);
+          return r === UNASSIGNED_REGION ? '<span class="cellsub">not set</span>' : esc(r); } },
       { h: 'Status', v: o => o.active ? 1 : 0, r: o => o.active
           ? '<span class="tag good">active</span>' : '<span class="tag">inactive</span>' },
       { h: `Target ${b.label} (${CFG.currency})`, num: true,
@@ -5728,6 +6374,66 @@ function viewSettings(root) {
           `you will be asked what to do with the records they still hold.` }));
   c1.node.classList.add('span2');
   g.appendChild(c1.node);
+
+  /* ---- sales regions ---- */
+  const cR = card('Sales regions', 'Which team each rep sits in — this is what the monthly review rolls up by');
+  const regs = salesRegions();
+  const rlist = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-3)' });
+  regs.forEach((r, i) => {
+    const people = activeOwners().filter(o => ownerRegion(o.id) === r);
+    rlist.appendChild(el('div', { class: 'nitem' }, [
+      el('span', { class: 'ic', html: ico('bldg', 13) }),
+      el('div', { style: 'flex:1', html: `<b>${esc(r)}</b>` +
+        `<div style="color:var(--ink-3);margin-top:2px">${people.length
+          ? esc(people.map(o => o.name).join(', '))
+          : 'nobody assigned yet'}</div>` }),
+      el('button', { html: ico('edit',12), title: 'Rename', onclick: () => renameRegion(r) }),
+      el('button', { html: ico('x',12), title: 'Remove', onclick: () => removeRegion(r) })
+    ]));
+  });
+  cR.body.appendChild(rlist);
+  const unset = activeOwners().filter(o => ownerRegion(o.id) === UNASSIGNED_REGION);
+  if (unset.length) cR.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
+    html: `<b>${unset.length} ${unset.length === 1 ? 'person has' : 'people have'} no region:</b> ${
+      esc(unset.map(o => o.name).join(', '))}. Their numbers show under <b>Unassigned</b> in the monthly review until you set one.` }));
+  cR.body.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Add region', onclick: () => addRegion() }));
+  g.appendChild(cR.node);
+
+  /* ---- device lines counted on commitments ---- */
+  const cU = card('Device lines', 'What reps count units of when they commit a deal — matched on the product SKU prefix');
+  const lines = unitLines();
+  const ulist = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-3)' });
+  lines.forEach(L => {
+    const prods = live('products').filter(p => String(p.sku || '').toUpperCase().startsWith(L.toUpperCase()));
+    ulist.appendChild(el('div', { class: 'nitem' }, [
+      el('span', { class: 'ic', html: ico('board', 13) }),
+      el('div', { style: 'flex:1', html: `<b>${esc(L)}</b><div style="color:var(--ink-3);margin-top:2px">${
+        prods.length ? `counts ${prods.length} SKU${prods.length === 1 ? '' : 's'}: ${esc(prods.map(p => p.sku).join(', '))}`
+                     : 'no catalogue SKU starts with this, so counts have to be typed in'}</div>` }),
+      el('button', { html: ico('x',12), title: 'Remove', onclick: () => {
+        confirmDo('Remove ' + L, `Commitments stop counting ${L} units. Nothing already recorded is deleted — the numbers reappear if you add the line back.`,
+          'Remove line', () => { DB.config.unitLines = unitLines().filter(x => x !== L);
+            DB.config._v = now(); touch('config'); render(); toast('Line removed'); }); } })
+    ]));
+  });
+  cU.body.appendChild(ulist);
+  cU.body.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Add device line', onclick: () => {
+    const nm = el('input', { class: 'inp', placeholder: 'e.g. XP1' });
+    modal('Add a device line', el('div', {}, [
+      fld('Line code', nm, 'Product SKUs starting with this are counted automatically — XS1 picks up XS1-PEAK and XS1-FLOWPLUS.')
+    ]), [
+      el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+      el('button', { class: 'btn primary', text: 'Add', onclick: () => {
+        const v = nm.value.trim().toUpperCase();
+        if (!v) { nm.focus(); return toast('A code is required', 'err'); }
+        if (unitLines().some(x => x.toUpperCase() === v)) return toast('That line already exists', 'err');
+        DB.config.unitLines = unitLines().concat([v]);
+        DB.config._v = now(); touch('config');
+        closeAll(); render(); toast('Line added', 'ok');
+      } })
+    ]);
+  } }));
+  g.appendChild(cU.node);
 
   /* ---- stages ---- */
   const c2 = card('Sales stages', 'The probability on each stage is what weights the forecast — edit it and every number follows');
@@ -5932,8 +6638,12 @@ function editOwner(o) {
   const nm = el('input', { class: 'inp', value: o.name || '' });
   const em = el('input', { class: 'inp', type: 'email', value: o.email || '', placeholder: 'name@core-velocity.com' });
   const rl = el('select', { class: 'inp' });
-  [['rep','Sales rep'],['manager','Manager'],['admin','Admin']].forEach(([v,l]) =>
-    rl.appendChild(el('option', { value: v, text: l, selected: (o.role||'rep') === v || null })));
+  ROLES.forEach(([v, l]) => rl.appendChild(el('option', { value: v, text: l,
+    selected: (ROLE_MAP[o.role] || 'write') === v || null })));
+  const rg = el('select', { class: 'inp' });
+  rg.appendChild(el('option', { value: '', text: 'Not set' }));
+  salesRegions().forEach(r => rg.appendChild(el('option', { value: r, text: r,
+    selected: o.salesRegion === r || null })));
   const ac = el('select', { class: 'inp' });
   [['1','Active'],['0','Inactive']].forEach(([v,l]) =>
     ac.appendChild(el('option', { value: v, text: l, selected: String(o.active ? 1 : 0) === v || null })));
@@ -5944,7 +6654,11 @@ function editOwner(o) {
     fld('Full name *', nm),
     fld('Microsoft email', em, 'Used to match the signed-in user to this record, so "New deal" defaults to the right owner.'),
     el('div', { class: 'field-row' }, [ fld('Role', rl), fld('Status', ac) ]),
-    fld(`Target for ${b.label} (${CFG.currency})`, tg, 'Set targets per period by switching the period filter and editing again.')
+    el('p', { class: 'sub', style: 'margin:-6px 0 var(--sp-4);line-height:1.55',
+      html: ROLES.map(([v, l, d]) => `<b>${esc(l)}</b> — ${esc(d)}`).join('<br>') }),
+    fld('Sales region', rg, 'Groups this person under Dubai, Abu Dhabi or International in the monthly review. Edit the list in the Sales regions card.'),
+    fld(`Target for ${b.label} (${CFG.currency})`, tg,
+      `Targets are stored against the period you are looking at — right now ${b.label}. Switch the period filter at the top and edit again to set another one.`)
   ]), [
     isNew ? null : el('button', { class: 'btn danger', html: ico('trash',14) + ' Remove',
       onclick: () => removePerson(o) }),
@@ -5953,7 +6667,13 @@ function editOwner(o) {
     el('button', { class: 'btn primary', text: isNew ? 'Add' : 'Save', onclick: () => {
       if (!nm.value.trim()) { nm.focus(); return toast('A name is required', 'err'); }
       o.name = nm.value.trim(); o.email = em.value.trim() || null;
+      /* Never let the last admin demote themselves out of Settings. */
+      if (rl.value !== 'admin' && (ROLE_MAP[o.role] || '') === 'admin' &&
+          !DB.owners.some(x => x.id !== o.id && (ROLE_MAP[x.role] || '') === 'admin' && x.active !== false)) {
+        rl.focus(); return toast('This is the only admin — make someone else an admin first', 'err');
+      }
       o.role = rl.value; o.active = ac.value === '1';
+      o.salesRegion = rg.value || null;
       o.initials = initials(o.name);
       if (isNew) DB.owners.push(o);
       DB.config.targets = DB.config.targets || {};
@@ -6264,18 +6984,83 @@ function importCSV(kind, rows) {
   reindex();
   return { added, updated };
 }
+
+/* ---------------------------------------------------- access helpers */
+function myRoleDescription() {
+  const r = myRole();
+  if (r === 'read' && AUTH.user && !meOwner()) return 'read-only';
+  return (ROLES.find(x => x[0] === r) || ROLES[1])[1].toLowerCase();
+}
+const adminNames = () => DB.owners.filter(o => (ROLE_MAP[o.role] || '') === 'admin' && o.active !== false)
+  .map(o => o.name);
+
+/* ---------------------------------------------------- region admin */
+function saveRegions(list) {
+  DB.config.salesRegions = list;
+  DB.config._v = now(); touch('config');
+}
+function addRegion() {
+  const nm = el('input', { class: 'inp', placeholder: 'e.g. Saudi Arabia' });
+  modal('Add a sales region', el('div', {}, [
+    fld('Region name', nm, 'Reps are assigned to a region on their own record, in the team table above.')
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Add', onclick: () => {
+      const v = nm.value.trim();
+      if (!v) { nm.focus(); return toast('A name is required', 'err'); }
+      if (salesRegions().some(r => r.toLowerCase() === v.toLowerCase())) return toast('That region already exists', 'err');
+      saveRegions(salesRegions().concat([v]));
+      closeAll(); render(); toast('Region added', 'ok');
+    } })
+  ]);
+}
+function renameRegion(old) {
+  const nm = el('input', { class: 'inp', value: old });
+  const n = activeOwners().filter(o => ownerRegion(o.id) === old).length;
+  modal('Rename ' + old, el('div', {}, [
+    fld('Region name', nm, n ? `${n} ${n === 1 ? 'person is' : 'people are'} in this region and will move with it.` : '')
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      const v = nm.value.trim();
+      if (!v) { nm.focus(); return toast('A name is required', 'err'); }
+      if (v === old) return closeAll();
+      if (salesRegions().some(r => r.toLowerCase() === v.toLowerCase())) return toast('That region already exists', 'err');
+      batch(() => {
+        saveRegions(salesRegions().map(r => r === old ? v : r));
+        DB.owners.forEach(o => { if (o.salesRegion === old) o.salesRegion = v; });
+      });
+      closeAll(); render(); toast('Renamed', 'ok');
+    } })
+  ]);
+}
+function removeRegion(r) {
+  const people = DB.owners.filter(o => o.salesRegion === r);
+  confirmDo('Remove ' + r, people.length
+    ? `${people.length} ${people.length === 1 ? 'person is' : 'people are'} in ${r} (${people.map(o => o.name).join(', ')}). ` +
+      'They keep every record they own and show under Unassigned in the monthly review until you give them another region.'
+    : `No one is in ${r}, so nothing moves.`,
+    'Remove region', () => {
+      batch(() => {
+        saveRegions(salesRegions().filter(x => x !== r));
+        DB.owners.forEach(o => { if (o.salesRegion === r) o.salesRegion = null; });
+      });
+      render(); toast('Region removed');
+    });
+}
 /* ================================================================
    RENDER + BOOT
    ================================================================ */
 const VIEWS = {
   dashboard: viewDashboard, pipeline: viewPipeline, deals: viewDeals,
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
-  review: viewReview, forecast: viewForecast, settings: viewSettings
+  review: viewReview, monthly: viewMonthly, forecast: viewForecast, settings: viewSettings
 };
 const TITLES = {
   dashboard: 'Dashboard', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
-  review: 'Commitment review', forecast: 'Forecast & analytics', settings: 'Settings'
+  review: 'Commitment review', monthly: 'Monthly review',
+  forecast: 'Forecast & analytics', settings: 'Settings'
 };
 let rendering = false;
 function render() {
@@ -6342,7 +7127,7 @@ async function boot() {
 }
 /* One-shot data migrations, safe to run on every load. */
 function runMigrations() {
-  return batch(() => runMigrationsInner());
+  return sysWrite(() => batch(() => runMigrationsInner()));
 }
 function runMigrationsInner() {
   // single collaborator -> list
@@ -6355,13 +7140,44 @@ function runMigrationsInner() {
     }
   });
   if (c) SYNC.dirty.add('deals');
+  // roles: rep / manager / viewer -> write / write / read, and exactly one admin
+  const roleFix = migrateRoles();
+  if (roleFix.changed) console.log(`Roles normalised on ${roleFix.changed} people` +
+    (roleFix.admin ? `; sole admin is ${roleFix.admin}` : ''));
   // HubSpot lead statuses -> the four stages
   const lead = migrateLeadStatus();
   if (lead.changed) {
     console.log(`Lead status migrated on ${lead.changed} contacts` +
       (lead.unmapped ? `, ${lead.unmapped} left unmapped for review` : ''));
   }
-  if (c || lead.changed) { saveLocal(); scheduleSync(); }
+  if (c || lead.changed || roleFix.changed) { saveLocal(); scheduleSync(); }
+}
+/* One admin, everyone else a writer unless they were already read-only.
+   Whoever is signed in and already an admin keeps it; failing that the
+   longest-standing admin does. Changing it afterwards is two clicks in
+   Settings, and this only ever runs while there is more than one. */
+function migrateRoles() {
+  const people = DB.owners.filter(o => !o._del);
+  if (!people.length) return { changed: 0 };
+  let changed = 0;
+  people.forEach(o => {
+    const want = ROLE_MAP[o.role] || 'write';
+    if (o.role !== want) { o.role = want; changed++; }
+  });
+  const admins = people.filter(o => o.role === 'admin');
+  let keep = null;
+  if (admins.length > 1) {
+    const me = meOwner();
+    keep = (me && me.role === 'admin') ? me : admins.slice().sort((a, b) =>
+      String(a.id).localeCompare(String(b.id)))[0];
+    admins.forEach(o => { if (o !== keep) { o.role = 'write'; changed++; } });
+  } else if (!admins.length) {
+    keep = (meOwner() && meOwner().active !== false ? meOwner() : null) ||
+           people.find(o => o.active !== false) || people[0];
+    if (keep) { keep.role = 'admin'; changed++; }
+  } else keep = admins[0];
+  if (changed) SYNC.dirty.add('config');
+  return { changed, admin: keep ? keep.name : null };
 }
 const DEFAULT_STAGES = [
   { id: 'bd',       label: 'Business Development',       probability: .10, kind: 'open', order: 1 },
