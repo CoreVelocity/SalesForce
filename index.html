@@ -748,7 +748,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.7.0';
+const VERSION = '1.7.1';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -2549,11 +2549,101 @@ function card(title, sub) {
   const body = el('div'); node.appendChild(body);
   return { node, body };
 }
-function repTarget(rep, b) {
-  const t = (DB.config.targets || {});
-  const key = b.label;
-  if (rep === 'all') return sum(activeOwners(), o => (t[o.id] && t[o.id][key]) || 0) || (t.team && t.team[key]) || 0;
+/* ------------------------------------------------------------------ targets
+   A target is stored against the label of whichever period it was typed into,
+   so a number entered under FY2026 is an annual one. Asking for a month and
+   getting nothing back was the old behaviour, and it read as "no target set"
+   even when a year's number was sitting right there. Now a shorter period
+   falls back to the longer one it sits inside and says it did so, while the
+   Settings editor still only ever shows and writes what was typed. */
+function targetAt(rep, key) {
+  const t = DB.config.targets || {};
+  if (rep === 'all') {
+    const each = sum(activeOwners(), o => (t[o.id] && t[o.id][key]) || 0);
+    return each || ((t.team && t.team[key]) || 0);
+  }
   return (t[rep] && t[rep][key]) || 0;
+}
+/* Callers build bounds with mBounds/qBounds/fyBounds as well as through the
+   period picker, so the grain is worked out from the dates when it is absent
+   rather than relying on every call site to pass one. */
+function grainOf(b) {
+  if (b.grain) return b.grain;
+  if (b.label === 'All time' || b.from < '1901-01-01') return 'all';
+  const span = days(b.to, b.from) + 1;
+  if (span <= 8) return 'week';
+  const mb = mBounds(b.from);
+  if (b.from === mb.from && b.to === mb.to) return 'month';
+  const qb = qBounds(b.from);
+  if (b.from === qb.from && b.to === qb.to) return 'quarter';
+  const fy = fyBounds(b.from);
+  if (b.from === fy.from && b.to === fy.to) return 'year';
+  return 'month';                                   // a run of months
+}
+function repTargetInfo(rep, b) {
+  const exact = targetAt(rep, b.label);
+  if (exact) return { value: exact, basis: 'set', from: b.label };
+  const g = grainOf(b);
+  if (g === 'all') return { value: 0, basis: null, from: null };
+
+  if (g === 'month') {
+    // a range of months adds its months up
+    const a = monthKey(b.from), z = monthKey(b.to);
+    if (a !== z) {
+      let v = 0, allSet = true, k = a;
+      for (let i = 0; i < 25; i++) {
+        const mi = repTargetInfo(rep, Object.assign(mBounds(k + '-01'), { grain: 'month' }));
+        v += mi.value;
+        if (mi.basis !== 'set') allSet = false;
+        if (k === z) break;
+        k = monthShift(k, 1);
+      }
+      return { value: v, basis: v ? (allSet ? 'set' : 'derived') : null, from: 'the months in range' };
+    }
+    const q = qBounds(b.from), qv = targetAt(rep, q.label);
+    if (qv) return { value: qv / 3, basis: 'derived', from: `${q.label} ÷ 3` };
+    const fy = fyBounds(b.from), yv = targetAt(rep, fy.label);
+    if (yv) return { value: yv / 12, basis: 'derived', from: `${fy.label} ÷ 12` };
+    return { value: 0, basis: null, from: null };
+  }
+  if (g === 'quarter') {
+    const fy = fyBounds(b.from), yv = targetAt(rep, fy.label);
+    if (yv) return { value: yv / 4, basis: 'derived', from: `${fy.label} ÷ 4` };
+    return { value: 0, basis: null, from: null };
+  }
+  if (g === 'week') {
+    // the month the week ends in, pro-rated across its days
+    const mb = Object.assign(mBounds(b.to), { grain: 'month' });
+    const mi = repTargetInfo(rep, mb);
+    if (!mi.value) return { value: 0, basis: null, from: null };
+    const dim = days(mb.to, mb.from) + 1;
+    const wdays = days(b.to, b.from) + 1;
+    return { value: mi.value * wdays / dim, basis: 'derived',
+      from: `${mb.label} pro-rated over ${wdays} of ${dim} days` };
+  }
+  // a year with nothing set: add up whatever the quarters or months hold
+  const y = String(b.from).slice(0, 4);
+  let v = 0, any = false;
+  for (let q = 1; q <= 4; q++) { const qv = targetAt(rep, `Q${q} ${y}`); if (qv) { v += qv; any = true; } }
+  if (any) return { value: v, basis: 'derived', from: `the quarters of ${y}` };
+  for (let mm = 1; mm <= 12; mm++) { const mv = targetAt(rep, `${MON[mm-1]} ${y}`); if (mv) { v += mv; any = true; } }
+  if (any) return { value: v, basis: 'derived', from: `the months of ${y}` };
+  return { value: 0, basis: null, from: null };
+}
+const repTarget = (rep, b) => repTargetInfo(rep, b).value;
+/* A team override is a team number — it is never split into a personal quota.
+   When a rep has nothing of their own, saying so beats showing them a share
+   of someone else's figure. */
+function teamTargetInfo(b) {
+  const t = DB.config.targets || {};
+  const hasOverride = !!(t.team && Object.keys(t.team).length);
+  if (!hasOverride) return { value: 0, basis: null, from: null, override: false };
+  const saved = t;
+  const only = { team: t.team };
+  DB.config.targets = only;
+  let info;
+  try { info = repTargetInfo('all', b); } finally { DB.config.targets = saved; }
+  return Object.assign(info, { override: true });
 }
 function customizeDash() {
   const off = widgetOff().slice();
@@ -5213,13 +5303,22 @@ function isStale(d) {
 const DEFAULT_UNIT_LINES = ['XS1', 'XP1'];
 const unitLines = () => (DB.config.unitLines && DB.config.unitLines.length)
   ? DB.config.unitLines.slice() : DEFAULT_UNIT_LINES.slice();
+/* A real CoreV SKU looks like MENA-XS1-PEAK-PLUS-APEX-36MO, so the line code
+   sits in the middle, not at the front. Match it as a whole segment of the
+   SKU — MENA-MEM-XLEAD-2500-SESS must not read as XS1 — and fall back to the
+   same test on the product name for a line that was typed in without a SKU. */
+const skuTokens = s => String(s || '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+function lineMatches(it, code) {
+  const up = String(code).toUpperCase();
+  if (skuTokens(it.sku).includes(up)) return true;
+  if (it.sku) return false;                       // a real SKU that misses is a miss
+  return skuTokens(it.name).includes(up);
+}
 function autoUnits(d) {
   const out = {};
   if (!d) return out;
   unitLines().forEach(L => {
-    const up = L.toUpperCase();
-    const n = sum((d.items || []).filter(it => String(it.sku || '').toUpperCase().startsWith(up)),
-      it => Number(it.qty) || 0);
+    const n = sum((d.items || []).filter(it => lineMatches(it, L)), it => Number(it.qty) || 0);
     if (n) out[L] = n;
   });
   return out;
@@ -5282,11 +5381,17 @@ function repWeek(o, wk, rng) {
   const tier = score >= 70 ? 'hot' : score >= 40 ? 'warm' : 'cold';
 
   const openD = mine.filter(isOpen);
+  /* Attainment and coverage are month questions — a week's revenue against a
+     month's target would read as a miss every week. The month the week ends in
+     is the one that counts. */
+  const mb = mBounds(rng.to);
+  const monthWon = sum(mine.filter(d => isWon(d) && inPeriod(d.closeDate, mb)), d => d.amount);
   const won  = mine.filter(d => isWon(d)  && inPeriod(d.closeDate, b));
   const lost = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
   const wonVal = sum(won, d => d.amount), lostVal = sum(lost, d => d.amount);
   const pipeline = sum(openD, d => d.amount);
-  const target = repTarget(o.id, mBounds(rng.to));
+  const ti = repTargetInfo(o.id, Object.assign(mBounds(rng.to), { grain: 'month' }));
+  const target = ti.value;
 
   const units = {};
   unitLines().forEach(L => { const n = unitTotal(cRecs, L) + unitTotal(bRecs, L); if (n) units[L] = n; });
@@ -5301,7 +5406,8 @@ function repWeek(o, wk, rng) {
     weightedPipe: sum(openD, weighted), target,
     accuracy: denom ? 1 - Math.abs(forecast - wonVal) / denom : null,
     variance: commitVal ? (wonVal - commitVal) / commitVal : null,
-    attain:   target ? wonVal / target : null,
+    monthWon, monthLabelOf: mb.label, targetInfo: ti,
+    attain:   target ? monthWon / target : null,
     coverage: target ? pipeline / target : null,
     landed: sum(cRecs.filter(c => { const d = getDl(c.dealId); return d && isWon(d); }), commitValue)
   };
@@ -5517,11 +5623,30 @@ function repReviewCard(x) {
     'How close the weighted forecast landed to what actually closed. Symmetric — over-calling and sandbagging both cost you.');
   met('Commit variance', x.variance == null ? '—' : signed(x.variance), varTag(x.variance),
     'Closed won against what was committed. Positive means the commit was beaten.');
+  const teamT = x.target ? null : teamTargetInfo(Object.assign(mBounds(rng.to), { grain: 'month' }));
+  const tnote = x.target
+    ? `${CFG.currency} ${money(x.target, {dash:false})} for ${x.monthLabelOf}` +
+      (x.targetInfo.basis === 'derived' ? ` — worked out from ${x.targetInfo.from}` : '')
+    : (teamT && teamT.value)
+      ? `no personal target for ${x.monthLabelOf} — the team one is ${CFG.currency} ${money(teamT.value, {dash:false})}, and a team number is not split into personal quotas`
+      : `no target for ${x.monthLabelOf}, and none to work one out from`;
   met('Goal attainment', x.attain == null ? 'no target' : Math.round(x.attain * 100) + '%', attTag(x.attain),
-    'Closed won against this month\'s target, set in Settings.');
+    `${CFG.currency} ${money(x.monthWon, {dash:false})} closed in ${x.monthLabelOf} so far against ${tnote}.`);
   met('Pipeline coverage', x.coverage == null ? 'no target' : x.coverage.toFixed(1) + '×', covTag(x.coverage),
-    'Open pipeline against this month\'s target. Four times over is the usual healthy floor.');
+    `Open pipeline against ${tnote}. Four times over is the usual healthy floor.`);
   bd.appendChild(sc);
+  bd.appendChild(el('p', { class: 'sub', style: 'margin:-8px 0 var(--sp-4);line-height:1.5', html:
+    x.target
+      ? `Attainment and coverage run against <b>${esc(x.monthLabelOf)}</b> — ${esc(tnote)}.` +
+        (x.targetInfo.basis === 'derived' && isAdmin()
+          ? ' <a href="#settings" style="color:var(--accent)">Set a monthly one</a>' : '')
+      : (teamT && teamT.value)
+          ? `${esc(o.name)} has no target of their own for <b>${esc(x.monthLabelOf)}</b>. The team target is ` +
+            `<b>${CFG.currency} ${money(teamT.value, {dash:false})}</b>, and a team number is never divided into personal quotas — ` +
+            `so attainment and coverage stay blank until ${esc(o.name)} has one.${isAdmin()
+              ? ' <a href="#settings" style="color:var(--accent)">Set it in Settings</a>' : ''}`
+          : `No target to measure against.${isAdmin()
+              ? ' <a href="#settings" style="color:var(--accent)">Set one in Settings</a>' : ''}` }));
 
   // ---- the two commitment slots
   ['commit', 'best'].forEach(slot => {
@@ -5897,7 +6022,8 @@ function viewForecast(root) {
     .filter(c => VIEW.rep === 'all' || String(c.ownerId) === VIEW.rep), commitValue);
   const commitStages = openD.filter(d => stage(d.stageId).probability >= .9);
   const bestCase = openD.filter(d => stage(d.stageId).probability >= .4 && inPeriod(d.closeDate, b));
-  const target = repTarget(VIEW.rep, b);
+  const ti = repTargetInfo(VIEW.rep, b);
+  const target = ti.value;
   t.appendChild(tile('Committed this week', money(wkCommit), { cur: true, icon: 'flag',
     foot: `rep commitments for ${weekLabel(wk)}`, onclick: () => go('review') }));
   t.appendChild(tile('Best case this week', money(wkBest), { cur: true, icon: 'up',
@@ -5917,16 +6043,23 @@ function viewForecast(root) {
     footHtml: true,
     foot: target
       ? `${gap <= 0 ? 'target met' : `coverage ${(sum(openD.filter(d => inPeriod(d.closeDate,b)), d=>d.amount) / Math.max(gap,1)).toFixed(1)}×`} · target ${CFG.currency} ${money(target, {compact:true})} for ${esc(b.label)}`
-      : targetablePeriod(b)
-        ? (isAdmin() ? `no target for ${esc(b.label)} — click to set one` : `no target set for ${esc(b.label)}`)
-        : 'targets are set by month, quarter or year',
+      : (isAdmin() && targetablePeriod(b)) ? `nothing set for ${esc(b.label)} — click to set one`
+                                           : `nothing set for ${esc(b.label)}`,
     onclick: (isAdmin() && targetablePeriod(b)) ? () => editTargets() : null }));
   root.appendChild(t);
-  if (targetablePeriod(b)) root.appendChild(el('p', { class: 'sub',
-    style: 'margin:-4px 0 var(--sp-4);line-height:1.55', html:
-    `Targets are set per person per period in <b>Settings \u2192 Sales team &amp; targets</b>, and the one in play here is the ` +
-    `<b>${esc(b.label)}</b> column${VIEW.rep === 'all' ? ' summed across the active team, or the team override if one is set' : ''}. ` +
-    `Switch the period above and you are looking at a different target.` }));
+  root.appendChild(el('p', { class: 'sub', style: 'margin:-4px 0 var(--sp-4);line-height:1.55', html:
+    target
+      ? (ti.basis === 'set'
+          ? `The <b>${esc(b.label)}</b> target of <b>${CFG.currency} ${money(target, {dash:false})}</b> is the one typed into ` +
+            `<b>Settings \u2192 Sales team &amp; targets</b>${VIEW.rep === 'all'
+              ? ', summed across the active team unless a team override is set' : ''}.`
+          : `No target was set for <b>${esc(b.label)}</b>, so this uses <b>${esc(ti.from)}</b> — ` +
+            `<b>${CFG.currency} ${money(target, {dash:false})}</b>. ` +
+            (targetablePeriod(b)
+              ? `Set one for ${esc(b.label)} in <b>Settings \u2192 Sales team &amp; targets</b> and it takes over.`
+              : `Weeks cannot hold a target of their own — the monthly one governs, divided by its days.`))
+      : `No target anywhere that covers <b>${esc(b.label)}</b>. Targets are set per person per period in ` +
+        `<b>Settings \u2192 Sales team &amp; targets</b>; a yearly or quarterly one is divided down when a shorter period asks for it.` }));
 
   const g = el('div', { class: 'grid2' });
 
@@ -6066,8 +6199,23 @@ function regionRoll(region, weeks, mb) {
     lostVal: sum(lost, d => d.amount), lostN: lost.length,
     quotes: deals.filter(d => isOpen(d) && attachmentsFor(d.id).length && inPeriod(d.closeDate, mb)).length,
     units, locked, slots,
-    target: sum(owners, o => repTarget(o.id, mb)) };
+    target: regionTarget(owners, region, mb) };
 }
+/* Per-person targets add up cleanly. A team override does not belong to
+   anyone, so for the combined row it is used whole, and for a single region
+   it is apportioned by headcount — the only split the data supports, and the
+   table says so underneath rather than passing it off as someone's quota. */
+function regionTarget(owners, region, mb) {
+  const own = sum(owners, o => repTarget(o.id, mb));
+  if (own) return own;
+  const team = teamTargetInfo(Object.assign({}, mb, { grain: 'month' }));
+  if (!team.value) return 0;
+  if (region === 'all') return team.value;
+  const heads = activeOwners().length;
+  return heads ? team.value * owners.length / heads : 0;
+}
+const usingTeamSplit = mb => !sum(activeOwners(), o => repTarget(o.id, mb)) &&
+  !!teamTargetInfo(Object.assign({}, mb, { grain: 'month' })).value;
 
 function viewMonthly(root) {
   const mk = VIEW.month || monthKey();
@@ -6184,7 +6332,11 @@ function viewMonthly(root) {
   rc.body.appendChild(el('div', { class: 'tw' }, [tb]));
   if (!regions.length) rc.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
     text: 'No active reps yet. Add your team in Settings and give each person a sales region.' }));
-  else if (regions.includes(UNASSIGNED_REGION)) rc.body.appendChild(el('p', { class: 'sub',
+  if (usingTeamSplit(mb)) rc.body.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;line-height:1.55', html:
+    'Nobody has a personal target for this month, so the <b>team</b> target is being split across the regions by headcount. ' +
+    'That keeps the combined row honest, but it is a split, not a plan — give each rep a target in Settings and these become real.' }));
+  if (regions.includes(UNASSIGNED_REGION)) rc.body.appendChild(el('p', { class: 'sub',
     style: 'margin:var(--sp-3) 0 0;line-height:1.55',
     html: `Some reps have no region set, so their numbers sit under <b>Unassigned</b>. ` +
       (isAdmin() ? 'Set one on each person in Settings → the team table.'
