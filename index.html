@@ -535,6 +535,7 @@ a.mfact:hover b{text-decoration:underline}
 .tl .it::before{content:"";position:absolute;left:-21px;top:5px;width:9px;height:9px;border-radius:99px;
   background:var(--surface-1);border:2px solid var(--baseline)}
 .tl .it.stage::before{border-color:var(--accent);background:var(--accent)}
+.tl .it.commit::before{border-color:var(--s3);background:var(--s3)}
 .tl .it.won::before{border-color:var(--good);background:var(--good)}
 .tl .it.lost::before{border-color:var(--critical);background:var(--critical)}
 .tl .it .w{font-size:var(--fs-xs);color:var(--ink-3);margin-bottom:2px;font-variant-numeric:tabular-nums}
@@ -556,8 +557,8 @@ a.mfact:hover b{text-decoration:underline}
 .trow .tt{font-weight:600;line-height:1.4}
 .trow .tm{font-size:var(--fs-sm);color:var(--ink-3);display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:3px;align-items:center}
 
-/* weekly review */
-.wk{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+/* commitment review */
+.wk{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
 .repcard{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
 .repcard>header{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
   background:var(--surface-3);border-bottom:1px solid var(--line)}
@@ -574,8 +575,48 @@ a.mfact:hover b{text-decoration:underline}
 .nitem.prob{border-left:2px solid var(--critical)}
 .nitem.sol{border-left:2px solid var(--good)}
 .nitem.com{border-left:2px solid var(--accent)}
+.nitem.best{border-left:2px solid var(--s3)}
 .nitem button{margin-left:auto;background:none;border:0;color:var(--ink-3);cursor:pointer;padding:0 2px;flex:none}
 .nitem button:hover{color:var(--critical-ink)}
+
+/* the four scorecard metrics on each rep card */
+.scorecard{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:var(--sp-4)}
+.scorecard .sc{background:var(--surface-2);border:1px solid var(--line-soft);border-left:2px solid var(--line);
+  border-radius:var(--r-sm);padding:7px 9px;min-width:0}
+.scorecard .sc .l{font-size:var(--fs-xs);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scorecard .sc .v{font-weight:650;font-variant-numeric:tabular-nums;margin-top:2px}
+.scorecard .sc.good{border-left-color:var(--good)}
+.scorecard .sc.good .v{color:var(--good-ink)}
+.scorecard .sc.warn{border-left-color:var(--warning)}
+.scorecard .sc.bad{border-left-color:var(--critical)}
+.scorecard .sc.bad .v{color:var(--critical-ink)}
+
+/* buyer-signal toggles + the qualification score bar */
+.sigs{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.sigs .sig{font-size:var(--fs-xs);padding:3px 9px;border-radius:99px;cursor:pointer;line-height:1.5;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink-3)}
+.sigs .sig:hover:not(:disabled){border-color:var(--accent);color:var(--ink-2)}
+.sigs .sig.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.sigs .sig:disabled{cursor:default;opacity:.7}
+.scorebar{height:5px;border-radius:99px;background:var(--surface-3);overflow:hidden;margin-bottom:var(--sp-4)}
+.scorebar i{display:block;height:100%;border-radius:99px;background:var(--critical)}
+.scorebar i.warm{background:var(--warning)}
+.scorebar i.hot{background:var(--good)}
+
+/* multi-pick deal list in the commit dialog */
+.picksum{font-size:var(--fs-sm);color:var(--ink-2);padding:6px 10px;border-radius:var(--r-sm);
+  background:var(--surface-3);border:1px solid var(--line-soft);margin-bottom:6px}
+.picklist{max-height:44vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--surface-2);margin-bottom:var(--sp-4)}
+.picklist .pick{display:flex;gap:var(--sp-3);align-items:center;padding:8px 11px;cursor:pointer;
+  border-bottom:1px solid var(--line-soft)}
+.picklist .pick:last-child{border-bottom:0}
+.picklist .pick:hover{background:var(--surface-3)}
+.picklist .pick.on{background:var(--accent-soft)}
+.picklist .pick.taken{opacity:.5;cursor:default}
+.picklist .pick input{flex:none;accent-color:var(--accent);width:15px;height:15px}
+.picklist .pick .nm{font-weight:600;font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.picklist .pick .sub{font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}
 
 /* toast */
 #toasts{position:fixed;bottom:var(--sp-4);left:50%;transform:translateX(-50%);z-index:500;
@@ -691,7 +732,7 @@ a.mfact:hover b{text-decoration:underline}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -2008,7 +2049,7 @@ const NAV = [
   { id: 'companies', label: 'Companies', icon: 'bldg',  count: () => live('companies').length },
   { id: 'contacts',  label: 'Contacts',  icon: 'user',  count: () => live('contacts').length },
   { g: 'Manage' },
-  { id: 'review',    label: 'Weekly review', icon: 'cal' },
+  { id: 'review',    label: 'Commitment review', icon: 'flag' },
   { id: 'forecast',  label: 'Forecast & analytics', icon: 'chart' },
   { id: 'settings',  label: 'Settings',  icon: 'cog' }
 ];
@@ -2120,7 +2161,7 @@ const WIDGETS = [
   { id: 'reps',     name: 'Rep leaderboard' },
   { id: 'wl',       name: 'Won vs lost' },
   { id: 'loss',     name: 'Reasons for losing' },
-  { id: 'commit',   name: 'This week\'s commitments' },
+  { id: 'commit',   name: 'This week\'s commitment' },
   { id: 'risk',     name: 'Needs attention' },
   { id: 'recent',   name: 'Recent activity' }
 ];
@@ -2231,26 +2272,35 @@ function viewDashboard(root) {
       return c.node;
     },
     commit: () => {
-      const c = card('This week\'s commitments', weekLabel(VIEW.week));
-      const cs = live('commitments').filter(x => x.week === weekKey() &&
-        (VIEW.rep === 'all' || String(x.ownerId) === VIEW.rep));
-      if (!cs.length) {
+      const wk = weekKey();
+      const c = card('This week\'s commitment', weekLabel(wk));
+      const mine = x => VIEW.rep === 'all' || String(x.ownerId) === VIEW.rep;
+      const cs = commitsIn(wk, null, 'commit').filter(mine);
+      const bs = commitsIn(wk, null, 'best').filter(mine);
+      const cv = sum(cs, commitValue), bv = sum(bs, commitValue);
+      c.body.appendChild(el('dl', { class: 'kvs' }, [
+        el('dt', { text: 'Commit' }),
+        el('dd', { html: `${CFG.currency} ${money(cv, { dash: false })} <span style="font-weight:400;color:var(--ink-3)">· ${cs.length} deals</span>` }),
+        el('dt', { text: 'Best case' }),
+        el('dd', { html: `<span style="color:var(--ink-2)">${CFG.currency} ${money(bv, { dash: false })} <span style="font-weight:400;color:var(--ink-3)">· ${bs.length} deals</span></span>` })
+      ]));
+      if (!cs.length && !bs.length) {
         c.body.appendChild(el('p', { style: 'margin:0;color:var(--ink-3);line-height:1.6',
-          html: 'No commitments logged for this week. Open <b>Weekly review</b> to capture what each rep is committing to.' }));
+          html: 'Nothing picked for this week. Open <b>Commitment review</b> to capture what each rep is standing behind.' }));
       } else {
         const list = el('div', { class: 'nlist' });
-        cs.slice(0, 8).forEach(x => {
-          const d = getDl(x.dealId);
-          list.appendChild(el('div', { class: 'nitem com', html:
-            `<span class="ic">${ico('flag',13)}</span><div style="flex:1">
+        cs.concat(bs).slice(0, 8).forEach(x => {
+          const d = getDl(x.dealId), slot = slotOf(x);
+          list.appendChild(el('div', { class: 'nitem ' + (slot === 'commit' ? 'com' : 'best'), html:
+            `<span class="ic">${ico(slot === 'commit' ? 'flag' : 'up',13)}</span><div style="flex:1">
                <b>${esc(ownerName(x.ownerId))}</b> — ${esc(d ? d.name : x.note || 'commitment')}
-               ${x.amount ? `<span class="mono" style="color:var(--ink-3)"> · ${CFG.currency} ${money(x.amount)}</span>` : ''}
+               <span class="mono" style="color:var(--ink-3)"> · ${CFG.currency} ${money(commitValue(x))}</span>
              </div>` }));
         });
         c.body.appendChild(list);
       }
       c.body.appendChild(el('button', { class: 'btn sm ghost', style: 'margin-top:10px',
-        text: 'Open weekly review →', onclick: () => go('review') }));
+        text: 'Open commitment review \u2192', onclick: () => go('review') }));
       return c.node;
     },
     risk: () => {
@@ -3385,7 +3435,7 @@ function openDeal(id, tab) {
   const foot = el('div', { class: 'foot' });
   foot.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Task', onclick: () => editTask(null, { dealId: d.id, ownerId: d.ownerId }) }));
   foot.appendChild(el('button', { class: 'btn', html: ico('note',14) + ' Log note', onclick: () => logNote(d) }));
-  foot.appendChild(el('button', { class: 'btn', html: ico('flag',14) + ' Commit this week', onclick: () => commitDeal(d) }));
+  foot.appendChild(el('button', { class: 'btn', html: ico('flag',14) + ' Commit / best case', onclick: () => commitDeal(d) }));
   foot.appendChild(el('div', { style: 'flex:1' }));
   if (isOpen(d)) {
     foot.appendChild(el('button', { class: 'btn', style: 'color:var(--critical-ink)', text: 'Mark lost',
@@ -3814,22 +3864,31 @@ function askLoss(d, lostId) {
 function commitDeal(d) {
   const wk = weekKey();
   const existing = live('commitments').find(c => c.dealId === d.id && c.week === wk);
-  if (existing) { toast('Already committed this week'); return; }
+  if (existing) {
+    return confirmDo('Already picked this week',
+      `${d.name} is already in ${ownerName(existing.ownerId)}'s ${SLOTS[slotOf(existing)].toLowerCase()} for ${weekLabel(wk)}.`,
+      'Remove it', () => { remove('commitments', existing.id); refreshDrawer(); render(); toast('Removed from this week'); });
+  }
+  let sl = 'commit';
+  const seg = el('div', { class: 'seg' });
+  ['commit','best'].forEach(s => seg.appendChild(el('button', { class: s === sl ? 'on' : '', text: SLOTS[s],
+    onclick: () => { sl = s; Array.from(seg.children).forEach((b, i) => b.classList.toggle('on', ['commit','best'][i] === sl)); } })));
   const amt = el('input', { class: 'inp', type: 'number', value: d.amount || '' });
   const note = el('input', { class: 'inp', placeholder: 'What has to happen for this to land?' });
-  modal('Commit for ' + weekLabel(wk), el('div', {}, [
+  modal('Pick for ' + weekLabel(wk), el('div', {}, [
     el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
-      html: `Committing <b>${esc(d.name)}</b> for <b>${esc(ownerName(d.ownerId))}</b>. It shows on the dashboard and in the weekly review, and is scored against what actually closed.` }),
-    el('div', { class: 'field' }, [ el('label', { class: 'fl', text: `Committed value (${CFG.currency})` }), amt ]),
-    el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Commitment note' }), note ])
+      html: `<b>${esc(d.name)}</b> for <b>${esc(ownerName(d.ownerId))}</b>. <b>Commit</b> is what they are standing behind; <b>best case</b> is what could land if everything breaks right. Both feed the weighted forecast in the commitment review, and are scored against what actually closed.` }),
+    fld('Slot', seg),
+    el('div', { class: 'field' }, [ el('label', { class: 'fl', text: `Value (${CFG.currency})` }), amt ]),
+    el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Note' }), note ])
   ]), [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
-    el('button', { class: 'btn primary', text: 'Commit', onclick: () => {
-      upsert('commitments', { week: wk, dealId: d.id, ownerId: d.ownerId,
+    el('button', { class: 'btn primary', text: 'Add', onclick: () => {
+      upsert('commitments', { week: wk, dealId: d.id, ownerId: d.ownerId, slot: sl,
         amount: Number(amt.value) || d.amount || 0, note: note.value.trim() || null, stageAt: d.stageId });
-      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'stage',
-        html: `Committed <b>${esc(d.name)}</b> for ${esc(weekLabel(wk))}` });
-      closeAll(); render(); toast('Committed for this week', 'ok');
+      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'commit',
+        html: `Picked <b>${esc(d.name)}</b> as <b>${esc(SLOTS[sl].toLowerCase())}</b> for ${esc(weekLabel(wk))}` });
+      closeAll(); render(); toast('Added to ' + SLOTS[sl].toLowerCase(), 'ok');
     } })
   ]);
 }
@@ -4894,24 +4953,136 @@ function addLineItem(d, custom) {
   ]);
 }
 /* ================================================================
-   WEEKLY REVIEW — the meeting view: commitments, what landed,
-   problems raised and the solutions agreed, week over week.
+   COMMITMENT REVIEW — the weekly meeting view. Pipeline, forecast and
+   what each rep is committing to, on one screen, across all reps.
+
+   The commitment model is the one from the OxeFit Sales Tracker:
+   each rep picks deals into a Commit slot and a Best case slot, ticks
+   the buyer signals behind them, and the weighted forecast falls out
+   of that. The difference here is that the deals are CoreV CRM deals,
+   not typed-in names pulled from HubSpot — so the stage, the value and
+   the outcome are the same records the pipeline and forecast views use.
    ================================================================ */
+
+/* ---- the seven buyer signals, unchanged from the tracker ---- */
+const SIGNALS = [
+  ['budget',   'Budget confirmed'],
+  ['timeline', 'Timeline defined'],
+  ['champion', 'Internal champion'],
+  ['demo',     'Demo completed'],
+  ['proposal', 'Proposal submitted'],
+  ['dm',       'Decision-maker engaged'],
+  ['compout',  'Competition eliminated']
+];
+const CONF_LEVELS = [90, 70, 50, 30];
+
+/* A deal that has not moved in this long is treated as stale and its
+   contribution to the forecast is halved. The tracker hard-coded
+   Qualified 14 / Proposal 21 / Negotiation 30; here the threshold comes
+   off the stage's own probability, so it still works if you edit stages. */
+const staleDays = p => p >= .6 ? 30 : p >= .4 ? 21 : 14;
+const STALE_PENALTY = 0.5;
+
+function stageSince(d) {
+  const a = DB.activities.filter(x => !x._del && x.dealId === d.id && x.kind === 'stage' && x.at)
+    .sort((p, q) => (q.at || '').localeCompare(p.at || ''))[0];
+  return (a && String(a.at).slice(0, 10)) || d.stageChangedAt || d.createdAt || null;
+}
+function daysInStage(d) {
+  const s = stageSince(d);
+  if (!s) return null;
+  const n = days(TODAY(), s);
+  return n >= 0 ? n : null;
+}
+function isStale(d) {
+  const n = daysInStage(d);
+  return n != null && n > staleDays(stage(d.stageId).probability);
+}
+
+/* ---- commitments: one record per deal, per rep, per week, per slot ---- */
+const slotOf = c => c.slot === 'best' ? 'best' : 'commit';
+const SLOTS = { commit: 'Commit', best: 'Best case' };
+function commitsIn(wk, ownerId, slot) {
+  return live('commitments').filter(c => c.week === wk &&
+    (ownerId == null || String(c.ownerId) === String(ownerId)) &&
+    (slot == null || slotOf(c) === slot));
+}
+const commitValue = c => { const d = getDl(c.dealId); return Number(c.amount) || (d && d.amount) || 0; };
+
 function reviewFor(week, ownerId) {
   let r = live('reviews').find(x => x.week === week && String(x.ownerId) === String(ownerId));
-  if (!r) r = { id: uid('R'), week, ownerId: String(ownerId), problems: [], solutions: [], notes: [], target: null };
+  if (!r) r = { id: uid('R'), week, ownerId: String(ownerId), problems: [], solutions: [], notes: [],
+    signals: {}, confidence: 90, action: '', blocked: '', locked: false };
+  if (!r.signals || typeof r.signals !== 'object') r.signals = {};
   return r;
 }
 function saveReview(r) { upsert('reviews', r); }
 
+/* ---------------------------------------------------------------
+   The whole commitment picture for one rep in one week. Every number
+   on this screen comes from here, so the tiles, the table, the card
+   and the exported agenda can never disagree with each other.
+   --------------------------------------------------------------- */
+function repWeek(o, wk, rng) {
+  const b = { from: rng.from, to: rng.to };
+  const r = reviewFor(wk, o.id);
+  const mine = ownedDeals(o.id);
+  const cRecs = commitsIn(wk, o.id, 'commit');
+  const bRecs = commitsIn(wk, o.id, 'best');
+  const commitDeals = cRecs.map(c => getDl(c.dealId)).filter(Boolean);
+  const bestDeals   = bRecs.map(c => getDl(c.dealId)).filter(Boolean);
+
+  const commitVal = sum(cRecs, commitValue);
+  const bestVal   = sum(bRecs, commitValue);
+
+  // the stage that drives the weight is the strongest committed deal,
+  // falling back to best case when nothing is committed yet
+  const pool = commitDeals.length ? commitDeals : bestDeals;
+  const topProb = pool.reduce((m, d) => Math.max(m, stage(d.stageId).probability || 0), 0);
+  const stale = (commitDeals.length ? commitDeals : bestDeals).some(isStale);
+  const penalty = stale ? STALE_PENALTY : 1;
+  const forecast = (commitVal + bestVal) * topProb * penalty;
+
+  const sig = r.signals || {};
+  const sigOn = SIGNALS.filter(([k]) => sig[k]).length;
+  const score = Math.min(100, Math.round((sigOn / SIGNALS.length) * 60 + Math.min(1, topProb / .9) * 40));
+  const tier = score >= 70 ? 'hot' : score >= 40 ? 'warm' : 'cold';
+
+  const openD = mine.filter(isOpen);
+  const won  = mine.filter(d => isWon(d)  && inPeriod(d.closeDate, b));
+  const lost = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
+  const wonVal = sum(won, d => d.amount), lostVal = sum(lost, d => d.amount);
+  const pipeline = sum(openD, d => d.amount);
+  const target = repTarget(o.id, mBounds(rng.to));
+
+  const denom = Math.max(forecast, wonVal);
+  return { o, r, wk, rng,
+    cRecs, bRecs, commitDeals, bestDeals, commitVal, bestVal,
+    topProb, stale, penalty, forecast, sigOn, score, tier,
+    openD, won, lost, wonVal, lostVal, pipeline,
+    weightedPipe: sum(openD, weighted), target,
+    accuracy: denom ? 1 - Math.abs(forecast - wonVal) / denom : null,
+    variance: commitVal ? (wonVal - commitVal) / commitVal : null,
+    attain:   target ? wonVal / target : null,
+    coverage: target ? pipeline / target : null,
+    landed: sum(cRecs.filter(c => { const d = getDl(c.dealId); return d && isWon(d); }), commitValue)
+  };
+}
+
+/* thresholds, straight from the tracker's guide */
+const accTag = v => v == null ? '' : v >= .85 ? 'good' : v >= .70 ? 'warn' : 'bad';
+const varTag = v => v == null ? '' : v >= 0 ? 'good' : v >= -.15 ? 'warn' : 'bad';
+const covTag = v => v == null ? '' : v >= 4 ? 'good' : v >= 2.5 ? 'warn' : 'bad';
+const attTag = v => v == null ? '' : v >= 1 ? 'good' : v >= .85 ? 'warn' : 'bad';
+const signed = v => (v > 0 ? '+' : '') + Math.round(v * 100) + '%';
+
+/* ================================================================ view */
 function viewReview(root) {
   const wk = VIEW.week, rng = weekRange(wk);
   const prev = weekShift(wk, -1);
-  const b = { from: rng.from, to: rng.to, label: weekLabel(wk) };
-  const allDeals = live('deals');
-  const commits = live('commitments').filter(c => c.week === wk);
-  const closedWon  = allDeals.filter(d => isWon(d)  && inPeriod(d.closeDate, b));
-  const closedLost = allDeals.filter(d => isLost(d) && inPeriod(d.closeDate, b));
+  const b = { from: rng.from, to: rng.to };
+  const reps = VIEW.rep === 'all' ? activeOwners() : DB.owners.filter(o => o.id === VIEW.rep);
+  const W = reps.map(o => repWeek(o, wk, rng));
 
   root.appendChild(viewHead(null, [
     el('div', { class: 'seg' }, [
@@ -4921,26 +5092,114 @@ function viewReview(root) {
     ]),
     wk !== weekKey() ? el('button', { class: 'btn', text: 'This week', onclick: () => { VIEW.week = weekKey(); render(); } }) : null,
     el('button', { class: 'btn', html: ico('dl',14) + ' Export agenda', onclick: () => exportReview(wk) }),
-    el('button', { class: 'btn primary', html: ico('flag',14) + ' Add commitment', onclick: () => addCommitment(wk) })
+    el('button', { class: 'btn primary', html: ico('flag',14) + ' Commit deals', onclick: () => addCommitment(wk) })
   ]));
 
-  // ---- team summary
-  const committed = sum(commits, c => c.amount);
-  const landed = sum(commits.filter(c => { const d = getDl(c.dealId); return d && isWon(d); }), c => c.amount);
+  // ---- team roll-up: commitment, forecast and pipeline in one band
+  const commitVal = sum(W, x => x.commitVal), bestVal = sum(W, x => x.bestVal);
+  const forecast  = sum(W, x => x.forecast);
+  const wonVal    = sum(W, x => x.wonVal),   lostVal = sum(W, x => x.lostVal);
+  const landed    = sum(W, x => x.landed);
+  const pipeline  = sum(W, x => x.pipeline);
+  const nCommit   = sum(W, x => x.cRecs.length), nBest = sum(W, x => x.bRecs.length);
+  const locked    = W.filter(x => x.r.locked).length;
+  const target    = repTarget(VIEW.rep, mBounds(rng.to));
+
   const t = el('div', { class: 'tiles' });
-  t.appendChild(tile('Committed this week', money(committed), { cur: true, icon: 'flag',
-    foot: `${commits.length} deals committed` }));
-  t.appendChild(tile('Of that, landed', money(landed), { cur: true, icon: 'check',
-    foot: committed ? pct(landed, committed) + '% of commitment kept' : 'nothing committed',
-    meter: committed ? pct(landed, committed) : null }));
-  t.appendChild(tile('Closed won in week', money(sum(closedWon, d => d.amount)), { cur: true, icon: 'up',
-    foot: `${closedWon.length} deals` }));
-  t.appendChild(tile('Closed lost in week', money(sum(closedLost, d => d.amount)), { cur: true, icon: 'down',
-    foot: `${closedLost.length} deals` }));
-  t.appendChild(tile('Win rate in week', (closedWon.length + closedLost.length)
-    ? pct(closedWon.length, closedWon.length + closedLost.length) + '%' : '—', { icon: 'bolt',
-    foot: `${closedWon.length} won · ${closedLost.length} lost` }));
+  t.appendChild(tile('Commit', money(commitVal), { cur: true, icon: 'flag',
+    foot: `${nCommit} deal${nCommit === 1 ? '' : 's'} committed by ${W.filter(x => x.cRecs.length).length} of ${W.length} reps` }));
+  t.appendChild(tile('Best case', money(bestVal), { cur: true, icon: 'up',
+    foot: `${nBest} deal${nBest === 1 ? '' : 's'} that could land` }));
+  t.appendChild(tile('Weighted forecast', money(forecast), { cur: true, icon: 'chart',
+    foot: '(commit + best case) × stage weight' + (W.some(x => x.stale) ? ' · stale halved' : '') }));
+  t.appendChild(tile('Of commit, landed', money(landed), { cur: true, icon: 'check',
+    foot: commitVal ? pct(landed, commitVal) + '% of the commitment kept' : 'nothing committed yet',
+    meter: commitVal ? pct(landed, commitVal) : null }));
+  t.appendChild(tile('Closed won in week', money(wonVal), { cur: true, icon: 'bolt',
+    foot: target ? `${pct(wonVal, target)}% of the ${fdate(rng.to,'month')} target` : `${sum(W, x => x.won.length)} won · ${sum(W, x => x.lost.length)} lost`,
+    meter: target ? pct(wonVal, target) : null }));
+  t.appendChild(tile('Open pipeline', money(pipeline), { cur: true, icon: 'grid',
+    foot: target ? `${(pipeline / target).toFixed(1)}× coverage of target` : `${sum(W, x => x.openD.length)} open deals`,
+    onclick: () => go('pipeline') }));
   root.appendChild(t);
+
+  if (W.length && locked < W.length) root.appendChild(el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' }, [
+    el('span', { class: 'ic', html: ico('warn', 16) }),
+    el('div', { style: 'flex:1;min-width:0;line-height:1.5', html:
+      `<b>${W.length - locked} of ${W.length} reps have not submitted</b><div class="sub">${
+        esc(W.filter(x => !x.r.locked).map(x => x.o.name).join(', '))} — the roll-up above counts whatever is entered so far.</div>` })
+  ]));
+
+  // ---- the merged grid: pipeline + forecast + commitment, per rep
+  const gr = card('Pipeline, forecast and commitment by rep',
+    `${weekLabel(wk)} · commit and best case are this week's picks, pipeline is current`);
+  const host = el('div'); gr.body.appendChild(host);
+  dataTable(host, {
+    key: 'wkgrid', noun: 'reps', rows: W, per: 30, defaultSort: 2, defaultDir: -1,
+    emptyText: 'No active reps. Add your team in Settings and their commitment rows appear here.',
+    cols: [
+      { h: 'Rep', v: x => x.o.name, r: x => ownerCell(x.o.id) },
+      { h: 'Status', v: x => x.r.locked ? 1 : 0, r: x => x.r.locked
+          ? `<span class="tag good">Submitted</span>` : `<span class="tag warn">In progress</span>` },
+      { h: 'Commit', num: true, v: x => x.commitVal,
+        r: x => `<span class="mono">${money(x.commitVal)}</span><div class="cellsub">${x.cRecs.length} deals</div>` },
+      { h: 'Best case', num: true, v: x => x.bestVal,
+        r: x => `<span class="mono" style="color:var(--ink-2)">${money(x.bestVal)}</span><div class="cellsub">${x.bRecs.length} deals</div>` },
+      { h: 'Weight', num: true, v: x => x.topProb,
+        r: x => x.topProb ? `${Math.round(x.topProb * 100)}%${x.stale ? '<div class="cellsub" style="color:var(--critical-ink)">stale ×0.5</div>' : ''}`
+                          : '<span class="cellsub">—</span>' },
+      { h: 'Forecast', num: true, v: x => x.forecast, r: x => `<span class="mono">${money(x.forecast)}</span>` },
+      { h: 'Pipeline', num: true, v: x => x.pipeline,
+        r: x => `<span class="mono" style="color:var(--ink-2)">${money(x.pipeline)}</span><div class="cellsub">${x.openD.length} open</div>` },
+      { h: 'Closed won', num: true, v: x => x.wonVal,
+        r: x => `<span class="mono" style="color:var(--good-ink)">${money(x.wonVal)}</span><div class="cellsub">${x.won.length} deals</div>` },
+      { h: 'Coverage', num: true, v: x => x.coverage || 0,
+        r: x => x.coverage == null ? '<span class="cellsub">no target</span>'
+              : `<span class="tag ${covTag(x.coverage)}">${x.coverage.toFixed(1)}×</span>` },
+      { h: 'Score', num: true, v: x => x.score,
+        r: x => `<span class="tag ${x.tier === 'hot' ? 'good' : x.tier === 'warm' ? 'warn' : 'bad'}">${x.score}</span>` +
+                `<div class="cellsub">${x.sigOn}/${SIGNALS.length} signals</div>` }
+    ],
+    footNote: `team commit ${CFG.currency} ${money(commitVal, {dash:false})} · forecast ${CFG.currency} ${money(forecast, {dash:false})} · won ${CFG.currency} ${money(wonVal, {dash:false})}`,
+    onRow: x => { VIEW.rep = x.o.id; renderTopControls(); render(); }
+  });
+  root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [gr.node]));
+
+  // ---- two charts: where the commitment sits, and how the calls have gone
+  const g = el('div', { class: 'grid2', style: 'margin-bottom:var(--sp-3)' });
+
+  const allC = W.reduce((a, x) => a.concat(x.cRecs), []);
+  const allB = W.reduce((a, x) => a.concat(x.bRecs), []);
+  const c1 = card('Committed and best-case deals by stage',
+    `${allC.length + allB.length} deals picked for ${weekLabel(wk)}`);
+  const byStage = openStages().map(s => {
+    const cd = allC.filter(c => { const d = getDl(c.dealId); return d && d.stageId === s.id; });
+    const bdl = allB.filter(c => { const d = getDl(c.dealId); return d && d.stageId === s.id; });
+    return { s, cv: sum(cd, commitValue), bv: sum(bdl, commitValue), n: cd.length + bdl.length };
+  }).filter(x => x.n);
+  if (!byStage.length) c1.body.appendChild(el('p', { class: 'sub', style: 'margin:0',
+    html: 'Nothing has been committed for this week yet. Use <b>Commit deals</b> above, or the <b>Commit this week</b> button inside any deal.' }));
+  else chartBar(c1.body, byStage.map(x => ({
+    label: x.s.label, short: x.s.label.split(' ')[0],
+    value: Math.round(x.cv + x.bv),
+    note: `${CFG.currency} ${money(x.cv, {compact:true})} commit · ${CFG.currency} ${money(x.bv, {compact:true})} best case · weight ${Math.round(x.s.probability*100)}%`
+  })), { yLabel: CFG.currency, xLabel: 'Stage' });
+  g.appendChild(c1.node);
+
+  const c2 = card('Called versus closed, week by week', 'Does the commitment hold up? Eight weeks of history');
+  const wks = []; for (let i = 7; i >= 0; i--) wks.push(weekShift(wk, -i));
+  const repIds = reps.map(o => String(o.id));
+  const inScope = c => VIEW.rep === 'all' || repIds.includes(String(c.ownerId));
+  chartLine(c2.body, [
+    { name: 'Commit', color: 'var(--s1)',
+      data: wks.map(k => sum(commitsIn(k, null, 'commit').filter(inScope), commitValue)) },
+    { name: 'Closed won', color: 'var(--s3)', dash: '5 4',
+      data: wks.map(k => { const rr = weekRange(k);
+        return sum(live('deals').filter(d => isWon(d) && inPeriod(d.closeDate, { from: rr.from, to: rr.to }) &&
+          (VIEW.rep === 'all' || ownedBy(d, VIEW.rep))), d => d.amount); }) }
+  ], wks.map(k => weekRange(k).from.slice(5).replace('-', '/')), { xLabel: 'Week beginning', height: 280 });
+  g.appendChild(c2.node);
+  root.appendChild(g);
 
   // ---- movement this week, from the activity log
   const moved = DB.activities.filter(a => !a._del && a.kind === 'stage' && a.at &&
@@ -4957,21 +5216,17 @@ function viewReview(root) {
   root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [mv.node]));
 
   // ---- per-rep cards
-  const reps = VIEW.rep === 'all' ? activeOwners() : DB.owners.filter(o => o.id === VIEW.rep);
   const grid = el('div', { class: 'wk' });
-  reps.forEach(o => grid.appendChild(repReviewCard(o, wk, rng)));
+  W.forEach(x => grid.appendChild(repReviewCard(x)));
   root.appendChild(grid);
-  if (!reps.length) root.appendChild(el('div', { class: 'empty', html: ico('user',34) +
-    '<h4>No active reps</h4><p>Add your sales team in Settings and their weekly cards appear here.</p>' }));
+  if (!W.length) root.appendChild(el('div', { class: 'empty', html: ico('user',34) +
+    '<h4>No active reps</h4><p>Add your sales team in Settings and their commitment cards appear here.</p>' }));
 }
-function repReviewCard(o, wk, rng) {
-  const r = reviewFor(wk, o.id);
-  const b = { from: rng.from, to: rng.to };
-  const mine = ownedDeals(o.id);
-  const commits = live('commitments').filter(c => c.week === wk && String(c.ownerId) === o.id);
-  const won  = mine.filter(d => isWon(d)  && inPeriod(d.closeDate, b));
-  const lost = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
-  const openD = mine.filter(isOpen);
+
+/* ------------------------------------------------- one rep's card */
+function repReviewCard(x) {
+  const { o, r, wk, rng } = x;
+  const locked = !!r.locked;
   const tasksLate = live('tasks').filter(t => String(t.ownerId) === o.id && t.status !== 'done' &&
     t.dueDate && dnum(t.dueDate) < dnum(TODAY()));
 
@@ -4979,8 +5234,9 @@ function repReviewCard(o, wk, rng) {
   n.appendChild(el('header', {}, [
     el('span', { class: 'avatar lg', style: `background:${ownerColor(o.id)}`, text: initials(o.name) }),
     el('div', {}, [ el('div', { class: 'nm', text: o.name }),
-      el('div', { class: 'rl', text: `${openD.length} open · ${CFG.currency} ${money(sum(openD, d => d.amount), {compact:true})} pipeline` }) ]),
+      el('div', { class: 'rl', text: `${x.openD.length} open · ${CFG.currency} ${money(x.pipeline, {compact:true})} pipeline` }) ]),
     el('div', { style: 'flex:1' }),
+    el('span', { class: 'tag ' + (locked ? 'good' : 'warn'), text: locked ? 'Submitted' : 'In progress' }),
     overdueDeals(o.id, { ownedOnly: true }).length ? el('button', { class: 'tag bad', style: 'border:0;cursor:pointer',
       title: 'Open deals past their close date — click to fix',
       text: overdueDeals(o.id, { ownedOnly: true }).length + ' overdue dates',
@@ -4988,42 +5244,110 @@ function repReviewCard(o, wk, rng) {
     tasksLate.length ? el('span', { class: 'tag bad', text: tasksLate.length + ' late tasks' }) : null
   ]));
   const bd = el('div', { class: 'b' });
+
+  // ---- the numbers
   const kv = el('dl', { class: 'kvs' });
   const add = (k, v) => { kv.appendChild(el('dt', { text: k })); kv.appendChild(el('dd', { html: v })); };
-  add('Committed', `${CFG.currency} ${money(sum(commits, c => c.amount), { dash: false })}`);
-  add('Won this week', `<span style="color:var(--good-ink)">${CFG.currency} ${money(sum(won, d => d.amount), { dash: false })}</span>`);
-  add('Lost this week', `<span style="color:var(--critical-ink)">${CFG.currency} ${money(sum(lost, d => d.amount), { dash: false })}</span>`);
-  add('Weighted forecast', `${CFG.currency} ${money(sum(openD, weighted), { dash: false })}`);
+  add('Commit',    `${CFG.currency} ${money(x.commitVal, { dash: false })}`);
+  add('Best case', `<span style="color:var(--ink-2)">${CFG.currency} ${money(x.bestVal, { dash: false })}</span>`);
+  add('Stage weight', x.topProb
+    ? `${Math.round(x.topProb * 100)}%${x.stale ? ` <span class="tag bad">stale ×0.5</span>` : ''}`
+    : '<span style="color:var(--ink-3)">—</span>');
+  add('Weighted forecast', `${CFG.currency} ${money(x.forecast, { dash: false })}`);
+  add('Won this week',  `<span style="color:var(--good-ink)">${CFG.currency} ${money(x.wonVal, { dash: false })}</span>`);
+  add('Lost this week', `<span style="color:var(--critical-ink)">${CFG.currency} ${money(x.lostVal, { dash: false })}</span>`);
   bd.appendChild(kv);
 
-  // commitments with outcome
-  bd.appendChild(el('label', { class: 'fl', style: 'margin-top:var(--sp-2)', text: 'Commitments' }));
-  const cl = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-4)' });
-  if (!commits.length) cl.appendChild(el('div', { class: 'nitem', style: 'color:var(--ink-3)',
-    html: `<span class="ic">${ico('flag',13)}</span><span>Nothing committed for this week.</span>` }));
-  commits.forEach(c => {
-    const d = getDl(c.dealId);
-    const state = !d ? '' : isWon(d) ? 'good' : isLost(d) ? 'bad' : '';
-    cl.appendChild(el('div', { class: 'nitem com' }, [
-      el('span', { class: 'ic', html: ico('flag',13) }),
-      el('div', { style: 'flex:1', html:
-        `<b>${esc(d ? d.name : (c.note || 'commitment'))}</b>
-         <span class="mono" style="color:var(--ink-3)"> · ${CFG.currency} ${money(c.amount, { dash: false })}</span>
-         ${d ? ` <span class="tag ${state}">${esc(stage(d.stageId).label)}</span>` : ''}
-         ${c.note && d ? `<div style="color:var(--ink-3);margin-top:3px">${esc(c.note)}</div>` : ''}` }),
-      el('button', { html: ico('x',12), 'aria-label': 'Remove', onclick: () => { remove('commitments', c.id); render(); } })
-    ]));
-  });
-  bd.appendChild(cl);
+  // ---- scorecard: the four tracker metrics
+  const sc = el('div', { class: 'scorecard' });
+  const met = (label, text, tag, title) => sc.appendChild(el('div', { class: 'sc' + (tag ? ' ' + tag : ''), title: title || '' }, [
+    el('div', { class: 'l', text: label }), el('div', { class: 'v', text: text })
+  ]));
+  met('Forecast accuracy', x.accuracy == null ? '—' : Math.round(x.accuracy * 100) + '%', accTag(x.accuracy),
+    'How close the weighted forecast landed to what actually closed. Symmetric — over-calling and sandbagging both cost you.');
+  met('Commit variance', x.variance == null ? '—' : signed(x.variance), varTag(x.variance),
+    'Closed won against what was committed. Positive means the commit was beaten.');
+  met('Goal attainment', x.attain == null ? 'no target' : Math.round(x.attain * 100) + '%', attTag(x.attain),
+    'Closed won against this month\'s target, set in Settings.');
+  met('Pipeline coverage', x.coverage == null ? 'no target' : x.coverage.toFixed(1) + '×', covTag(x.coverage),
+    'Open pipeline against this month\'s target. Four times over is the usual healthy floor.');
+  bd.appendChild(sc);
 
-  // problems / solutions / notes
+  // ---- the two commitment slots
+  ['commit', 'best'].forEach(slot => {
+    const recs = slot === 'commit' ? x.cRecs : x.bRecs;
+    bd.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:6px' }, [
+      el('label', { class: 'fl', style: 'margin:0', html: ico(slot === 'commit' ? 'flag' : 'up', 12) + ' ' + SLOTS[slot] }),
+      el('span', { class: 'mono', style: 'font-size:var(--fs-xs);color:var(--ink-3)',
+        text: CFG.currency + ' ' + money(slot === 'commit' ? x.commitVal : x.bestVal, { dash: false }) }),
+      el('div', { style: 'flex:1' }),
+      locked ? null : el('button', { class: 'btn sm ghost', html: ico('plus',12), 'aria-label': 'Add to ' + SLOTS[slot],
+        onclick: () => addCommitment(wk, o.id, slot) })
+    ].filter(Boolean)));
+    const list = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-4)' });
+    if (!recs.length) list.appendChild(el('div', { class: 'nitem', style: 'color:var(--ink-3)',
+      html: `<span class="ic">${ico(slot === 'commit' ? 'flag' : 'up',13)}</span><span>${
+        slot === 'commit' ? 'Nothing committed for this week.' : 'No best-case deals picked.'}</span>` }));
+    recs.forEach(c => {
+      const d = getDl(c.dealId);
+      const state = !d ? '' : isWon(d) ? 'good' : isLost(d) ? 'bad' : '';
+      const age = d ? daysInStage(d) : null;
+      const stale = d && isStale(d);
+      list.appendChild(el('div', { class: 'nitem ' + (slot === 'commit' ? 'com' : 'best') }, [
+        el('span', { class: 'ic', html: ico(slot === 'commit' ? 'flag' : 'up',13) }),
+        el('div', { style: 'flex:1;cursor:pointer', onclick: () => d && openDeal(d.id), html:
+          `<b>${esc(d ? d.name : (c.note || 'commitment'))}</b>
+           <span class="mono" style="color:var(--ink-3)"> · ${CFG.currency} ${money(commitValue(c), { dash: false })}</span>
+           ${d ? ` <span class="tag ${state}">${esc(stage(d.stageId).label)}</span>` : ''}
+           ${stale ? ` <span class="tag bad" title="No stage movement in ${age} days">${age}d in stage</span>` : ''}
+           ${c.note ? `<div style="color:var(--ink-3);margin-top:3px">${esc(c.note)}</div>` : ''}` }),
+        locked ? null : el('button', { html: ico('x',12), 'aria-label': 'Remove',
+          onclick: () => { remove('commitments', c.id); render(); } })
+      ].filter(Boolean)));
+    });
+    bd.appendChild(list);
+  });
+
+  // ---- buyer signals + qual score
+  bd.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:6px' }, [
+    el('label', { class: 'fl', style: 'margin:0', text: 'Buyer signals' }),
+    el('div', { style: 'flex:1' }),
+    el('span', { class: 'tag ' + (x.tier === 'hot' ? 'good' : x.tier === 'warm' ? 'warn' : 'bad'),
+      title: `${x.sigOn} of ${SIGNALS.length} signals and a ${Math.round(x.topProb*100)}% stage weight`,
+      text: `${x.score} · ${x.tier}` })
+  ]));
+  const chips = el('div', { class: 'sigs' });
+  SIGNALS.forEach(([k, label]) => {
+    const on = !!(r.signals || {})[k];
+    chips.appendChild(el('button', { class: 'sig' + (on ? ' on' : ''), text: label,
+      disabled: locked || null, 'aria-pressed': on ? 'true' : 'false',
+      onclick: () => { r.signals = Object.assign({}, r.signals); r.signals[k] = !on; saveReview(r); render(); } }));
+  });
+  bd.appendChild(chips);
+  bd.appendChild(el('div', { class: 'scorebar', html: `<i class="${x.tier}" style="width:${x.score}%"></i>` }));
+
+  // ---- confidence, next action, blocker
+  const conf = el('select', { class: 'inp', disabled: locked || null,
+    onchange: e => { r.confidence = Number(e.target.value); saveReview(r); } });
+  CONF_LEVELS.forEach(v => conf.appendChild(el('option', { value: v, text: v + '%',
+    selected: Number(r.confidence || 90) === v || null })));
+  const act = el('input', { class: 'inp', value: r.action || '', disabled: locked || null,
+    placeholder: 'The one thing that has to happen this week',
+    onchange: e => { r.action = e.target.value.trim(); saveReview(r); } });
+  const blk = el('input', { class: 'inp', value: r.blocked || '', disabled: locked || null,
+    placeholder: 'What is in the way?',
+    onchange: e => { r.blocked = e.target.value.trim(); saveReview(r); } });
+  bd.appendChild(el('div', { class: 'field-row' }, [ fld('Confidence', conf), fld('Next action', act) ]));
+  bd.appendChild(fld('Blocker', blk));
+
+  // ---- problems / solutions / notes
   const sect = (key, label, cls, icon, ph) => {
     bd.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:6px' }, [
       el('label', { class: 'fl', style: 'margin:0', text: label }),
       el('div', { style: 'flex:1' }),
-      el('button', { class: 'btn sm ghost', html: ico('plus',12), 'aria-label': 'Add ' + label,
+      locked ? null : el('button', { class: 'btn sm ghost', html: ico('plus',12), 'aria-label': 'Add ' + label,
         onclick: () => addReviewItem(r, key, label, ph) })
-    ]));
+    ].filter(Boolean)));
     const list = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-4)' });
     const items = r[key] || [];
     if (!items.length) list.appendChild(el('div', { class: 'nitem', style: 'color:var(--ink-3)',
@@ -5035,9 +5359,9 @@ function repReviewCard(o, wk, rng) {
         el('div', { style: 'font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px',
           text: `${fdate(it.at)}${it.by ? ' · ' + String(it.by).split('@')[0] : ''}${it.done ? ' · resolved' : ''}` })
       ]),
-      key === 'problems' ? el('button', { html: ico('check',12), title: it.done ? 'Reopen' : 'Mark resolved',
+      (key === 'problems' && !locked) ? el('button', { html: ico('check',12), title: it.done ? 'Reopen' : 'Mark resolved',
         onclick: () => { it.done = !it.done; saveReview(r); render(); } }) : null,
-      el('button', { html: ico('x',12), 'aria-label': 'Remove',
+      locked ? null : el('button', { html: ico('x',12), 'aria-label': 'Remove',
         onclick: () => { r[key].splice(i, 1); saveReview(r); render(); } })
     ].filter(Boolean))));
     bd.appendChild(list);
@@ -5045,9 +5369,29 @@ function repReviewCard(o, wk, rng) {
   sect('problems',  'Problems raised',   'prob', 'warn', 'No problems raised this week.');
   sect('solutions', 'Solutions agreed',  'sol',  'bolt', 'No solutions agreed yet.');
   sect('notes',     'Coaching notes',    '',     'note', 'No notes.');
+
+  // ---- submit / unlock
+  const foot = el('div', { style: 'display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap' });
+  if (locked) {
+    foot.appendChild(el('span', { class: 'sub', style: 'flex:1',
+      text: `Submitted${r.submittedBy ? ' by ' + String(r.submittedBy).split('@')[0] : ''}${r.submittedAt ? ' · ' + fdate(r.submittedAt) : ''}` }));
+    foot.appendChild(el('button', { class: 'btn sm', text: 'Reopen',
+      onclick: () => { r.locked = false; r.submittedAt = null; saveReview(r); render(); toast('Reopened for editing'); } }));
+  } else {
+    foot.appendChild(el('span', { class: 'sub', style: 'flex:1',
+      text: 'Submitting locks this week\'s commitment so the review has a fixed number to work from.' }));
+    foot.appendChild(el('button', { class: 'btn sm primary', html: ico('check',12) + ' Submit',
+      onclick: () => {
+        r.locked = true; r.submittedAt = new Date().toISOString();
+        r.submittedBy = (AUTH.user && AUTH.user.username) || 'local';
+        saveReview(r); render(); toast(`${o.name}'s commitment submitted`, 'ok');
+      } }));
+  }
+  bd.appendChild(foot);
   n.appendChild(bd);
   return n;
 }
+
 function addReviewItem(r, key, label, ph) {
   const ta = el('textarea', { class: 'inp', rows: 3, placeholder: ph });
   modal('Add to ' + label.toLowerCase() + ' — ' + ownerName(r.ownerId), el('div', {}, [ fld(label, ta) ]), [
@@ -5060,57 +5404,145 @@ function addReviewItem(r, key, label, ph) {
     } })
   ]);
 }
-function addCommitment(wk) {
-  const own = ownerSelect(currentOwnerId());
-  const amt = el('input', { class: 'inp', type: 'number', placeholder: '0' });
-  const note = el('input', { class: 'inp', placeholder: 'What has to happen this week?' });
-  const dp = picker({
-    placeholder: 'Search open deals…',
-    items: () => live('deals').filter(isOpen).sort((a,b) => (b.amount||0)-(a.amount||0)),
-    match: (d, q) => (d.name || '').toLowerCase().includes(q),
-    label: d => d.name, value: d => d.id,
-    render: d => `<span>${esc(d.name)}</span><span class="sub">${esc(ownerName(d.ownerId))} · ${CFG.currency} ${money(d.amount, {compact:true})}</span>`,
-    onPick: d => { amt.value = d.amount || ''; own.value = d.ownerId || ''; }
-  });
-  modal('Add a commitment for ' + weekLabel(wk), el('div', {}, [
-    fld('Deal', dp.node, 'Pick the deal being committed. Its value pre-fills below.'),
-    el('div', { class: 'field-row' }, [ fld('Rep', own), fld(`Committed value (${CFG.currency})`, amt) ]),
-    fld('Note', note)
+
+/* ------------------------------------------------------------------
+   Commit deals — the multi-pick from the tracker, over CRM deals.
+   Tick several at once; the total adds up as you go, and a deal
+   already sitting in the other slot is shown as taken.
+   ------------------------------------------------------------------ */
+function addCommitment(wk, ownerId, slot) {
+  let rep = ownerId || (VIEW.rep !== 'all' ? VIEW.rep : currentOwnerId()) || '';
+  let sl = slot || 'commit';
+  const picked = new Set();
+
+  const own = ownerSelect(rep, { emptyLabel: 'All reps', onchange: e => { rep = e.target.value; picked.clear(); paint(); } });
+  const seg = el('div', { class: 'seg' });
+  ['commit','best'].forEach(s => seg.appendChild(el('button', { class: s === sl ? 'on' : '', text: SLOTS[s],
+    onclick: () => { sl = s; picked.clear(); paintSeg(); paint(); } })));
+  function paintSeg() { Array.from(seg.children).forEach((b, i) => b.classList.toggle('on', ['commit','best'][i] === sl)); }
+
+  const q = el('input', { class: 'inp', placeholder: 'Search open deals…', oninput: () => paint() });
+  let lastFocus = null;
+  const note = el('input', { class: 'inp', placeholder: 'What has to happen for these to land?' });
+  const list = el('div', { class: 'picklist' });
+  const bar = el('div', { class: 'picksum' });
+
+  function candidates() {
+    const term = q.value.trim().toLowerCase();
+    return live('deals').filter(isOpen)
+      .filter(d => !rep || String(d.ownerId) === String(rep))
+      .filter(d => !term || (d.name || '').toLowerCase().includes(term) ||
+                   ((getCo(d.companyId) || {}).name || '').toLowerCase().includes(term))
+      .sort((a, b) => (stage(b.stageId).probability - stage(a.stageId).probability) || ((b.amount||0) - (a.amount||0)))
+      .slice(0, 200);
+  }
+  function paint() {
+    const taken = new Map();
+    commitsIn(wk).forEach(c => taken.set(String(c.dealId), slotOf(c)));
+    list.innerHTML = '';
+    const ds = candidates();
+    if (!ds.length) list.appendChild(el('div', { class: 'sub', style: 'padding:16px;text-align:center',
+      text: rep ? 'No open deals for this rep match.' : 'No open deals match.' }));
+    ds.forEach(d => {
+      const has = taken.get(String(d.id));
+      const on = picked.has(d.id);
+      const row = el('label', { class: 'pick' + (has ? ' taken' : '') + (on ? ' on' : '') });
+      /* Toggling repaints nothing but this row and the total — a full rebuild
+         would throw away the scroll position halfway down a 200-deal list. */
+      row.appendChild(el('input', { type: 'checkbox', checked: on || null, disabled: has ? true : null,
+        onchange: e => {
+          e.target.checked ? picked.add(d.id) : picked.delete(d.id);
+          row.classList.toggle('on', e.target.checked);
+          lastFocus = d.id; updateSum();
+        } }));
+      row.appendChild(el('div', { style: 'flex:1;min-width:0', html:
+        `<div class="nm">${esc(d.name)}</div>
+         <div class="sub">${esc(ownerName(d.ownerId))}${d.companyId ? ' · ' + esc((getCo(d.companyId) || {}).name || '') : ''} · ${
+           esc(stage(d.stageId).label)} ${Math.round(stage(d.stageId).probability*100)}%${
+           d.closeDate ? ' · closes ' + esc(fdate(d.closeDate)) : ''}${
+           isStale(d) ? ` · <span style="color:var(--critical-ink)">${daysInStage(d)}d in stage</span>` : ''}</div>` }));
+      row.appendChild(el('span', { class: 'mono', style: 'flex:none;color:var(--ink-2)',
+        text: money(d.amount, { compact: true }) }));
+      if (has) row.appendChild(el('span', { class: 'tag', style: 'flex:none', text: 'in ' + SLOTS[has] }));
+      list.appendChild(row);
+    });
+    updateSum();
+  }
+  function updateSum() {
+    const tot = sum(Array.from(picked), id => (getDl(id) || {}).amount || 0);
+    bar.innerHTML = `<b>${picked.size}</b> selected · <span class="mono">${CFG.currency} ${money(tot, { dash: false })}</span>` +
+      (picked.size ? '' : ' <span style="color:var(--ink-3)">— tick the deals to add</span>');
+    const go = $('#pickgo');
+    if (go) { go.disabled = !picked.size; go.textContent = picked.size
+      ? `Add ${picked.size} to ${SLOTS[sl].toLowerCase()}` : 'Add to ' + SLOTS[sl].toLowerCase(); }
+  }
+  paint();
+
+  modal(`Commit deals for ${weekLabel(wk)}`, el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
+      html: '<b>Commit</b> is what the rep is personally standing behind this week. <b>Best case</b> is what could land if everything breaks right. The weighted forecast is built from both.' }),
+    el('div', { class: 'field-row' }, [ fld('Rep', own), fld('Slot', seg) ]),
+    fld('Find deals', q),
+    bar, list,
+    fld('Note', note, 'Applied to every deal picked here.')
   ]), [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
-    el('button', { class: 'btn primary', text: 'Add commitment', onclick: () => {
-      const id = dp.get();
-      if (!id && !note.value.trim()) return toast('Pick a deal or write a note', 'err');
-      upsert('commitments', { week: wk, dealId: id || null, ownerId: own.value || null,
-        amount: Number(amt.value) || 0, note: note.value.trim() || null,
-        stageAt: id ? (getDl(id) || {}).stageId : null });
-      closeAll(); render(); toast('Commitment added', 'ok');
+    el('button', { class: 'btn primary', id: 'pickgo', disabled: true,
+      text: 'Add to ' + SLOTS[sl].toLowerCase(), onclick: () => {
+      if (!picked.size) return toast('Pick at least one deal', 'err');
+      const txt = note.value.trim() || null;
+      batch(() => Array.from(picked).forEach(id => {
+        const d = getDl(id); if (!d) return;
+        upsert('commitments', { week: wk, dealId: d.id, ownerId: d.ownerId, slot: sl,
+          amount: d.amount || 0, note: txt, stageAt: d.stageId });
+        logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'commit',
+          html: `Picked <b>${esc(d.name)}</b> as <b>${esc(SLOTS[sl].toLowerCase())}</b> for ${esc(weekLabel(wk))}` });
+      }));
+      closeAll(); render();
+      toast(`${picked.size} deal${picked.size === 1 ? '' : 's'} added to ${SLOTS[sl].toLowerCase()}`, 'ok');
     } })
   ]);
+  updateSum();   // the footer button only exists once the modal is in the DOM
 }
+
+/* -------------------------------------------------------- the agenda */
 function exportReview(wk) {
   const rng = weekRange(wk), b = { from: rng.from, to: rng.to };
-  const L = [`# CoreV weekly sales review — ${weekLabel(wk)}`, ''];
-  const commits = live('commitments').filter(c => c.week === wk);
-  const won  = live('deals').filter(d => isWon(d)  && inPeriod(d.closeDate, b));
-  const lost = live('deals').filter(d => isLost(d) && inPeriod(d.closeDate, b));
-  L.push(`Committed: ${CFG.currency} ${money(sum(commits, c => c.amount), {dash:false})} across ${commits.length} deals`);
-  L.push(`Closed won: ${CFG.currency} ${money(sum(won, d => d.amount), {dash:false})} (${won.length} deals)`);
-  L.push(`Closed lost: ${CFG.currency} ${money(sum(lost, d => d.amount), {dash:false})} (${lost.length} deals)`, '');
-  activeOwners().forEach(o => {
-    const mine = ownedDeals(o.id);
-    const oc = commits.filter(c => String(c.ownerId) === o.id);
-    const ow = mine.filter(d => isWon(d) && inPeriod(d.closeDate, b));
-    const ol = mine.filter(d => isLost(d) && inPeriod(d.closeDate, b));
-    const r = reviewFor(wk, o.id);
-    L.push(`## ${o.name}`);
-    L.push(`- Open pipeline: ${CFG.currency} ${money(sum(mine.filter(isOpen), d => d.amount), {dash:false})} · weighted ${CFG.currency} ${money(sum(mine.filter(isOpen), weighted), {dash:false})}`);
-    L.push(`- Committed: ${CFG.currency} ${money(sum(oc, c => c.amount), {dash:false})} · Won: ${CFG.currency} ${money(sum(ow, d=>d.amount), {dash:false})} · Lost: ${CFG.currency} ${money(sum(ol, d=>d.amount), {dash:false})}`);
-    if (oc.length) { L.push('', '**Commitments**');
-      oc.forEach(c => { const d = getDl(c.dealId);
-        L.push(`- ${d ? d.name : (c.note || 'commitment')} — ${CFG.currency} ${money(c.amount, {dash:false})}${d ? ` — now ${stage(d.stageId).label}` : ''}${c.note && d ? ` — ${c.note}` : ''}`); }); }
-    if (ol.length) { L.push('', '**Lost, and why**');
-      ol.forEach(d => L.push(`- ${d.name} — ${CFG.currency} ${money(d.amount, {dash:false})} — ${d.lossReason || 'reason not recorded'}${d.lostTo ? ` (to ${d.lostTo})` : ''}`)); }
+  const reps = VIEW.rep === 'all' ? activeOwners() : DB.owners.filter(o => o.id === VIEW.rep);
+  const W = reps.map(o => repWeek(o, wk, rng));
+  const cur = CFG.currency, m = v => `${cur} ${money(v, { dash: false })}`;
+  const L = [`# CoreV commitment review — ${weekLabel(wk)}`, ''];
+
+  L.push('## Team');
+  L.push(`- Commit: ${m(sum(W, x => x.commitVal))} across ${sum(W, x => x.cRecs.length)} deals`);
+  L.push(`- Best case: ${m(sum(W, x => x.bestVal))} across ${sum(W, x => x.bRecs.length)} deals`);
+  L.push(`- Weighted forecast: ${m(sum(W, x => x.forecast))}`);
+  L.push(`- Closed won this week: ${m(sum(W, x => x.wonVal))} · closed lost: ${m(sum(W, x => x.lostVal))}`);
+  L.push(`- Open pipeline: ${m(sum(W, x => x.pipeline))}`);
+  const notIn = W.filter(x => !x.r.locked).map(x => x.o.name);
+  if (notIn.length) L.push(`- Not yet submitted: ${notIn.join(', ')}`);
+  L.push('');
+
+  W.forEach(x => {
+    const r = x.r;
+    L.push(`## ${x.o.name}${r.locked ? '' : ' _(not submitted)_'}`);
+    L.push(`- Commit ${m(x.commitVal)} · Best case ${m(x.bestVal)} · Stage weight ${Math.round(x.topProb*100)}%${x.stale ? ' (stale, halved)' : ''} → forecast ${m(x.forecast)}`);
+    L.push(`- Pipeline ${m(x.pipeline)} · Won ${m(x.wonVal)} · Lost ${m(x.lostVal)}`);
+    L.push(`- Accuracy ${x.accuracy == null ? '—' : Math.round(x.accuracy*100) + '%'} · Commit variance ${x.variance == null ? '—' : signed(x.variance)} · Attainment ${x.attain == null ? 'no target' : Math.round(x.attain*100) + '%'} · Coverage ${x.coverage == null ? 'no target' : x.coverage.toFixed(1) + '×'}`);
+    L.push(`- Buyer signals ${x.sigOn}/${SIGNALS.length} (${SIGNALS.filter(([k]) => (r.signals||{})[k]).map(([,l]) => l).join(', ') || 'none ticked'}) · score ${x.score} ${x.tier}`);
+    if (r.confidence) L.push(`- Confidence: ${r.confidence}%`);
+    if (r.action)  L.push(`- Next action: ${r.action}`);
+    if (r.blocked) L.push(`- Blocker: ${r.blocked}`);
+    [['commit','Commit', x.cRecs], ['best','Best case', x.bRecs]].forEach(([, label, recs]) => {
+      if (!recs.length) return;
+      L.push('', `**${label}**`);
+      recs.forEach(c => { const d = getDl(c.dealId);
+        L.push(`- ${d ? d.name : (c.note || 'commitment')} — ${m(commitValue(c))}${
+          d ? ` — ${stage(d.stageId).label}${isWon(d) ? ' · WON' : isLost(d) ? ' · LOST' : ''}` : ''}${
+          d && isStale(d) ? ` — stale, ${daysInStage(d)}d in stage` : ''}${c.note ? ` — ${c.note}` : ''}`); });
+    });
+    if (x.lost.length) { L.push('', '**Lost, and why**');
+      x.lost.forEach(d => L.push(`- ${d.name} — ${m(d.amount)} — ${d.lossReason || 'reason not recorded'}${d.lostTo ? ` (to ${d.lostTo})` : ''}`)); }
     ['problems','solutions','notes'].forEach(k => {
       const items = (r[k] || []); if (!items.length) return;
       L.push('', '**' + (k === 'problems' ? 'Problems' : k === 'solutions' ? 'Solutions agreed' : 'Coaching notes') + '**');
@@ -5118,7 +5550,7 @@ function exportReview(wk) {
     });
     L.push('');
   });
-  download(`corev-weekly-review-${wk}.md`, L.join('\n'), 'text/markdown');
+  download(`corev-commitment-review-${wk}.md`, L.join('\n'), 'text/markdown');
   toast('Agenda exported', 'ok');
 }
 
@@ -5131,17 +5563,30 @@ function viewForecast(root) {
   const openD = deals.filter(isOpen);
   const won  = deals.filter(d => isWon(d)  && inPeriod(d.closeDate, b));
   const lost = deals.filter(d => isLost(d) && inPeriod(d.closeDate, b));
-  root.appendChild(viewHead(null, [ periodSeg() ]));
+  const wk = VIEW.week;
+  root.appendChild(viewHead(null, [
+    el('button', { class: 'btn', html: ico('flag',14) + ' Commitment review',
+      title: 'What the reps have actually committed to this week', onclick: () => go('review') }),
+    periodSeg()
+  ]));
 
   const t = el('div', { class: 'tiles' });
+  // Commit here is what reps have put their name to this week; the stage-based
+  // number is still shown underneath, so the two are never confused.
+  const wkCommit = sum(commitsIn(wk, null, 'commit')
+    .filter(c => VIEW.rep === 'all' || String(c.ownerId) === VIEW.rep), commitValue);
+  const wkBest = sum(commitsIn(wk, null, 'best')
+    .filter(c => VIEW.rep === 'all' || String(c.ownerId) === VIEW.rep), commitValue);
   const commitStages = openD.filter(d => stage(d.stageId).probability >= .9);
   const bestCase = openD.filter(d => stage(d.stageId).probability >= .4 && inPeriod(d.closeDate, b));
   const target = repTarget(VIEW.rep, b);
-  t.appendChild(tile('Commit', money(sum(commitStages, d => d.amount)), { cur: true, icon: 'flag',
-    foot: `${commitStages.length} deals at 90%+` }));
-  t.appendChild(tile('Best case', money(sum(bestCase, d => d.amount)), { cur: true, icon: 'up',
-    foot: `qualified and above, closing in ${b.label}` }));
-  t.appendChild(tile('Weighted', money(sum(openD.filter(d => inPeriod(d.closeDate, b)), weighted)), { cur: true, icon: 'chart',
+  t.appendChild(tile('Committed this week', money(wkCommit), { cur: true, icon: 'flag',
+    foot: `rep commitments for ${weekLabel(wk)}`, onclick: () => go('review') }));
+  t.appendChild(tile('Best case this week', money(wkBest), { cur: true, icon: 'up',
+    foot: 'picked into the best-case slot', onclick: () => go('review') }));
+  t.appendChild(tile('In commit stages', money(sum(commitStages, d => d.amount)), { cur: true, icon: 'chart',
+    foot: `${commitStages.length} open deals at 90%+ · ${bestCase.length} at 40%+ closing in ${b.label}` }));
+  t.appendChild(tile('Weighted', money(sum(openD.filter(d => inPeriod(d.closeDate, b)), weighted)), { cur: true, icon: 'grid',
     foot: 'open value × stage probability' }));
   t.appendChild(tile('Closed won', money(sum(won, d => d.amount)), { cur: true, icon: 'check',
     foot: target ? `${pct(sum(won, d => d.amount), target)}% of ${CFG.currency} ${money(target, {compact:true})}` : `${won.length} deals`,
@@ -5205,7 +5650,7 @@ function viewForecast(root) {
   // rep comparison table
   const rc = el('div', { class: 'card', style: 'margin-top:var(--sp-3)' });
   rc.appendChild(el('h3', { text: 'Rep comparison' }));
-  rc.appendChild(el('p', { class: 'sub', text: `Closed in ${b.label}; pipeline is current` }));
+  rc.appendChild(el('p', { class: 'sub', text: `Closed in ${b.label}; pipeline and commitment are current` }));
   const rows = activeOwners().map(o => {
     const mine = ownedDeals(o.id);
     const op = mine.filter(isOpen);
@@ -5214,17 +5659,19 @@ function viewForecast(root) {
     const tg = repTarget(o.id, b);
     const cycles = w.filter(d => d.createdAt && d.closeDate).map(d => days(d.closeDate, d.createdAt)).filter(x => x > 0);
     return { o, open: op.length, pipe: sum(op, d => d.amount), wt: sum(op, weighted),
+      commit: sum(commitsIn(wk, o.id, 'commit'), commitValue),
       won: sum(w, d => d.amount), wonN: w.length, lostN: l.length, target: tg,
       cycle: cycles.length ? Math.round(sum(cycles) / cycles.length) : null };
   });
   const host = el('div'); rc.appendChild(host);
   dataTable(host, {
-    key: 'repcmp', noun: 'reps', rows, per: 30, defaultSort: 4, defaultDir: -1,
+    key: 'repcmp', noun: 'reps', rows, per: 30, defaultSort: 5, defaultDir: -1,
     cols: [
       { h: 'Rep', v: r => r.o.name, r: r => ownerCell(r.o.id) },
       { h: 'Open', num: true, v: r => r.open },
       { h: 'Pipeline', num: true, v: r => r.pipe, r: r => `<span class="mono">${money(r.pipe)}</span>` },
       { h: 'Weighted', num: true, v: r => r.wt, r: r => `<span class="mono" style="color:var(--ink-2)">${money(r.wt)}</span>` },
+      { h: 'Commit wk', num: true, v: r => r.commit, r: r => `<span class="mono">${money(r.commit)}</span>` },
       { h: 'Won', num: true, v: r => r.won, r: r => `<span class="mono" style="color:var(--good-ink)">${money(r.won)}</span><div class="cellsub">${r.wonN} deals</div>` },
       { h: 'Win rate', num: true, v: r => (r.wonN + r.lostN) ? r.wonN / (r.wonN + r.lostN) : 0,
         r: r => (r.wonN + r.lostN) ? pct(r.wonN, r.wonN + r.lostN) + '%' : '—' },
@@ -5828,7 +6275,7 @@ const VIEWS = {
 const TITLES = {
   dashboard: 'Dashboard', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
-  review: 'Weekly review', forecast: 'Forecast & analytics', settings: 'Settings'
+  review: 'Commitment review', forecast: 'Forecast & analytics', settings: 'Settings'
 };
 let rendering = false;
 function render() {
