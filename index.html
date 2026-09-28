@@ -366,6 +366,8 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .legend{display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-4);margin-top:var(--sp-3);font-size:var(--fs-sm)}
 .legend span{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);cursor:default}
 .legend i{width:9px;height:9px;border-radius:2px;flex:none}
+.legend span.off{opacity:.45}
+.legend b{margin-left:2px;font-weight:650}
 .tip{position:fixed;z-index:400;pointer-events:none;background:var(--raised);border:1px solid var(--line);
   border-radius:var(--r-md);box-shadow:var(--shadow-3);padding:8px 10px;font-size:var(--fs-sm);
   min-width:118px;opacity:0;transition:opacity .1s}
@@ -382,6 +384,29 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .chart-tbl th{color:var(--ink-3);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em}
 
 .grid2{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+
+/* The dashboard lays out on an explicit 12-column grid rather than auto-fit +
+   span2. Auto-fit decided the column count from the window, so a panel asking
+   for "two columns" was two-fifths of the screen on one machine and two-thirds
+   on another — which is how the pipeline panel ended up wedged against its
+   neighbour with a dead strip beside it. */
+/* Cards in a row share a height so the row reads as a band instead of
+   leaving ragged voids under the shorter ones. */
+.dash{display:grid;gap:var(--sp-4);grid-template-columns:repeat(12,minmax(0,1fr));align-items:stretch}
+.dash>.card{margin:0;display:flex;flex-direction:column}
+.dash>.card>div:last-child{flex:1;min-height:0}
+.dash .w5{grid-column:span 5}
+.dash .w7{grid-column:span 7}
+.dash .w6{grid-column:span 6}
+.dash .w4{grid-column:span 4}
+.dash .w12{grid-column:1/-1}
+@media (max-width:1500px){
+  .dash .w5,.dash .w7{grid-column:span 6}
+  .dash .w4{grid-column:span 4}
+}
+@media (max-width:1180px){
+  .dash .w5,.dash .w7,.dash .w6,.dash .w4{grid-column:1/-1}
+}
 .grid3{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 .span2{grid-column:span 2}
 @media (max-width:760px){.span2{grid-column:span 1}}
@@ -814,8 +839,8 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.7.2';
-const RELEASED = '2026-09-27';
+const VERSION = '1.8.0';
+const RELEASED = '2026-09-28';
 
 const CFG = {
   version  : VERSION,
@@ -1194,13 +1219,20 @@ const openStages= () => DB.stages.filter(s => s.kind === 'open').sort((a,b) => a
 const isOpen    = d => stage(d.stageId).kind === 'open';
 const isWon     = d => stage(d.stageId).kind === 'won';
 const isLost    = d => stage(d.stageId).kind === 'lost';
+/* A stage is an identity, not a magnitude, so it takes the categorical
+   palette in fixed stage order — the same hue for the same stage wherever it
+   appears, on the board, in the funnel and inside a stacked bar. It used to
+   take a six-step sequential ramp, which collided the moment a seventh open
+   stage existed: two stages came out the same colour and a stack of them was
+   unreadable. Past the eighth stage the colour goes neutral rather than
+   cycling back to blue and claiming to be stage one. */
 function stageColor(id) {
   const s = stage(id);
   if (s.kind === 'won')  return 'var(--good)';
   if (s.kind === 'lost') return 'var(--critical)';
-  const seq = ['--seq-6','--seq-5','--seq-4','--seq-3','--seq-2','--seq-1'];
-  const o = openStages(), i = o.findIndex(x => x.id === id);
-  return `var(${seq[Math.min(Math.max(i,0), seq.length-1)]})`;
+  const i = openStages().findIndex(x => x.id === id);
+  if (i < 0) return 'var(--ink-3)';
+  return i < SER.length ? `var(${SER[i]})` : 'var(--ink-3)';
 }
 /* ================================================================
    ACCESS — three roles. This is a UI and write-path guard, not a
@@ -1946,6 +1978,95 @@ function chartBar(host, rows, o) {
   wrap.appendChild(svg);
 }
 
+/* ------------------------------------------ vertical stacked bars ---
+   One bar per category, split by series. Identity is the series, so the
+   hues are the categorical palette in fixed order — never cycled, never
+   reassigned when a series drops out. A 2px surface gap separates the
+   segments (the secondary encoding the CVD floor asks for), only the
+   topmost segment carries the 4px rounded data-end, and each bar gets a
+   direct total label so the light-mode contrast relief is satisfied
+   without relying on the fills alone. */
+function chartStackBar(host, cats, series, o) {
+  o = o || {};
+  const fmt = o.fmt || (v => money(v, { compact: true }));
+  const totalOf = c => sum(series, s => c.values[s.key] || 0);
+  const wrap = chartShell(host, { table: tblHTML(
+    [{ h: o.xLabel || 'Category', f: c => c.label }]
+      .concat(series.map(s => ({ h: s.label, num: true, f: c => fmt(c.values[s.key] || 0) })))
+      .concat([{ h: 'Total', num: true, f: c => fmt(totalOf(c)) }]), cats) });
+  if (!cats.length || !series.length) {
+    wrap.innerHTML = `<p style="color:var(--ink-3);margin:0;padding:24px 0;text-align:center">No data in range</p>`;
+    return;
+  }
+  const H = o.height || 230, PT = 24, PB = 30, PL = 4, PR = 4, GAPSEG = 2;
+  const W = Math.max(host.clientWidth || 520, 260);
+  const max = Math.max(...cats.map(totalOf), 1);
+  const gap = cats.length > 14 ? 3 : 12;
+  const bw = Math.max(6, (W - PL - PR - gap * (cats.length - 1)) / cats.length);
+  const plotH = H - PT - PB;
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img',
+    'aria-label': o.aria || 'Stacked bar chart' });
+  svg.style.height = H + 'px';
+  for (let i = 1; i <= 3; i++) {
+    const y = PT + plotH * (i / 3);
+    svg.appendChild(svgEl('line', { x1: 0, x2: W, y1: y, y2: y, class: 'gl' }));
+  }
+  svg.appendChild(svgEl('line', { x1: 0, x2: W, y1: H - PB, y2: H - PB, class: 'bl' }));
+
+  cats.forEach((c, ci) => {
+    const x = PL + ci * (bw + gap);
+    const tot = totalOf(c);
+    // top-down so the rounded end lands on the topmost segment that exists
+    const present = series.map((s, si) => ({ s, si, v: c.values[s.key] || 0 })).filter(p => p.v > 0);
+    let cursor = H - PB;
+    present.forEach((p, idx) => {
+      const h = (p.v / max) * plotH;
+      const drawH = Math.max(1, h - (idx === present.length - 1 ? 0 : GAPSEG));
+      const y = cursor - h;
+      const top = idx === present.length - 1;
+      const g = svgEl('g', { class: 'mk' });
+      g.appendChild(svgEl('path', {
+        d: top ? barPath(x, y, bw, drawH, 4, 'up') : barPath(x, y + (h - drawH), bw, drawH, 0, 'flat'),
+        fill: p.s.color }));
+      svg.appendChild(g);
+      const hit = svgEl('rect', { x, y: y, width: bw, height: Math.max(3, h), class: 'hit' });
+      hit.addEventListener('mousemove', ev => tipShow(
+        `<b>${esc(c.label)}</b>` +
+        `<div class="r"><span><i style="background:${p.s.color}"></i>${esc(p.s.label)}</span><b>${esc(fmt(p.v))}</b></div>` +
+        `<div class="r"><span>Share of month</span><b>${pct(p.v, tot)}%</b></div>` +
+        `<div class="r"><span>Month total</span><b>${esc(fmt(tot))}</b></div>`, ev));
+      hit.addEventListener('mouseleave', tipHide);
+      svg.appendChild(hit);
+      cursor = y;
+    });
+    if (tot) {
+      const t = svgEl('text', { x: x + bw / 2, y: (H - PB) - (tot / max) * plotH - 7,
+        'text-anchor': 'middle', class: 'vlab' });
+      t.textContent = fmt(tot); svg.appendChild(t);
+    }
+    const a = svgEl('text', { x: x + bw / 2, y: H - PB + 14, 'text-anchor': 'middle', class: 'alab' });
+    a.textContent = c.short || c.label; svg.appendChild(a);
+    if (!tot) {
+      const z = svgEl('text', { x: x + bw / 2, y: H - PB - 7, 'text-anchor': 'middle', class: 'vlab',
+        style: 'opacity:.45' });
+      z.textContent = '—'; svg.appendChild(z);
+    }
+  });
+  wrap.appendChild(svg);
+
+  /* legend: always present for >= 2 series, and it carries the totals so
+     identity is never colour alone */
+  const lg = el('div', { class: 'legend' });
+  series.forEach(s => {
+    const tot = sum(cats, c => c.values[s.key] || 0);
+    if (!tot && o.hideEmpty) return;
+    lg.appendChild(el('span', { class: tot ? '' : 'off', html:
+      `<i style="background:${s.color}"></i>${esc(s.label)}` +
+      `<b class="mono" style="color:var(--ink-1)">${esc(fmt(tot))}</b>` }));
+  });
+  wrap.appendChild(lg);
+}
+
 /* ------------------------------------------- horizontal ranked bars */
 function chartHBar(host, rows, o) {
   o = o || {};
@@ -2232,18 +2353,19 @@ const VIEW = {
 };
 const NAV = [
   { g: 'Sell' },
-  { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { id: 'pipeline',  label: 'Pipeline',  icon: 'board', count: () => scopedDeals().filter(isOpen).length },
   { id: 'deals',     label: 'Deals',     icon: 'list',  count: () => scopedDeals().length },
   { id: 'tasks',     label: 'Tasks',     icon: 'check',
     count: () => openTasks().filter(t => t.dueDate && dnum(t.dueDate) <= dnum(TODAY())).length, alert: true },
+  { id: 'review',    label: 'Sales Commitment', icon: 'flag' },
   { g: 'Accounts' },
   { id: 'companies', label: 'Companies', icon: 'bldg',  count: () => live('companies').length },
   { id: 'contacts',  label: 'Contacts',  icon: 'user',  count: () => live('contacts').length },
-  { g: 'Manage' },
-  { id: 'review',    label: 'Commitment review', icon: 'flag' },
-  { id: 'monthly',   label: 'Monthly review', icon: 'cal' },
+  { g: 'Dashboard' },
+  { id: 'dashboard', label: 'Executive Summary', icon: 'grid' },
+  { id: 'monthly',   label: 'Per Month Commit vs. Forecast', icon: 'cal' },
   { id: 'forecast',  label: 'Forecast & analytics', icon: 'chart' },
+  { g: 'Setup', admin: true },
   { id: 'settings',  label: 'Settings',  icon: 'cog', admin: true }
 ];
 function renderNav() {
@@ -2451,7 +2573,7 @@ function viewDashboard(root) {
       ico('grid',34) + '<h4>Every widget is hidden</h4><p>Use Customize to switch the panels you want back on.</p>' }));
     return;
   }
-  const grid = el('div', { class: 'grid2' });
+  const grid = el('div', { class: 'dash' });
   const W = {
     kpi: () => {
       const t = el('div', { class: 'tiles', style: 'grid-column:1/-1;margin:0' });
@@ -2480,18 +2602,27 @@ function viewDashboard(root) {
       return c.node;
     },
     forecast: () => {
-      const c = card('Weighted forecast by close month', 'Open deal value × stage probability');
+      const c = card('Weighted forecast by close month',
+        'Open deal value × stage probability, split by the stage it is sitting in');
       const months = [];
       for (let i = -1; i <= 5; i++) {
         const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + i);
         months.push(d.toISOString().slice(0,7));
       }
-      const rows = months.map(m => {
+      /* Colour carries the stage, not the month — months are a sequence, and
+         painting a sequence in eight hues says nothing. Stage identity is a
+         real category, so the fixed categorical order applies and the chart
+         answers "where is this month's number coming from?" as well as
+         "how big is it". */
+      const st = openStages();
+      const series = st.map(sg => ({ key: sg.id, label: sg.label, color: stageColor(sg.id) }));
+      const cats = months.map(m => {
         const ds = openD.filter(d => String(d.closeDate || '').slice(0,7) === m);
-        return { label: fdate(m + '-01', 'month'), short: MON[+m.slice(5,7) - 1],
-                 value: Math.round(sum(ds, weighted)), note: `${ds.length} deals · unweighted ${CFG.currency} ${money(sum(ds, d => d.amount), {compact:true})}` };
+        const values = {};
+        st.forEach(sg => { values[sg.id] = Math.round(sum(ds.filter(d => d.stageId === sg.id), weighted)); });
+        return { label: fdate(m + '-01', 'month'), short: MON[+m.slice(5,7) - 1], values, n: ds.length };
       });
-      chartBar(c.body, rows, { yLabel: 'Weighted ' + CFG.currency, xLabel: 'Close month', color: 'var(--s1)' });
+      chartStackBar(c.body, cats, series, { yLabel: 'Weighted ' + CFG.currency, xLabel: 'Close month', height: 240 });
       const overdue = openD.filter(d => d.closeDate && dnum(d.closeDate) < dnum(TODAY()));
       if (overdue.length) c.body.appendChild(el('p', { style: 'margin:12px 0 0;font-size:var(--fs-sm);color:var(--warning)',
         html: ico('warn',13) + ` ${overdue.length} open deals have a close date in the past (${CFG.currency} ${money(sum(overdue, d => d.amount), {compact:true})}) — they are excluded from future months.` }));
@@ -2542,7 +2673,7 @@ function viewDashboard(root) {
       ]));
       if (!cs.length && !bs.length) {
         c.body.appendChild(el('p', { style: 'margin:0;color:var(--ink-3);line-height:1.6',
-          html: 'Nothing picked for this week. Open <b>Commitment review</b> to capture what each rep is standing behind.' }));
+          html: 'Nothing picked for this week. Open <b>Sales Commitment</b> to capture what each rep is standing behind.' }));
       } else {
         const list = el('div', { class: 'nlist' });
         cs.concat(bs).slice(0, 8).forEach(x => {
@@ -2556,7 +2687,7 @@ function viewDashboard(root) {
         c.body.appendChild(list);
       }
       c.body.appendChild(el('button', { class: 'btn sm ghost', style: 'margin-top:10px',
-        text: 'Open commitment review \u2192', onclick: () => go('review') }));
+        text: 'Open Sales Commitment \u2192', onclick: () => go('review') }));
       return c.node;
     },
     risk: () => {
@@ -2606,11 +2737,14 @@ function viewDashboard(root) {
       return c.node;
     }
   };
+  /* how much of the 12 columns each panel is worth */
+  const SPAN = { funnel: 'w5', forecast: 'w7', reps: 'w4', wl: 'w4', loss: 'w4',
+                 commit: 'w4', risk: 'w4', recent: 'w4' };
   order.forEach(id => {
     if (!W[id]) return;
     const n = W[id]();
     if (id === 'kpi') { root.appendChild(n); return; }
-    if (id === 'funnel' || id === 'forecast') n.classList.add('span2');
+    n.classList.add(SPAN[id] || 'w4');
     grid.appendChild(n);
   });
   root.appendChild(grid);
@@ -4201,7 +4335,7 @@ function askLoss(d, lostId) {
   const note = el('textarea', { class: 'inp', rows: 3, placeholder: 'What would have changed the outcome?' });
   const body = el('div');
   body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
-    text: 'The reason is what makes the loss analysis worth reading in the weekly review, so it is required.' }));
+    text: 'The reason is what makes the loss analysis worth reading in the commitment review, so it is required.' }));
   body.appendChild(el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Reason for losing *' }), sel, other ]));
   body.appendChild(el('div', { class: 'field-row' }, [
     el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Lost to' }), comp ]),
@@ -5486,11 +5620,45 @@ function repWeek(o, wk, rng) {
   };
 }
 
-/* thresholds, straight from the tracker's guide */
-const accTag = v => v == null ? '' : v >= .85 ? 'good' : v >= .70 ? 'warn' : 'bad';
-const varTag = v => v == null ? '' : v >= 0 ? 'good' : v >= -.15 ? 'warn' : 'bad';
-const covTag = v => v == null ? '' : v >= 4 ? 'good' : v >= 2.5 ? 'warn' : 'bad';
-const attTag = v => v == null ? '' : v >= 1 ? 'good' : v >= .85 ? 'warn' : 'bad';
+/* ---- the scorecard thresholds -------------------------------------------
+   The tracker hard-coded these. Four times coverage is a SaaS rule of thumb,
+   not a fact about selling gym equipment in the Gulf, so every one of them is
+   configurable in Settings and the defaults are only defaults. Each metric has
+   a green floor and an amber floor; below the amber floor is red. */
+const METRICS = [
+  { key: 'coverage', label: 'Pipeline coverage', unit: '×', step: '0.1',
+    good: 4, warn: 2.5, hint: 'Open pipeline ÷ the period target. How many times over the pipeline covers the number.' },
+  { key: 'accuracy', label: 'Forecast accuracy', unit: '%', step: '1', asPct: true,
+    good: 85, warn: 70, hint: 'How close the weighted forecast landed to what actually closed. Symmetric.' },
+  { key: 'attain',   label: 'Goal attainment', unit: '%', step: '1', asPct: true,
+    good: 100, warn: 85, hint: 'Closed won ÷ the period target.' },
+  { key: 'variance', label: 'Commit variance', unit: '%', step: '1', asPct: true, signed: true,
+    good: 0, warn: -15, hint: 'Closed won against what was committed. Negative is a miss.' }
+];
+function thresholds(key) {
+  const m = METRICS.find(x => x.key === key) || {};
+  const c = (DB.config.thresholds || {})[key] || {};
+  const g = Number(c.good), w = Number(c.warn);
+  return { good: isFinite(g) && c.good !== '' && c.good != null ? g : m.good,
+           warn: isFinite(w) && c.warn !== '' && c.warn != null ? w : m.warn };
+}
+/* v arrives as a ratio (0.85, 3.6); the percent metrics are stored as percents */
+function metTag(key, v) {
+  if (v == null) return '';
+  const m = METRICS.find(x => x.key === key) || {};
+  const t = thresholds(key);
+  const x = m.asPct ? v * 100 : v;
+  return x >= t.good ? 'good' : x >= t.warn ? 'warn' : 'bad';
+}
+const accTag = v => metTag('accuracy', v);
+const varTag = v => metTag('variance', v);
+const covTag = v => metTag('coverage', v);
+const attTag = v => metTag('attain', v);
+const thresholdNote = key => {
+  const m = METRICS.find(x => x.key === key) || {}, t = thresholds(key);
+  const f = n => m.asPct ? `${n}%` : `${n}${m.unit || ''}`;
+  return `${f(t.good)} or better is green, ${f(t.warn)} amber, below that red.`;
+};
 const signed = v => (v > 0 ? '+' : '') + Math.round(v * 100) + '%';
 
 /* ================================================================ view */
@@ -5693,9 +5861,9 @@ function repReviewCard(x) {
     el('div', { class: 'l', text: label }), el('div', { class: 'v', text: text })
   ]));
   met('Forecast accuracy', x.accuracy == null ? '—' : Math.round(x.accuracy * 100) + '%', accTag(x.accuracy),
-    'How close the weighted forecast landed to what actually closed. Symmetric — over-calling and sandbagging both cost you.');
+    'How close the weighted forecast landed to what actually closed. Symmetric — over-calling and sandbagging both cost you. ' + thresholdNote('accuracy'));
   met('Commit variance', x.variance == null ? '—' : signed(x.variance), varTag(x.variance),
-    'Closed won against what was committed. Positive means the commit was beaten.');
+    'Closed won against what was committed. Positive means the commit was beaten. ' + thresholdNote('variance'));
   const teamT = x.target ? null : teamTargetInfo(Object.assign(mBounds(rng.to), { grain: 'month' }));
   const tnote = x.target
     ? `${CFG.currency} ${money(x.target, {dash:false})} for ${x.monthLabelOf}` +
@@ -5704,9 +5872,9 @@ function repReviewCard(x) {
       ? `no personal target for ${x.monthLabelOf} — the team one is ${CFG.currency} ${money(teamT.value, {dash:false})}, and a team number is not split into personal quotas`
       : `no target for ${x.monthLabelOf}, and none to work one out from`;
   met('Goal attainment', x.attain == null ? 'no target' : Math.round(x.attain * 100) + '%', attTag(x.attain),
-    `${CFG.currency} ${money(x.monthWon, {dash:false})} closed in ${x.monthLabelOf} so far against ${tnote}.`);
+    `${CFG.currency} ${money(x.monthWon, {dash:false})} closed in ${x.monthLabelOf} so far against ${tnote}. ${thresholdNote('attain')}`);
   met('Pipeline coverage', x.coverage == null ? 'no target' : x.coverage.toFixed(1) + '×', covTag(x.coverage),
-    `Open pipeline against ${tnote}. Four times over is the usual healthy floor.`);
+    `Open pipeline against ${tnote}. ${thresholdNote('coverage')}`);
   bd.appendChild(sc);
   bd.appendChild(el('p', { class: 'sub', style: 'margin:-8px 0 var(--sp-4);line-height:1.5', html:
     x.target
@@ -6117,7 +6285,7 @@ function viewForecast(root) {
   const lost = deals.filter(d => isLost(d) && inPeriod(d.closeDate, b));
   const wk = VIEW.week;
   root.appendChild(viewHead(null, [
-    el('button', { class: 'btn', html: ico('flag',14) + ' Commitment review',
+    el('button', { class: 'btn', html: ico('flag',14) + ' Sales Commitment',
       title: 'What the reps have actually committed to this week', onclick: () => go('review') }),
     periodSeg()
   ]));
@@ -6740,6 +6908,36 @@ function viewSettings(root) {
   } }));
   g.appendChild(cU.node);
 
+  /* ---- scorecard thresholds ---- */
+  const cT = card('Scorecard thresholds', 'Where green turns amber and amber turns red on every rep scorecard');
+  const tHost = el('div');
+  cT.body.appendChild(tHost);
+  dataTable(tHost, {
+    key: 'thresholds', noun: 'metrics', rows: METRICS.slice(), per: 10, defaultSort: 0, defaultDir: 1,
+    cols: [
+      { h: 'Metric', v: m => m.label, r: m => `<b>${esc(m.label)}</b><div class="cellsub">${esc(m.hint)}</div>` },
+      { h: 'Green at', num: true, v: m => thresholds(m.key).good,
+        r: m => { const t = thresholds(m.key), d = t.good !== m.good;
+          return `<span class="tag good">${esc(fmtThreshold(m, t.good))}</span>` +
+                 (d ? `<div class="cellsub">default ${esc(fmtThreshold(m, m.good))}</div>` : ''); } },
+      { h: 'Amber at', num: true, v: m => thresholds(m.key).warn,
+        r: m => { const t = thresholds(m.key), d = t.warn !== m.warn;
+          return `<span class="tag warn">${esc(fmtThreshold(m, t.warn))}</span>` +
+                 (d ? `<div class="cellsub">default ${esc(fmtThreshold(m, m.warn))}</div>` : ''); } },
+      { h: '', sortable: false, v: () => '', r: () => '<span class="cellsub">edit</span>' }
+    ],
+    onRow: m => editThreshold(m)
+  });
+  const anyCustom = METRICS.some(m => { const t = thresholds(m.key); return t.good !== m.good || t.warn !== m.warn; });
+  cT.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: 'Four-times pipeline coverage is a software rule of thumb, not a fact about selling gym equipment in the Gulf — ' +
+      'set these to whatever your team is actually held to. They only colour the scorecard; no figure changes.' }));
+  if (anyCustom) cT.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)',
+    text: 'Reset to defaults', onclick: () => confirmDo('Reset thresholds',
+      'Every metric goes back to its default green and amber floors.', 'Reset',
+      () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
+  g.appendChild(cT.node);
+
   /* ---- stages ---- */
   const c2 = card('Sales stages', 'The probability on each stage is what weights the forecast — edit it and every number follows');
   const list = el('div', { style: 'display:flex;flex-direction:column;gap:6px' });
@@ -7353,6 +7551,39 @@ function removeRegion(r) {
       render(); toast('Region removed');
     });
 }
+
+/* ------------------------------------------------ threshold editing */
+const fmtThreshold = (m, n) => (m.signed && n > 0 ? '+' : '') + n + (m.asPct ? '%' : (m.unit || ''));
+function editThreshold(m) {
+  const t = thresholds(m.key);
+  const good = el('input', { class: 'inp', type: 'number', step: m.step, value: t.good });
+  const warn = el('input', { class: 'inp', type: 'number', step: m.step, value: t.warn });
+  modal(m.label + ' thresholds', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', text: m.hint }),
+    el('div', { class: 'field-row' }, [
+      fld('Green at or above' + (m.asPct ? ' (%)' : ''), good),
+      fld('Amber at or above' + (m.asPct ? ' (%)' : ''), warn)
+    ]),
+    el('p', { class: 'sub', style: 'margin:0;line-height:1.55',
+      html: `Anything below the amber figure shows red. Defaults are ` +
+        `<b>${esc(fmtThreshold(m, m.good))}</b> green and <b>${esc(fmtThreshold(m, m.warn))}</b> amber.` })
+  ]), [
+    el('button', { class: 'btn', text: 'Use the default', onclick: () => {
+      if (DB.config.thresholds) delete DB.config.thresholds[m.key];
+      DB.config._v = now(); touch('config'); closeAll(); render(); toast('Back to the default'); } }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      const gv = Number(good.value), wv = Number(warn.value);
+      if (!isFinite(gv) || !isFinite(wv)) return toast('Both need a number', 'err');
+      if (wv > gv) { warn.focus(); return toast('Amber has to sit below green', 'err'); }
+      DB.config.thresholds = DB.config.thresholds || {};
+      DB.config.thresholds[m.key] = { good: gv, warn: wv };
+      DB.config._v = now(); touch('config');
+      closeAll(); render(); toast('Thresholds saved', 'ok');
+    } })
+  ]);
+}
 /* ================================================================
    RENDER + BOOT
    ================================================================ */
@@ -7362,9 +7593,9 @@ const VIEWS = {
   review: viewReview, monthly: viewMonthly, forecast: viewForecast, settings: viewSettings
 };
 const TITLES = {
-  dashboard: 'Dashboard', pipeline: 'Sales pipeline', deals: 'Deals',
+  dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
-  review: 'Commitment review', monthly: 'Monthly review',
+  review: 'Sales Commitment', monthly: 'Per Month Commit vs. Forecast',
   forecast: 'Forecast & analytics', settings: 'Settings'
 };
 let rendering = false;
