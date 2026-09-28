@@ -111,10 +111,16 @@ button,input,select,textarea{font:inherit;color:inherit}
 #app.rail .side-foot{padding:var(--sp-2);text-align:center}
 #app.rail .side-foot .btn{width:100%;justify-content:center;padding:4px}
 #app.rail .brand{justify-content:center;padding:0;gap:0}
+#app.rail .brand>svg,#app.rail .brand>div{display:none}
+#app.rail .railbtn{width:36px;height:36px;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.18);color:#fff}
+#app.rail .railbtn:hover{background:var(--accent);border-color:var(--accent)}
 #app.rail .railbtn svg{transform:rotate(180deg)}
 .railbtn{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r-sm);
-  background:transparent;border:0;color:rgba(255,255,255,.62);cursor:pointer;flex:none}
+  background:transparent;border:0;color:rgba(255,255,255,.62);cursor:pointer;flex:none;
+  transition:background .12s var(--ease),border-color .12s var(--ease),color .12s var(--ease)}
 .railbtn:hover{background:rgba(255,255,255,.12);color:#fff}
+.railbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (max-width:900px){.railbtn{display:none}#app.rail{--sidebar-w:0px}}
 
 /* build version, always visible */
@@ -179,7 +185,6 @@ main{grid-area:main;overflow-y:auto;padding:var(--sp-5);min-width:0}
   nav.side.open{transform:none}
   .brand{border-right:0;min-width:0;overflow:hidden}
   main{padding:var(--sp-4) var(--sp-3);min-width:0}
-  .hamb{display:grid !important}
   header.top{min-width:0;overflow:hidden;padding:0 var(--sp-3);gap:var(--sp-2)}
   header.top h2{display:none}
   .top-sp{display:none}
@@ -192,8 +197,12 @@ main{grid-area:main;overflow-y:auto;padding:var(--sp-5);min-width:0}
   .search{flex:1 1 0}
   #repfilter{display:none}
 }
-.hamb{display:none;place-items:center;width:34px;height:34px;border-radius:var(--r-md);
+/* The hamburger opens the nav drawer, which only exists below 900px. It has to
+   come after the base rule to win on source order, and it needs the extra class
+   to outrank `.btn{display:inline-flex}` further down the sheet. */
+.brand .hamb{display:none;place-items:center;width:34px;height:34px;border-radius:var(--r-md);
   background:var(--surface-2);border:1px solid var(--line);cursor:pointer}
+@media (max-width:900px){ .brand .hamb{display:grid} }
 
 /* ============================ primitives ============================ */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:var(--r-md);
@@ -628,6 +637,63 @@ a.mfact:hover b{text-decoration:underline}
 .unitrow .u input{width:62px;padding:4px 7px;text-align:right}
 @media (max-width:620px){.unitrow{flex-wrap:wrap}.unitrow .nm{flex:1 0 100%}}
 
+/* month totals as one strip rather than six cards stretched across 1800px */
+/* A grid, not wrapping flex: six figures go 6 across, then 3+3, then 2+2+2,
+   instead of stranding the last one alone on a row of its own. */
+.strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:var(--surface-1);
+  border:1px solid var(--line);border-radius:var(--r-lg);margin-bottom:var(--sp-3);overflow:hidden}
+.strip.n5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.strip.n4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.strip .s{min-width:0;padding:var(--sp-3);display:flex;flex-direction:column;gap:3px;
+  border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
+.strip .s:last-child{border-right:0}
+@media (max-width:1180px){
+  .strip,.strip.n5,.strip.n4{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .strip .s:nth-child(3n){border-right:0}
+}
+@media (max-width:640px){
+  .strip,.strip.n5,.strip.n4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .strip .s:nth-child(3n){border-right:1px solid var(--line-soft)}
+  .strip .s:nth-child(2n){border-right:0}
+}
+.strip .s .l{font-size:var(--fs-xs);color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;
+  display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Same shape as a stat tile's value: a flex row whose number can shrink below
+   its content, which is what lets fitTiles() measure the overflow and step the
+   type down instead of silently ellipsising the figure away. */
+.strip .s .v{font-size:23px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+  line-height:1.15;white-space:nowrap;min-width:0;display:flex;align-items:baseline;gap:3px}
+.strip .s .v .cur{font-size:.58em;font-weight:600;color:var(--ink-3);flex:none}
+.strip .s .v>span.num{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.strip .s .v.fit-m{font-size:19px}
+.strip .s .v.fit-s{font-size:16px}
+.strip .s .v.fit-xs{font-size:14px}
+.strip .s .f{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.45}
+.strip .s.click{cursor:pointer}
+.strip .s.click:hover{background:var(--surface-2)}
+.strip .s .bar{height:4px;border-radius:99px;background:var(--surface-3);overflow:hidden;margin-top:2px}
+.strip .s .bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+@media (max-width:760px){.strip .s{flex:1 1 44%;border-bottom:1px solid var(--line-soft)}}
+
+/* the weeks of the month, as a row of things you can click */
+.weekrail{display:grid;gap:var(--sp-2);grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
+.wkcard{position:relative;text-align:left;padding:10px 12px;border-radius:var(--r-md);cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink-1);
+  display:flex;flex-direction:column;gap:4px;min-width:0;
+  transition:border-color .12s var(--ease),background .12s var(--ease)}
+.wkcard:hover{border-color:var(--accent-soft-2,var(--accent));background:var(--surface-3)}
+.wkcard.on{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.wkcard.now::after{content:"now";position:absolute;top:8px;right:9px;font-size:9px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.wkcard .w{font-size:var(--fs-sm);font-weight:700;letter-spacing:.02em}
+.wkcard .d{font-size:var(--fs-xs);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wkcard .n{font-size:17px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wkcard .n.zero{color:var(--ink-3);font-weight:500}
+.wkcard .bar{height:4px;border-radius:99px;background:var(--surface-3);overflow:hidden}
+.wkcard .bar i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.wkcard .m{display:flex;gap:6px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--ink-3)}
+
 /* the monthly roll-up: a combined row that reads as a total */
 table.dt.rollup td{vertical-align:top}
 table.dt.rollup tr.tot{background:var(--surface-3)}
@@ -748,7 +814,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.7.1';
+const VERSION = '1.7.2';
 const RELEASED = '2026-09-27';
 
 const CFG = {
@@ -1268,7 +1334,11 @@ function weekKey(d) {
   return `${y}-W${String(w).padStart(2,'0')}`;
 }
 function weekRange(key) {
-  const [y, w] = key.split('-W').map(Number);
+  /* A malformed key used to reach new Date() and throw, which took down
+     whatever was rendering. Fall back to the current week instead. */
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(String(key == null ? '' : key));
+  if (!m) return weekRange(weekKey());
+  const [y, w] = [+m[1], +m[2]];
   const jan4 = new Date(Date.UTC(y, 0, 4));
   const mon = new Date(jan4); mon.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + (w - 1) * 7);
   const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
@@ -2128,13 +2198,16 @@ function tile(label, value, o) {
    200px wide on the dashboard and 120px in a drawer. */
 const FITS = ['', 'fit-m', 'fit-s', 'fit-xs'];
 function fitTiles(root) {
-  $$('.tile .val', root || document).forEach(v => {
+  $$('.tile .val, .strip .v', root || document).forEach(v => {
     const n = v.querySelector('.num');
     if (!n) return;
     for (const step of FITS) {
       FITS.forEach(c => c && v.classList.remove(c));
       if (step) v.classList.add(step);
-      if (n.scrollWidth <= n.clientWidth + 1) return;
+      /* No tolerance: the number is ellipsised the moment it overflows at all,
+         so one spare pixel is the difference between "673,211" and "673,2…".
+         Erring toward smaller type is the right way to be wrong here. */
+      if (n.scrollWidth <= n.clientWidth) return;
     }
   });
 }
@@ -5822,12 +5895,44 @@ function addReviewItem(r, key, label, ph) {
 function addCommitment(wk, ownerId, slot) {
   let rep = ownerId || (VIEW.rep !== 'all' ? VIEW.rep : currentOwnerId()) || '';
   let sl = slot || 'commit';
+  let week = wk || weekKey();
   const picked = new Set();
 
-  const own = ownerSelect(rep, { emptyLabel: 'All reps', onchange: e => { rep = e.target.value; picked.clear(); paint(); } });
+  /* Which week is being committed to is a decision, not a side effect of
+     where the dialog was opened from — a rep on Monday morning is often
+     filling in the week that has just started, not the one on screen. */
+  const wkSel = el('select', { class: 'inp', 'aria-label': 'Week',
+    onchange: e => { week = e.target.value; picked.clear(); paint(); paintUnits(); paintWeekNote(); } });
+  const WEEK_SPAN = [-3, 8];
+  for (let i = WEEK_SPAN[0]; i <= WEEK_SPAN[1]; i++) {
+    const k = weekShift(weekKey(), i);
+    const mkk = monthKey(weekRange(k).to);
+    const tag = i === 0 ? ' — this week' : i === -1 ? ' — last week' : i === 1 ? ' — next week' : '';
+    wkSel.appendChild(el('option', { value: k, selected: k === week || null,
+      text: `${weekOfMonthLabel(mkk, k)} ${monthLabel(mkk)} · ${weekLabel(k)}${tag}` }));
+  }
+  if (!Array.from(wkSel.options).some(o => o.value === week)) {
+    const mkk = monthKey(weekRange(week).to);
+    wkSel.insertBefore(el('option', { value: week, selected: true,
+      text: `${weekOfMonthLabel(mkk, week)} ${monthLabel(mkk)} · ${weekLabel(week)}` }), wkSel.firstChild);
+  }
+  const wkNote = el('p', { class: 'sub', style: 'margin:6px 0 0;line-height:1.5' });
+  function paintWeekNote() {
+    const mine = commitsIn(week, rep || null);
+    const c = mine.filter(x => slotOf(x) === 'commit'), b = mine.filter(x => slotOf(x) === 'best');
+    const who = rep ? ownerName(rep) : 'the team';
+    wkNote.innerHTML = (c.length || b.length)
+      ? `${esc(who)} already ${c.length + b.length === 1 ? 'has' : 'have'} <b>${c.length}</b> in commit and ` +
+        `<b>${b.length}</b> in best case for this week — ${CFG.currency} ${money(sum(c, commitValue), {dash:false})} ` +
+        `and ${CFG.currency} ${money(sum(b, commitValue), {dash:false})}. Anything you add here joins that.`
+      : `Nothing picked for this week by ${esc(who)} yet.`;
+  }
+
+  const own = ownerSelect(rep, { emptyLabel: 'All reps',
+    onchange: e => { rep = e.target.value; picked.clear(); paint(); paintUnits(); paintWeekNote(); } });
   const seg = el('div', { class: 'seg' });
   ['commit','best'].forEach(s => seg.appendChild(el('button', { class: s === sl ? 'on' : '', text: SLOTS[s],
-    onclick: () => { sl = s; picked.clear(); paintSeg(); paint(); } })));
+    onclick: () => { sl = s; picked.clear(); paintSeg(); paint(); paintUnits(); paintWeekNote(); } })));
   function paintSeg() { Array.from(seg.children).forEach((b, i) => b.classList.toggle('on', ['commit','best'][i] === sl)); }
 
   const q = el('input', { class: 'inp', placeholder: 'Search open deals…', oninput: () => paint() });
@@ -5848,7 +5953,7 @@ function addCommitment(wk, ownerId, slot) {
   }
   function paint() {
     const taken = new Map();
-    commitsIn(wk).forEach(c => taken.set(String(c.dealId), slotOf(c)));
+    commitsIn(week).forEach(c => taken.set(String(c.dealId), slotOf(c)));
     list.innerHTML = '';
     const ds = candidates();
     if (!ds.length) list.appendChild(el('div', { class: 'sub', style: 'padding:16px;text-align:center',
@@ -5913,13 +6018,17 @@ function addCommitment(wk, ownerId, slot) {
       (picked.size ? '' : ' <span style="color:var(--ink-3)">— tick the deals to add</span>');
     const go = $('#pickgo');
     if (go) { go.disabled = !picked.size; go.textContent = picked.size
-      ? `Add ${picked.size} to ${SLOTS[sl].toLowerCase()}` : 'Add to ' + SLOTS[sl].toLowerCase(); }
+      ? `Add ${picked.size} to ${SLOTS[sl].toLowerCase()}` : 'Add to ' + SLOTS[sl].toLowerCase();
+      go.title = `Goes into ${weekLabel(week)}`; }
   }
   paint(); paintUnits();
 
-  modal(`Commit deals for ${weekLabel(wk)}`, el('div', {}, [
+  paintWeekNote();
+  modal('Commit deals', el('div', {}, [
     el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
-      html: '<b>Commit</b> is what the rep is personally standing behind this week. <b>Best case</b> is what could land if everything breaks right. The weighted forecast is built from both.' }),
+      html: '<b>Commit</b> is what the rep is personally standing behind that week. <b>Best case</b> is what could land if everything breaks right. The weighted forecast is built from both.' }),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'fl', text: 'Week' }), wkSel, wkNote ]),
     el('div', { class: 'field-row' }, [ fld('Rep', own), fld('Slot', seg) ]),
     fld('Find deals', q),
     bar, list, unitHost,
@@ -5933,14 +6042,14 @@ function addCommitment(wk, ownerId, slot) {
       batch(() => Array.from(picked).forEach(id => {
         const d = getDl(id); if (!d) return;
         const u = units.get(d.id) || autoUnits(d);
-        upsert('commitments', { week: wk, dealId: d.id, ownerId: d.ownerId, slot: sl,
+        upsert('commitments', { week, dealId: d.id, ownerId: d.ownerId, slot: sl,
           amount: d.amount || 0, note: txt, stageAt: d.stageId,
           units: Object.keys(u).length ? u : null });
         logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'commit',
-          html: `Picked <b>${esc(d.name)}</b> as <b>${esc(SLOTS[sl].toLowerCase())}</b> for ${esc(weekLabel(wk))}` });
+          html: `Picked <b>${esc(d.name)}</b> as <b>${esc(SLOTS[sl].toLowerCase())}</b> for ${esc(weekLabel(week))}` });
       }));
       closeAll(); render();
-      toast(`${picked.size} deal${picked.size === 1 ? '' : 's'} added to ${SLOTS[sl].toLowerCase()}`, 'ok');
+      toast(`${picked.size} deal${picked.size === 1 ? '' : 's'} added to ${SLOTS[sl].toLowerCase()} for ${weekLabel(week)}`, 'ok');
     } })
   ]);
   updateSum();   // the footer button only exists once the modal is in the DOM
@@ -6244,47 +6353,91 @@ function viewMonthly(root) {
   const rolls = regions.map(r => regionRoll(r, scope, mb));
   const all = regionRoll('all', scope, mb);
 
-  /* ---- headline for the month (or the selected week) */
-  const t = el('div', { class: 'tiles' });
+  /* ---- headline: one strip, not six cards stretched across the screen */
   const scopeLabel = sel ? `${weekOfMonthLabel(mk, sel)} · ${weekLabel(sel)}` : monthLabel(mk);
-  t.appendChild(tile('Commit', money(all.commit), { cur: true, icon: 'flag',
-    foot: `${all.cRecs.length} deals · ${scopeLabel}` }));
-  t.appendChild(tile('Best case', money(all.best), { cur: true, icon: 'up',
-    foot: `${all.bRecs.length} deals` }));
-  t.appendChild(tile('Weighted forecast', money(all.forecast), { cur: true, icon: 'chart',
-    foot: '(commit + best case) × stage weight' }));
-  t.appendChild(tile('Closed won', money(all.closed), { cur: true, icon: 'check',
-    foot: all.target ? `${pct(all.closed, all.target)}% of ${CFG.currency} ${money(all.target, {compact:true})}`
-                     : `${all.wonN} deals in ${monthLabel(mk)}`,
-    meter: all.target ? pct(all.closed, all.target) : null }));
+  const strip = el('div', { class: 'strip' });
+  const stat = (label, icon, value, foot, o) => {
+    o = o || {};
+    const n = el('div', { class: 's' + (o.onclick ? ' click' : '') });
+    n.appendChild(el('div', { class: 'l', html: ico(icon, 12) + esc(label) }));
+    n.appendChild(el('div', { class: 'v mono', title: (o.cur ? CFG.currency + ' ' : '') + value,
+      html: (o.cur ? `<span class="cur">${CFG.currency}</span>` : '') + `<span class="num">${esc(value)}</span>` }));
+    if (o.meter != null) {
+      const p = Math.max(0, Math.min(100, o.meter));
+      n.appendChild(el('div', { class: 'bar', html: `<i style="width:${p}%"></i>` }));
+    }
+    n.appendChild(el('div', { class: 'f', html: foot }));
+    if (o.onclick) { n.addEventListener('click', o.onclick); n.setAttribute('role', 'button'); n.tabIndex = 0; }
+    strip.appendChild(n);
+    return n;
+  };
+  stat('Commit', 'flag', money(all.commit, { dash: false }),
+    `${all.cRecs.length} deal${all.cRecs.length === 1 ? '' : 's'} · ${esc(scopeLabel)}`, { cur: true });
+  stat('Best case', 'up', money(all.best, { dash: false }),
+    `${all.bRecs.length} deal${all.bRecs.length === 1 ? '' : 's'} that could land`, { cur: true });
+  stat('Weighted forecast', 'chart', money(all.forecast, { dash: false }),
+    '(commit + best case) × stage weight', { cur: true });
+  stat('Closed won', 'check', money(all.closed, { dash: false }),
+    all.target ? `${pct(all.closed, all.target)}% of ${CFG.currency} ${money(all.target, { compact: true })} target`
+               : `${all.wonN} deal${all.wonN === 1 ? '' : 's'} in ${esc(monthLabel(mk))}`,
+    { cur: true, meter: all.target ? pct(all.closed, all.target) : null });
   if (unitLines().length) {
     const us = unitLines().filter(L => all.units[L]);
-    t.appendChild(tile('Devices', us.length ? us.reduce((a, L) => a + all.units[L], 0) : '0',
-      { icon: 'board', foot: us.length ? us.map(L => `${all.units[L]} ${L}`).join(' · ') : 'no device counts entered' }));
+    stat('Devices', 'board', us.length ? String(us.reduce((a, L) => a + all.units[L], 0)) : '0',
+      us.length ? us.map(L => `${all.units[L]} ${esc(L)}`).join(' · ') : 'none counted yet');
   }
-  t.appendChild(tile('Open pipeline', money(all.pipeline), { cur: true, icon: 'grid',
-    foot: all.target ? `${(all.pipeline / all.target).toFixed(1)}× coverage` : `${all.openN} open deals`,
-    onclick: () => go('pipeline') }));
-  root.appendChild(t);
+  stat('Open pipeline', 'grid', money(all.pipeline, { dash: false }),
+    all.target ? `${(all.pipeline / all.target).toFixed(1)}× coverage of target`
+               : `${all.openN} open deals`,
+    { cur: true, onclick: () => go('pipeline') });
+  /* the grid needs to know how many made it in — devices only shows when
+     device lines are configured */
+  strip.classList.add('n' + strip.children.length);
+  root.appendChild(strip);
 
-  /* ---- the month's weeks, as bars you can click into */
-  const wc = card('Weekly forecast across ' + monthLabel(mk),
-    'Weighted forecast per week — click a bar to look at just that week');
-  const wrows = weeks.map(k => {
-    const r = regionRoll('all', [k], mb);
-    return { k, label: `${weekOfMonthLabel(mk, k)} · ${weekLabel(k)}`, short: weekOfMonthLabel(mk, k),
-      value: Math.round(r.forecast),
-      note: `commit ${CFG.currency} ${money(r.commit, {compact:true})} · best case ${CFG.currency} ${money(r.best, {compact:true})}`,
-      onclick: () => { VIEW.monthWeek = VIEW.monthWeek === k ? null : k; render(); } };
+  /* ---- the weeks of the month. A month where one week is committed and four
+     are empty made a single enormous bar and four empty gutters, so the weeks
+     are cards instead: they carry their own figures, they read the same whether
+     the month is full or untouched, and they are the week picker as well. */
+  const wkRolls = weeks.map(k => ({ k, r: regionRoll('all', [k], mb) }));
+  const peak = Math.max(1, ...wkRolls.map(w => w.r.forecast));
+  const wc = card('The weeks of ' + monthLabel(mk),
+    sel ? `Showing ${weekOfMonthLabel(mk, sel)} only — pick the whole month to widen it again`
+        : 'Pick a week to narrow everything below to it');
+  const rail = el('div', { class: 'weekrail' });
+  const nowWk = weekKey();
+  rail.appendChild(el('button', {
+    class: 'wkcard' + (sel ? '' : ' on'),
+    title: 'Every week of ' + monthLabel(mk),
+    onclick: () => { VIEW.monthWeek = null; render(); } }, [
+    el('div', { class: 'w', text: 'Whole month' }),
+    el('div', { class: 'd', text: `${fdate(mb.from)} – ${fdate(mb.to)}` }),
+    el('div', { class: 'n' + (all.forecast ? '' : ' zero'), text: money(all.forecast, { compact: true }) }),
+    el('div', { class: 'bar', html: '<i style="width:100%"></i>' }),
+    el('div', { class: 'm', html: `<span>${weeks.length} weeks</span>` +
+      (all.slots ? `<span>· ${all.locked}/${all.slots} in</span>` : '') })
+  ]));
+  wkRolls.forEach(({ k, r }) => {
+    rail.appendChild(el('button', {
+      class: 'wkcard' + (sel === k ? ' on' : '') + (k === nowWk ? ' now' : ''),
+      title: `${weekOfMonthLabel(mk, k)} · ${weekLabel(k)}`,
+      onclick: () => { VIEW.monthWeek = VIEW.monthWeek === k ? null : k; render(); } }, [
+      el('div', { class: 'w', text: weekOfMonthLabel(mk, k) }),
+      el('div', { class: 'd', text: weekLabel(k) }),
+      el('div', { class: 'n' + (r.forecast ? '' : ' zero'),
+        text: r.forecast ? money(r.forecast, { compact: true }) : '—' }),
+      el('div', { class: 'bar', html: `<i style="width:${Math.round(r.forecast / peak * 100)}%"></i>` }),
+      el('div', { class: 'm', html: r.commit || r.best
+        ? `<span>${money(r.commit, { compact: true })} commit</span>` +
+          (r.best ? `<span>· ${money(r.best, { compact: true })} best</span>` : '') +
+          (r.slots ? `<span>· ${r.locked}/${r.slots} in</span>` : '')
+        : '<span>nothing committed</span>' })
+    ]));
   });
-  chartBar(wc.body, wrows, { yLabel: 'Weighted ' + CFG.currency, xLabel: 'Week' });
-  const chips = el('div', { class: 'seg', style: 'margin-top:var(--sp-3);flex-wrap:wrap' });
-  chips.appendChild(el('button', { class: sel ? '' : 'on', text: 'Whole month',
-    onclick: () => { VIEW.monthWeek = null; render(); } }));
-  weeks.forEach(k => chips.appendChild(el('button', { class: sel === k ? 'on' : '',
-    title: weekLabel(k), text: weekOfMonthLabel(mk, k),
-    onclick: () => { VIEW.monthWeek = k; render(); } })));
-  wc.body.appendChild(chips);
+  wc.body.appendChild(rail);
+  wc.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5',
+    html: `Each figure is that week's weighted forecast. ${isReadOnly() ? ''
+      : 'Use <b>Commit deals</b> above to add to any week — the dialog asks which one.'}` }));
   root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [wc.node]));
 
   /* ---- region roll-up, combined row last */
