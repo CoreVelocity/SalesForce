@@ -591,6 +591,49 @@ a.mfact:hover b{text-decoration:underline}
 .trow .tt{font-weight:600;line-height:1.4}
 .trow .tm{font-size:var(--fs-sm);color:var(--ink-3);display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:3px;align-items:center}
 
+/* ── demo tracker ── */
+.demobars{display:flex;flex-direction:column;gap:5px}
+.demobar{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;cursor:pointer;
+  padding:6px 8px;border-radius:var(--r-sm);background:none;border:1px solid transparent;color:var(--ink-1)}
+.demobar:hover{background:var(--surface-2);border-color:var(--line-soft)}
+.demobar.on{background:var(--accent-soft);border-color:var(--accent)}
+.demobar .nm{flex:0 0 34%;min-width:0;font-size:var(--fs-sm);font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.demobar .nm .sup{font-weight:500;color:var(--accent);font-size:var(--fs-xs)}
+.demobar .track{display:flex;gap:2px;height:16px;border-radius:4px;overflow:hidden;min-width:3px;
+  background:var(--surface-3)}
+.demobar .track i{display:block;height:100%}
+.demobar .track i.won{background:var(--good)}
+.demobar .track i.pend{background:var(--warning)}
+.demobar .track i.lost{background:var(--critical)}
+.demobar .n{margin-left:auto;flex:none;font-weight:700;font-variant-numeric:tabular-nums}
+@media (max-width:620px){.demobar .nm{flex:0 0 45%}}
+
+.demofunnel{display:flex;flex-direction:column;gap:8px}
+.demofunnel .step{border-left:3px solid var(--c);border-radius:var(--r-sm);padding:9px 12px;
+  background:var(--surface-2)}
+.demofunnel .step .l{font-size:var(--fs-xs);color:var(--ink-3);letter-spacing:.07em;text-transform:uppercase;
+  font-weight:700}
+.demofunnel .step .v{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-top:2px;
+  font-variant-numeric:tabular-nums}
+.demofunnel .step .v .p{font-size:var(--fs-xs);font-weight:500;color:var(--ink-3);margin-left:9px;
+  letter-spacing:0}
+
+/* ── demo requests ── */
+.reqlist{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(360px,1fr));align-items:start}
+.reqcard{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
+.reqcard.pending{border-color:var(--warning)}
+.reqcard>header{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
+  background:var(--surface-3);border-bottom:1px solid var(--line)}
+.reqcard>header .nm{font-weight:650;line-height:1.35}
+.reqcard>header .rl{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;line-height:1.45}
+.reqcard .b{padding:var(--sp-4)}
+.reqev{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px var(--sp-3);
+  padding:var(--sp-3);margin:0 0 var(--sp-3);border-radius:var(--r-sm);
+  background:var(--surface-2);border:1px solid var(--line-soft)}
+.reqev .k{display:block;font-size:var(--fs-xs);color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+.reqev .v{display:block;font-size:var(--fs-sm);margin-top:2px;line-height:1.45}
+
 /* a region band above each group of rep cards */
 .regionhead{display:flex;align-items:baseline;gap:var(--sp-3);flex-wrap:wrap;
   margin:0 0 var(--sp-3);padding:0 0 8px;border-bottom:2px solid var(--line)}
@@ -857,7 +900,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.8.1';
+const VERSION = '1.9.0';
 const RELEASED = '2026-09-28';
 
 const CFG = {
@@ -866,11 +909,15 @@ const CFG = {
   clientId : 'cd1b7f5f-5ff9-4066-ab4f-06f270a94fcb',
   authority: 'https://login.microsoftonline.com/core-velocity.com',
   scopes   : ['User.Read', 'Files.ReadWrite.All', 'Sites.ReadWrite.All'],
+  /* Asked for only when someone runs the demo-calendar import, so the daily
+     sign-in never has to carry a calendar permission it does not use. */
+  calendarScopes: ['Calendars.Read.Shared'],
+  demoCalendar  : 'demo@core-velocity.com',
   // Data lives in the signed-in user's OneDrive under this folder. Share the
   // folder with the sales team (edit rights) so everyone reads/writes the same
   // files; each rep's client merges by record with tombstones.
   root     : 'CoreVCRM',
-  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','config'],
+  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','config'],
   attachDir: 'attachments',
   cacheKey : 'corevcrm.v1',
   autoSyncMs: 120000,
@@ -1211,6 +1258,7 @@ document.addEventListener('keydown', e => {
 const DB = {
   companies: [], contacts: [], deals: [], tasks: [],
   commitments: [], reviews: [], activities: [], attachments: [], products: [],
+  demos: [], demoRequests: [],
   owners: [], stages: [], lossReasons: [],
   config: { widgets: null, targets: {}, theme: 'dark' },
   meta: { exportedAt: null, homeCurrency: CFG.currency }
@@ -1259,12 +1307,13 @@ function stageColor(id) {
    catalogue, stages and team list in one pair of hands.
    ================================================================ */
 const ROLES = [
-  ['admin', 'Admin',     'Everything, including Settings — the team, roles, regions, stages, products, fields and targets'],
-  ['write', 'Sales rep', 'Can create and edit deals, contacts, companies, tasks and commitments'],
-  ['read',  'Read only', 'Can see everything and export, but change nothing']
+  ['admin',  'Admin',     'Everything, including Settings — the team, roles, regions, stages, products, fields and targets'],
+  ['office', 'Office',    'Everything a sales rep can do, and owns the demo schedule: logs, reassigns and deletes demos and demo requests. No Settings.'],
+  ['write',  'Sales rep', 'Can create and edit deals, contacts, companies, tasks and commitments, and fill in the outcome on their own demos'],
+  ['read',   'Read only', 'Can see everything and export, but change nothing']
 ];
 /* older records said rep / manager / viewer */
-const ROLE_MAP = { admin:'admin', manager:'write', rep:'write', write:'write', read:'read', viewer:'read' };
+const ROLE_MAP = { admin:'admin', office:'office', manager:'write', rep:'write', write:'write', read:'read', viewer:'read' };
 const roleLabel = r => (ROLES.find(x => x[0] === (ROLE_MAP[r] || 'write')) || ROLES[1])[1];
 
 /* Who the signed-in person is, matched on their Microsoft address and
@@ -1295,6 +1344,10 @@ function myRole() {
 }
 const isAdmin = () => myRole() === 'admin';
 const isReadOnly = () => myRole() === 'read';
+/* Who owns the demo schedule. In the tracker this was Gladys and Ahmed; here
+   it is whoever holds Admin or Office. A rep still fills in the outcome on a
+   demo they ran — that is demoCanEdit() below, not this. */
+const canManageDemos = () => myRole() === 'admin' || myRole() === 'office';
 
 /* Writes that are not the person's doing — migrations, the seed import,
    the sync merge — must go through whatever the role is. */
@@ -1479,18 +1532,17 @@ const actsFor = (kind, id) => DB.activities
   .sort((x, y) => (y.at || '').localeCompare(x.at || ''));
 
 /* ---------------------------------------------------- localStorage cache */
+/* The cache, the export and the seed all used to hand-list the shards, which
+   is how a new one gets added to the database and silently left out of the
+   thing that persists it. They all derive from REC_SHARDS now. */
+const FLAT_KEYS = ['owners', 'stages', 'lossReasons', 'config', 'meta'];
 function saveLocal() {
   try {
+    const db = {};
+    REC_SHARDS.forEach(k => { db[k] = DB[k]; });
+    FLAT_KEYS.forEach(k => { db[k] = DB[k]; });
     localStorage.setItem(CFG.cacheKey, JSON.stringify({
-      at: now(),
-      dirty: Array.from(SYNC.dirty),
-      db: {
-        companies: DB.companies, contacts: DB.contacts, deals: DB.deals, tasks: DB.tasks,
-        commitments: DB.commitments, reviews: DB.reviews, activities: DB.activities,
-        attachments: DB.attachments, products: DB.products,
-        owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons,
-        config: DB.config, meta: DB.meta
-      }
+      at: now(), dirty: Array.from(SYNC.dirty), db
     }));
   } catch (e) { /* quota — sync is the source of truth */ }
 }
@@ -1625,7 +1677,7 @@ function mergeRecords(mine, theirs) {
   });
   return Array.from(out.values());
 }
-const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products'];
+const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests'];
 
 async function syncNow(opt) {
   const o = opt || {};
@@ -1878,13 +1930,12 @@ function applySeed(seed, opt) {
   reindex(); rebuildStages(); saveLocal();
 }
 function exportAll() {
-  return {
+  const out = {
     meta: Object.assign({}, DB.meta, { exportedAt: new Date().toISOString(), app: 'CoreV CRM' }),
-    owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons, config: DB.config,
-    companies: live('companies'), contacts: live('contacts'), deals: live('deals'),
-    tasks: live('tasks'), commitments: live('commitments'), reviews: live('reviews'),
-    activities: live('activities'), attachments: live('attachments'), products: live('products')
+    owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons, config: DB.config
   };
+  REC_SHARDS.forEach(k => { out[k] = live(k); });
+  return out;
 }
 function download(name, text, mime) {
   const b = new Blob([text], { type: mime || 'application/json' });
@@ -2389,7 +2440,8 @@ const VIEW = {
   contactView: 'list',
   stageFilter: null,
   sort: {}, page: {}, tableFilter: {},
-  week: weekKey(), month: monthKey(), monthWeek: null, monthRegion: null
+  week: weekKey(), month: monthKey(), monthWeek: null, monthRegion: null,
+  demoPeriod: 'm0', demoRep: null, demoOutcome: null, reqStatus: null
 };
 const NAV = [
   { g: 'Sell' },
@@ -2398,6 +2450,10 @@ const NAV = [
   { id: 'tasks',     label: 'Tasks',     icon: 'check',
     count: () => openTasks().filter(t => t.dueDate && dnum(t.dueDate) <= dnum(TODAY())).length, alert: true },
   { id: 'review',    label: 'Sales Commitment', icon: 'flag' },
+  { id: 'demos',     label: 'Demo Tracker', icon: 'board',
+    count: () => live('demos').filter(demoNeedsOutcome).length, alert: true },
+  { id: 'requests',  label: 'Demo Requests', icon: 'clip',
+    count: () => live('demoRequests').filter(r => reqVisible(r) && reqStatus(r) === 'Pending').length, alert: true },
   { g: 'Accounts' },
   { id: 'companies', label: 'Companies', icon: 'bldg',  count: () => live('companies').length },
   { id: 'contacts',  label: 'Contacts',  icon: 'user',  count: () => live('contacts').length },
@@ -3934,6 +3990,7 @@ function refreshDrawer() {
   if (OPEN.kind === 'deal') openDeal(OPEN.id, OPEN.tab);
   else if (OPEN.kind === 'company') openCompany(OPEN.id);
   else if (OPEN.kind === 'contact') openContact(OPEN.id);
+  else if (OPEN.kind === 'demo') openDemo(OPEN.id);
   return true;
 }
 const openDealTab = (d, tab) => openDeal(d.id, tab);
@@ -6862,6 +6919,1025 @@ function exportMonthly(mk) {
   toast('Month exported', 'ok');
 }
 /* ================================================================
+   DEMO TRACKER — carried over from the OxeFit Sales Tracker.
+
+   The concepts are the tracker's, unchanged: a demo is logged against a
+   primary rep with any number of supporting reps, every one of whom is
+   credited; the outcome runs Pending → Won / 2nd demo / Site survey /
+   No show / Lost; conversion is measured against demos run, not against
+   deals; and each demo carries a timeline of short updates rather than
+   one overwritten comment field.
+
+   What changes is what a demo is attached to. In the tracker a demo held
+   a typed client name and a HubSpot deal id. Here it links to the CRM's
+   own company and deal records, so "converted to a deal" is a fact the
+   tool can check rather than a number somebody typed.
+   ================================================================ */
+
+const DEMO_OUTCOMES = [
+  { v: 'Pending',   label: 'Pending — too early to call', cls: 'pending' },
+  { v: 'Won',       label: 'Won — converted to a deal',   cls: 'converted' },
+  { v: '2nd demo',  label: '2nd demo needed',             cls: 'pending' },
+  { v: 'Site survey', label: 'Site survey',               cls: 'pending' },
+  { v: 'No show',   label: 'No show',                     cls: 'lost' },
+  { v: 'Lost',      label: 'Lost — no deal',              cls: 'lost' }
+];
+const DEMO_TYPES = ['On-site', 'Showroom', 'Virtual', 'Trade Show'];
+const demoOutcome = v => DEMO_OUTCOMES.find(o => o.v === demoNorm(v)) || DEMO_OUTCOMES[0];
+/* the tracker wrote "Converted" for a while before settling on "Won" */
+const demoNorm = v => (v === 'Converted' ? 'Won' : (v || 'Pending'));
+const demoIsWon = d => demoNorm(d.outcome) === 'Won';
+const demoIsLost = d => ['Lost', 'No show'].includes(demoNorm(d.outcome));
+const demoPending = d => !demoIsWon(d) && !demoIsLost(d);
+const demoCls = d => demoOutcome(d.outcome).cls;
+
+/* products offered on a demo follow the configured device lines */
+const demoProducts = () => unitLines().concat(unitLines().length > 1 ? [unitLines().join(' + ')] : [])
+  .concat(['Full range']);
+
+/* ---- who is credited -------------------------------------------------
+   The tracker excluded the office and the management team from the rep
+   league table so the numbers described the field. Here that is a flag on
+   the person rather than a hard-coded list of names, defaulting to the
+   same effect: anyone in a region marked "not field sales" is left out. */
+const demoExcludedRegions = () => (DB.config.demoExcludeRegions ||
+  (salesRegions().includes('Management') ? ['Management'] : [])).slice();
+function demoCounts(ownerId) {
+  const o = DB.owners.find(x => x.id === String(ownerId));
+  if (!o) return false;
+  if (o.demoCounts === false) return false;
+  if (o.demoCounts === true) return true;
+  return !demoExcludedRegions().includes(ownerRegion(o.id));
+}
+const demoSupport = d => Array.isArray(d.supportIds) ? d.supportIds.filter(Boolean) : [];
+function demoCredits(d, ownerId) {
+  const id = String(ownerId);
+  return String(d.ownerId) === id || demoSupport(d).some(x => String(x) === id);
+}
+/* one row per (rep, demo) pair — the primary plus each supporter, so an
+   assist shows up in that rep's total exactly as the tracker counted it */
+function demoExpand(rows) {
+  const out = [];
+  rows.forEach(d => {
+    const seen = new Set();
+    if (d.ownerId && demoCounts(d.ownerId)) { out.push({ id: String(d.ownerId), d, role: 'primary' }); seen.add(String(d.ownerId)); }
+    demoSupport(d).forEach(s => {
+      if (!seen.has(String(s)) && demoCounts(s)) { out.push({ id: String(s), d, role: 'support' }); seen.add(String(s)); }
+    });
+  });
+  return out;
+}
+
+/* ---- permissions ---- */
+const demoCanEdit = d => canManageDemos() ||
+  (!isReadOnly() && d && demoCredits(d, currentOwnerId()));
+/* a rep may only touch the outcome, the deal link and the updates */
+const demoRepOnly = d => !canManageDemos() && demoCanEdit(d);
+
+/* ---- a demo with no outcome, well past its date, is the thing that rots --- */
+const DEMO_CHASE_DAYS = 1;
+function demoNeedsOutcome(d) {
+  if (!demoPending(d) || demoNorm(d.outcome) !== 'Pending') return false;
+  return d.date && days(TODAY(), d.date) >= DEMO_CHASE_DAYS;
+}
+
+function demoScope() {
+  const all = live('demos');
+  const b = periodBounds(VIEW.demoPeriod);
+  return all.filter(d => {
+    if (VIEW.demoPeriod !== 'all' && !inPeriod(d.date, b)) return false;
+    if (VIEW.rep !== 'all' && !demoCredits(d, VIEW.rep)) return false;
+    if (VIEW.demoRep && !demoCredits(d, VIEW.demoRep)) return false;
+    if (VIEW.demoOutcome && demoNorm(d.outcome) !== VIEW.demoOutcome) return false;
+    return true;
+  });
+}
+
+/* ================================================================ view */
+function viewDemos(root) {
+  const rows = demoScope();
+  const b = periodBounds(VIEW.demoPeriod);
+
+  root.appendChild(viewHead(null, [
+    periodSeg('demoPeriod'),
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportDemos(rows) }),
+    canManageDemos() ? el('button', { class: 'btn', html: ico('sync',14) + ' Import from Outlook',
+      title: `Pull the last 14 days from ${CFG.demoCalendar}`, onclick: () => outlookImport() }) : null,
+    canManageDemos() ? el('button', { class: 'btn primary', html: ico('plus',14) + ' Log a demo',
+      onclick: () => editDemo(null) }) : null
+  ]));
+
+  if (!canManageDemos()) root.appendChild(el('p', { class: 'sub',
+    style: 'margin:-8px 0 var(--sp-4);line-height:1.55', html: isReadOnly()
+      ? 'You have read-only access, so nothing here can be changed.'
+      : 'Demos are scheduled by the office. You can set the outcome, link the deal and post updates on demos you ran or supported — the rest is theirs to change.' }));
+
+  /* ---- the ones that need chasing */
+  const chase = live('demos').filter(demoNeedsOutcome);
+  if (chase.length) {
+    const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
+    n.appendChild(el('span', { class: 'ic', html: ico('warn',18) }));
+    n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html:
+      `<b>${chase.length} demo${chase.length === 1 ? ' has' : 's have'} no outcome yet</b> — the oldest ran ${
+        days(TODAY(), chase.map(d => d.date).sort()[0])} days ago. ` +
+      `<div class="sub">A demo with no outcome is a demo nobody learns from. ${
+        esc(chase.slice(0, 4).map(d => demoClient(d)).join(', '))}${chase.length > 4 ? ` and ${chase.length - 4} more` : ''}.</div>` }));
+    n.appendChild(el('button', { class: 'btn sm', text: 'Show only these',
+      onclick: () => { VIEW.demoOutcome = 'Pending'; VIEW.demoPeriod = 'all'; render(); } }));
+    root.appendChild(n);
+  }
+
+  /* ---- headline */
+  const won = rows.filter(demoIsWon), lost = rows.filter(demoIsLost);
+  const pend = rows.filter(d => demoNorm(d.outcome) === 'Pending');
+  const repSet = new Set(demoExpand(rows).map(x => x.id));
+  const clients = new Set(rows.map(d => demoClientKey(d)).filter(Boolean));
+  const t = el('div', { class: 'tiles' });
+  t.appendChild(tile('Demos run', String(rows.length), { icon: 'board',
+    foot: `${repSet.size} rep${repSet.size === 1 ? '' : 's'} active · ${b.label}` }));
+  t.appendChild(tile('Converted', String(won.length), { icon: 'check',
+    foot: rows.length ? `${pct(won.length, rows.length)}% of demos run` : 'nothing logged yet',
+    meter: rows.length ? pct(won.length, rows.length) : null }));
+  t.appendChild(tile('Pending', String(pend.length), { icon: 'cal', foot: 'awaiting an outcome' }));
+  t.appendChild(tile('Lost', String(lost.length), { icon: 'down',
+    foot: `${rows.filter(d => demoNorm(d.outcome) === 'No show').length} of them no-shows` }));
+  t.appendChild(tile('Unique clients', String(clients.size), { icon: 'bldg', foot: 'distinct accounts demoed' }));
+  root.appendChild(t);
+
+  /* ---- filters */
+  root.appendChild(filterBar([
+    selectFilter('Outcome', VIEW.demoOutcome || '',
+      [['', 'Every outcome']].concat(DEMO_OUTCOMES.map(o => [o.v, o.label])),
+      v => { VIEW.demoOutcome = v || null; VIEW.page = {}; render(); }, 210),
+    selectFilter('Credited rep', VIEW.demoRep || '',
+      [['', 'Any rep']].concat(activeOwners().filter(o => demoCounts(o.id)).map(o => [o.id, o.name])),
+      v => { VIEW.demoRep = v || null; VIEW.page = {}; render(); }, 160),
+    (VIEW.demoOutcome || VIEW.demoRep) ? el('button', { class: 'btn sm ghost', text: 'Clear',
+      onclick: () => { VIEW.demoOutcome = null; VIEW.demoRep = null; render(); } }) : null
+  ]));
+
+  const g = el('div', { class: 'grid2', style: 'margin-bottom:var(--sp-3)' });
+
+  /* ---- per-rep, split by what happened */
+  const c1 = card('Demos by rep', 'Primary and supporting credits · click a rep to filter the log');
+  const byRep = {};
+  demoExpand(rows).forEach(({ id, d, role }) => {
+    const r = byRep[id] || (byRep[id] = { id, total: 0, won: 0, pend: 0, lost: 0, support: 0 });
+    r.total++;
+    if (role === 'support') r.support++;
+    if (demoIsWon(d)) r.won++; else if (demoIsLost(d)) r.lost++; else r.pend++;
+  });
+  const repRows = Object.values(byRep).sort((a, z) => z.total - a.total || z.won - a.won);
+  if (!repRows.length) c1.body.appendChild(el('p', { class: 'sub', style: 'margin:0',
+    text: 'No demos credited to anyone in this period.' }));
+  else {
+    const list = el('div', { class: 'demobars' });
+    const max = Math.max(...repRows.map(r => r.total), 1);
+    repRows.forEach(r => {
+      const row = el('button', { class: 'demobar' + (VIEW.demoRep === r.id ? ' on' : ''),
+        title: `${ownerName(r.id)} — ${r.won} won, ${r.pend} pending, ${r.lost} lost`,
+        onclick: () => { VIEW.demoRep = VIEW.demoRep === r.id ? null : r.id; render(); } });
+      row.appendChild(el('span', { class: 'nm', html:
+        `${esc(ownerName(r.id))}${r.support ? ` <span class="sup">+${r.support} supporting</span>` : ''}` }));
+      const track = el('span', { class: 'track', style: `width:${Math.round(r.total / max * 100)}%` });
+      [['won', r.won], ['pend', r.pend], ['lost', r.lost]].forEach(([k, n]) => {
+        if (n) track.appendChild(el('i', { class: k, style: `flex:${n}`,
+          title: `${n} ${k === 'won' ? 'won' : k === 'pend' ? 'pending' : 'lost'}` }));
+      });
+      row.appendChild(track);
+      row.appendChild(el('span', { class: 'n', text: String(r.total) }));
+      list.appendChild(row);
+    });
+    c1.body.appendChild(list);
+    c1.body.appendChild(el('div', { class: 'legend' }, [
+      el('span', { html: '<i style="background:var(--good)"></i>Won' }),
+      el('span', { html: '<i style="background:var(--warning)"></i>Pending' }),
+      el('span', { html: '<i style="background:var(--critical)"></i>Lost or no show' })
+    ]));
+  }
+  g.appendChild(c1.node);
+
+  /* ---- demos run → converted → actually closed */
+  const c2 = card('From demo to closed', 'Every step measured against the demos that were run');
+  const closed = won.filter(d => { const dl = d.dealId && getDl(d.dealId); return dl && isWon(dl); });
+  const steps = [
+    { k: 'Demos run', n: rows.length, c: 'var(--s1)' },
+    { k: 'Converted to a deal', n: won.length, c: 'var(--s3)' },
+    { k: 'Deal closed won', n: closed.length, c: 'var(--good)' }
+  ];
+  const fn = el('div', { class: 'demofunnel' });
+  steps.forEach((st, i) => fn.appendChild(el('div', { class: 'step', style: `--c:${st.c}` }, [
+    el('div', { class: 'l', text: `${i + 1} · ${st.k}` }),
+    el('div', { class: 'v', html: `${st.n}${i ? `<span class="p">${pct(st.n, rows.length)}% of demos run</span>` : ''}` })
+  ])));
+  c2.body.appendChild(fn);
+  c2.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55', html:
+    won.length && closed.length < won.length
+      ? `${won.length - closed.length} of the converted demos are not closed won yet — either the deal is still open, or the demo was never linked to one.`
+      : 'A demo counts as closed only when the deal it is linked to is closed won, so this cannot drift from the pipeline.' }));
+  g.appendChild(c2.node);
+  root.appendChild(g);
+
+  /* ---- the log */
+  const lc = card('Demo log', `${rows.length} demo${rows.length === 1 ? '' : 's'} in ${b.label}`);
+  const host = el('div'); lc.body.appendChild(host);
+  dataTable(host, {
+    key: 'demolog', noun: 'demos', rows: rows.slice(), per: 25, defaultSort: 0, defaultDir: -1,
+    emptyText: canManageDemos() ? 'No demos logged for these filters. Use “Log a demo” to add one.'
+                                : 'No demos logged for these filters.',
+    cols: [
+      { h: 'Date', v: d => d.date || '', r: d => `${esc(fdate(d.date))}<div class="cellsub">${esc(demoWeekLabel(d.date))}</div>` },
+      { h: 'Rep', v: d => ownerName(d.ownerId), r: d => ownerCell(d.ownerId) +
+          (demoSupport(d).length ? `<div class="cellsub">+ ${esc(demoSupport(d).map(ownerName).join(', '))}</div>` : '') },
+      { h: 'Client', v: d => demoClient(d), r: d => `<b>${esc(demoClient(d))}</b>` +
+          (d.companyId ? `<div class="cellsub">${esc((getCo(d.companyId) || {}).name || '')}</div>` : '') },
+      { h: 'Type', v: d => d.type || '', r: d => `${esc(d.type || '—')}${d.product ? `<div class="cellsub">${esc(d.product)}</div>` : ''}` },
+      { h: 'Location', v: d => d.location || '', r: d => esc(d.location || '—') },
+      { h: 'Outcome', v: d => demoNorm(d.outcome), r: d => {
+          const o = demoOutcome(d.outcome);
+          return `<span class="tag ${o.cls === 'converted' ? 'good' : o.cls === 'lost' ? 'bad' : 'warn'}">${esc(o.v)}</span>` +
+            (demoNeedsOutcome(d) ? '<div class="cellsub" style="color:var(--warning)">needs an outcome</div>' : ''); } },
+      { h: 'Deal', v: d => d.dealId ? 1 : 0, r: d => {
+          const dl = d.dealId && getDl(d.dealId);
+          return dl ? `<a href="#" class="lnk" data-deal="${esc(dl.id)}">${esc(dl.name)}</a>` +
+                      `<div class="cellsub">${esc(stage(dl.stageId).label)}</div>`
+                    : '<span class="cellsub">—</span>'; } },
+      { h: 'Updates', sortable: false, v: d => (d.updates || []).length,
+        r: d => (d.updates || []).length
+          ? `${(d.updates || []).length} update${(d.updates||[]).length === 1 ? '' : 's'}` +
+            `<div class="cellsub">${esc(((d.updates || []).slice(-1)[0] || {}).text || '')}</div>`
+          : '<span class="cellsub">none</span>' }
+    ],
+    onRow: d => openDemo(d.id)
+  });
+  host.addEventListener('click', e => {
+    const a = e.target.closest('a[data-deal]');
+    if (a) { e.preventDefault(); e.stopPropagation(); openDeal(a.getAttribute('data-deal')); }
+  });
+  root.appendChild(lc.node);
+}
+
+const demoClient = d => d.client || (d.companyId && (getCo(d.companyId) || {}).name) || 'Unnamed';
+const demoClientKey = d => String(d.companyId || (d.client || '').toLowerCase().trim());
+function demoWeekLabel(date) {
+  if (!date) return '';
+  const k = weekKey(String(date).slice(0, 10));
+  return weekLabel(k);
+}
+
+/* ------------------------------------------------- one demo, in a drawer */
+function openDemo(id) {
+  const d = live('demos').find(x => x.id === id);
+  if (!d) return toast('Demo not found', 'err');
+  OPEN.kind = 'demo'; OPEN.id = id; OPEN.tab = null;
+  const o = demoOutcome(d.outcome);
+  const head = drawerHead(demoClient(d), [
+    el('span', { class: `tag ${o.cls === 'converted' ? 'good' : o.cls === 'lost' ? 'bad' : 'warn'}`, text: o.v }),
+    mfact('Date', fdate(d.date)),
+    mfact('Rep', ownerName(d.ownerId)),
+    d.type ? mfact('Type', d.type) : null,
+    d.product ? mfact('Product', d.product) : null,
+    d.location ? mfact('Location', d.location) : null
+  ].filter(Boolean));
+
+  const body = el('div');
+  /* what the rep can change, inline */
+  const c1 = card('Outcome', demoRepOnly(d)
+    ? 'You ran or supported this demo, so the outcome, the deal and the updates are yours to fill in'
+    : 'What came of the demo');
+  const sel = el('select', { class: 'inp', disabled: demoCanEdit(d) ? null : true,
+    onchange: e => { d.outcome = e.target.value; upsert('demos', d);
+      logAct({ dealId: d.dealId || null, ownerId: d.ownerId, kind: 'note',
+        html: `Demo for <b>${esc(demoClient(d))}</b> marked <b>${esc(e.target.value)}</b>` });
+      openDemo(id); render(); toast('Outcome saved', 'ok'); } });
+  DEMO_OUTCOMES.forEach(x => sel.appendChild(el('option', { value: x.v, text: x.label,
+    selected: demoNorm(d.outcome) === x.v || null })));
+  c1.body.appendChild(fld('Outcome', sel));
+  const dp = picker({
+    placeholder: 'Link the deal this demo created…',
+    items: () => live('deals').sort((a, z) => (z.amount || 0) - (a.amount || 0)),
+    match: (x, q) => (x.name || '').toLowerCase().includes(q),
+    label: x => x.name, value: x => x.id,
+    render: x => `<span>${esc(x.name)}</span><span class="sub">${esc(ownerName(x.ownerId))} · ${esc(stage(x.stageId).label)}</span>`,
+    onPick: x => { d.dealId = x.id; upsert('demos', d); openDemo(id); render(); toast('Deal linked', 'ok'); }
+  });
+  if (d.dealId && getDl(d.dealId)) {
+    const dl = getDl(d.dealId);
+    c1.body.appendChild(fld('Linked deal', el('div', { class: 'row', style: 'gap:var(--sp-2)' }, [
+      el('button', { class: 'btn sm', text: dl.name, onclick: () => openDeal(dl.id) }),
+      el('span', { class: 'tag', text: stage(dl.stageId).label }),
+      demoCanEdit(d) ? el('button', { class: 'btn sm ghost', text: 'Unlink',
+        onclick: () => { d.dealId = null; upsert('demos', d); openDemo(id); render(); } }) : null
+    ].filter(Boolean))));
+  } else if (demoCanEdit(d)) {
+    c1.body.appendChild(fld('Linked deal', dp.node,
+      'A converted demo only counts as closed once the deal it points at is closed won.'));
+  }
+  body.appendChild(c1.node);
+
+  /* the updates timeline */
+  const c2 = card('Updates', 'Short notes, newest last — the demo’s own history');
+  const ups = (d.updates || []).slice();
+  const list = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-3)' });
+  if (!ups.length) list.appendChild(el('div', { class: 'nitem', style: 'color:var(--ink-3)',
+    html: `<span class="ic">${ico('note',13)}</span><span>Nothing posted yet.</span>` }));
+  ups.forEach((u, i) => list.appendChild(el('div', { class: 'nitem' }, [
+    el('span', { class: 'ic', html: ico('note',13) }),
+    el('div', { style: 'flex:1' }, [
+      el('div', { text: u.text }),
+      el('div', { style: 'font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px',
+        text: `${fdate(u.at)}${u.by ? ' · ' + String(u.by).split('@')[0] : ''}` })
+    ]),
+    demoCanEdit(d) ? el('button', { html: ico('x',12), 'aria-label': 'Remove',
+      onclick: () => { d.updates.splice(i, 1); upsert('demos', d); openDemo(id); } }) : null
+  ].filter(Boolean))));
+  c2.body.appendChild(list);
+  if (demoCanEdit(d)) {
+    const ta = el('textarea', { class: 'inp', rows: 2, placeholder: 'What happened? Keep it to a couple of lines.' });
+    const count = el('div', { class: 'sub', style: 'margin-top:4px' });
+    const MAXW = 60;
+    const words = v => (v.trim() ? v.trim().split(/\s+/).length : 0);
+    ta.addEventListener('input', () => {
+      const n = words(ta.value);
+      count.textContent = `${n} / ${MAXW} words`;
+      count.style.color = n > MAXW ? 'var(--critical-ink)' : '';
+    });
+    const post = () => {
+      const v = ta.value.trim();
+      if (!v) return toast('Write an update first');
+      if (words(v) > MAXW) return toast(`That is ${words(v)} words — trim it to ${MAXW}`, 'err');
+      d.updates = (d.updates || []).concat([{ at: new Date().toISOString(),
+        by: (AUTH.user && AUTH.user.username) || 'local', text: v }]);
+      upsert('demos', d); openDemo(id); toast('Update posted', 'ok');
+    };
+    ta.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); post(); } });
+    c2.body.appendChild(fld('Post an update', ta));
+    c2.body.appendChild(count);
+    c2.body.appendChild(el('button', { class: 'btn sm primary', style: 'margin-top:8px',
+      text: 'Post', onclick: post }));
+  }
+  body.appendChild(c2.node);
+
+  if (d.notes) {
+    const c3 = card('Notes', 'From when the demo was booked');
+    c3.body.appendChild(el('p', { style: 'margin:0;line-height:1.6;color:var(--ink-2)', text: d.notes }));
+    body.appendChild(c3.node);
+  }
+
+  const foot = el('div', { class: 'foot' });
+  if (canManageDemos()) {
+    foot.appendChild(el('button', { class: 'btn', html: ico('edit',14) + ' Edit', onclick: () => editDemo(d) }));
+    foot.appendChild(el('div', { style: 'flex:1' }));
+    foot.appendChild(el('button', { class: 'btn danger', html: ico('trash',14) + ' Delete',
+      onclick: () => confirmDo('Delete this demo', `The demo for ${demoClient(d)} on ${fdate(d.date)} is removed for everyone.`,
+        'Delete', () => { remove('demos', d.id); closeAll(); render(); toast('Demo deleted'); }) }));
+  }
+  drawer([head, body, foot]);
+}
+
+/* ------------------------------------------------------- log / edit form */
+function editDemo(d) {
+  if (!canManageDemos()) return toast('Only the office or an admin can log a demo', 'err');
+  const isNew = !d;
+  d = d || { date: TODAY(), outcome: 'Pending', type: 'On-site' };
+  const date = el('input', { class: 'inp', type: 'date', value: (d.date || TODAY()).slice(0, 10) });
+  const own = ownerSelect(d.ownerId || currentOwnerId(), { emptyLabel: 'Pick the rep who ran it' });
+  const sup = ownerMulti(demoSupport(d), d.ownerId);
+  const client = el('input', { class: 'inp', value: d.client || '', placeholder: 'e.g. Emirates Wellness Group' });
+  const cp = coPicker(d.companyId);
+  const type = el('select', { class: 'inp' });
+  DEMO_TYPES.forEach(t => type.appendChild(el('option', { value: t, text: t, selected: d.type === t || null })));
+  const prod = el('select', { class: 'inp' });
+  prod.appendChild(el('option', { value: '', text: 'Not recorded' }));
+  demoProducts().forEach(p => prod.appendChild(el('option', { value: p, text: p, selected: d.product === p || null })));
+  const loc = el('input', { class: 'inp', value: d.location || '', placeholder: 'Showroom, client site, city…' });
+  const out = el('select', { class: 'inp' });
+  DEMO_OUTCOMES.forEach(x => out.appendChild(el('option', { value: x.v, text: x.label,
+    selected: demoNorm(d.outcome) === x.v || null })));
+  const notes = el('textarea', { class: 'inp', rows: 2, value: d.notes || '',
+    placeholder: 'Anything the rep needs to know before walking in' });
+
+  modal(isNew ? 'Log a demo' : 'Edit demo', el('div', {}, [
+    el('div', { class: 'field-row' }, [ fld('Date *', date), fld('Type', type) ]),
+    fld('Rep who ran it *', own),
+    fld('Supporting reps', sup.node, 'Everyone ticked here is credited with the demo as well.'),
+    fld('Client *', client, 'The name as the team says it. Link the company below if it is already in the CRM.'),
+    fld('Company', cp.node),
+    el('div', { class: 'field-row' }, [ fld('Product shown', prod), fld('Location', loc) ]),
+    fld('Outcome', out),
+    fld('Notes', notes)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: isNew ? 'Log it' : 'Save', onclick: () => {
+      if (!date.value) { date.focus(); return toast('A date is required', 'err'); }
+      if (!own.value) { own.focus(); return toast('Pick the rep who ran it', 'err'); }
+      const co = cp.get();
+      if (!client.value.trim() && !co) { client.focus(); return toast('A client name or a company is required', 'err'); }
+      const rec = Object.assign({}, d, {
+        date: date.value, ownerId: own.value, supportIds: sup.get().filter(x => x !== own.value),
+        client: client.value.trim() || null, companyId: co || null,
+        type: type.value, product: prod.value || null, location: loc.value.trim() || null,
+        outcome: out.value, notes: notes.value.trim() || null,
+        createdAt: d.createdAt || new Date().toISOString()
+      });
+      const saved = upsert('demos', rec);
+      logAct({ dealId: saved.dealId || null, ownerId: saved.ownerId, kind: 'note',
+        html: `${isNew ? 'Logged' : 'Updated'} a <b>${esc(saved.type || 'demo')}</b> demo for <b>${esc(demoClient(saved))}</b>` });
+      closeAll(); render(); toast(isNew ? 'Demo logged' : 'Saved', 'ok');
+    } })
+  ]);
+}
+
+function exportDemos(rows) {
+  const cols = [
+    { h: 'Date', f: d => d.date || '' },
+    { h: 'Week', f: d => demoWeekLabel(d.date) },
+    { h: 'Rep', f: d => ownerName(d.ownerId) },
+    { h: 'Supporting reps', f: d => demoSupport(d).map(ownerName).join(' / ') },
+    { h: 'Client', f: d => demoClient(d) },
+    { h: 'Company', f: d => (getCo(d.companyId) || {}).name || '' },
+    { h: 'Type', f: d => d.type || '' },
+    { h: 'Product', f: d => d.product || '' },
+    { h: 'Location', f: d => d.location || '' },
+    { h: 'Outcome', f: d => demoNorm(d.outcome) },
+    { h: 'Deal', f: d => (getDl(d.dealId) || {}).name || '' },
+    { h: 'Deal stage', f: d => d.dealId && getDl(d.dealId) ? stage(getDl(d.dealId).stageId).label : '' },
+    { h: 'Updates', f: d => (d.updates || []).map(u => u.text).join(' | ') },
+    { h: 'Notes', f: d => d.notes || '' }
+  ];
+  if (!rows.length) return toast('Nothing to export', 'err');
+  download('corev-demos.csv', toCSV(rows, cols), 'text/csv');
+  toast(`${rows.length} demos exported`, 'ok');
+}
+/* ================================================================
+   DEMO REQUESTS — the event / on-site request queue from the tracker.
+
+   A rep asks for a demo or an event; the office or an admin approves or
+   declines it; an approved request becomes a logged demo without anyone
+   retyping the client, the date or the devices. A rep sees and edits
+   their own while it is still pending, and everyone with write access
+   can raise one.
+   ================================================================ */
+
+const REQ_KINDS  = ['On-site demo', 'Event'];
+const REQ_EVENTS = ['Pilot', 'Client activation', 'Event', 'Conditional POC'];
+const REQ_STATUS = [
+  { v: 'Pending',  tag: 'warn' },
+  { v: 'Approved', tag: 'good' },
+  { v: 'Declined', tag: 'bad' },
+  { v: 'Done',     tag: '' }
+];
+const REQ_AUDIENCE = ['Members', 'Athletes', 'Clinicians', 'Hotel guests', 'Corporate', 'Press', 'VIP / Government'];
+const reqStatus = r => (r && r.status) || 'Pending';
+const reqTag = r => (REQ_STATUS.find(s => s.v === reqStatus(r)) || REQ_STATUS[0]).tag;
+const reqIsMine = r => String(r.ownerId) === String(currentOwnerId());
+/* a rep owns their request only while it is still pending */
+const reqCanEdit = r => canManageDemos() ||
+  (!isReadOnly() && reqIsMine(r) && reqStatus(r) === 'Pending');
+const reqVisible = r => canManageDemos() || isReadOnly() || reqIsMine(r);
+
+function reqScope() {
+  return live('demoRequests')
+    .filter(reqVisible)
+    .filter(r => !VIEW.reqStatus || reqStatus(r) === VIEW.reqStatus)
+    .filter(r => VIEW.rep === 'all' || String(r.ownerId) === VIEW.rep)
+    .sort((a, z) => String(z.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+function viewRequests(root) {
+  const rows = reqScope();
+  const all = live('demoRequests').filter(reqVisible);
+
+  root.appendChild(viewHead(null, [
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportRequests(rows) }),
+    isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus',14) + ' Raise a request',
+      onclick: () => editRequest(null) })
+  ]));
+
+  const pending = all.filter(r => reqStatus(r) === 'Pending');
+  const t = el('div', { class: 'tiles' });
+  t.appendChild(tile('Waiting on a decision', String(pending.length), { icon: 'cal',
+    foot: pending.length ? `oldest raised ${fdate((pending.map(r => r.createdAt).sort()[0] || '').slice(0,10))}` : 'nothing outstanding',
+    onclick: () => { VIEW.reqStatus = 'Pending'; render(); } }));
+  t.appendChild(tile('Approved', String(all.filter(r => reqStatus(r) === 'Approved').length),
+    { icon: 'check', foot: 'ready to run' }));
+  t.appendChild(tile('Declined', String(all.filter(r => reqStatus(r) === 'Declined').length),
+    { icon: 'x', foot: 'not going ahead' }));
+  t.appendChild(tile('Committed spend', money(sum(all.filter(r => reqStatus(r) === 'Approved'), r => r.cost)),
+    { cur: true, icon: 'bolt', foot: 'expected cost of approved requests' }));
+  root.appendChild(t);
+
+  if (canManageDemos() && pending.length) {
+    const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
+    n.appendChild(el('span', { class: 'ic', html: ico('warn',18) }));
+    n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html:
+      `<b>${pending.length} request${pending.length === 1 ? '' : 's'} waiting on you</b>` +
+      `<div class="sub">${esc(pending.slice(0,4).map(r => `${r.client} (${ownerName(r.ownerId)})`).join(', '))}${
+        pending.length > 4 ? ` and ${pending.length - 4} more` : ''}</div>` }));
+    root.appendChild(n);
+  }
+
+  root.appendChild(filterBar([
+    selectFilter('Status', VIEW.reqStatus || '',
+      [['', 'Every status']].concat(REQ_STATUS.map(s => [s.v, s.v])),
+      v => { VIEW.reqStatus = v || null; render(); }, 150),
+    VIEW.reqStatus ? el('button', { class: 'btn sm ghost', text: 'Clear',
+      onclick: () => { VIEW.reqStatus = null; render(); } }) : null
+  ]));
+
+  if (!rows.length) {
+    root.appendChild(el('div', { class: 'empty', html: ico('cal',34) +
+      '<h4>No requests here</h4><p>' + (isReadOnly() ? 'Nothing has been raised yet.'
+        : 'Raise one when a client wants a demo on their site, or when an event needs devices and people.') + '</p>' }));
+    return;
+  }
+
+  const list = el('div', { class: 'reqlist' });
+  rows.forEach(r => list.appendChild(requestCard(r)));
+  root.appendChild(list);
+}
+
+function requestCard(r) {
+  const n = el('div', { class: 'reqcard' + (reqStatus(r) === 'Pending' ? ' pending' : '') });
+  n.appendChild(el('header', {}, [
+    el('div', { style: 'min-width:0;flex:1' }, [
+      el('div', { class: 'nm', text: r.client || 'Unnamed' }),
+      el('div', { class: 'rl', html: `${esc(r.kind || 'On-site demo')}${r.eventType ? ' · ' + esc(r.eventType) : ''} · raised by ${
+        esc(ownerName(r.ownerId))}${r.createdAt ? ' · ' + esc(fdate(r.createdAt)) : ''}` })
+    ]),
+    el('span', { class: 'tag ' + reqTag(r), text: reqStatus(r) })
+  ]));
+  const b = el('div', { class: 'b' });
+  const kv = el('dl', { class: 'kvs' });
+  const add = (k, v) => { kv.appendChild(el('dt', { text: k })); kv.appendChild(el('dd', { html: v })); };
+  add('When', `${esc(fdate(r.startDate))}${r.endDate && r.endDate !== r.startDate ? ' – ' + esc(fdate(r.endDate)) : ''}`);
+  if (r.location) add('Location', esc(r.location));
+  if ((r.devices || []).length) add('Devices', esc(r.devices.join(' + ')));
+  if (r.cost) add('Expected cost', `${CFG.currency} ${money(r.cost, { dash: false })}`);
+  if (r.participants) add('Participating', esc(r.participants));
+  b.appendChild(kv);
+  if (r.details) b.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', text: r.details }));
+
+  if (r.kind === 'Event') {
+    const ev = el('div', { class: 'reqev' });
+    const cell = (k, v) => ev.appendChild(el('div', {}, [
+      el('span', { class: 'k', text: k }), el('span', { class: 'v', html: v }) ]));
+    if (r.organizer) cell('Organiser & host', esc(r.organizer));
+    if (r.opHours)   cell('Operating hours', esc(r.opHours));
+    if (r.footfall)  cell('Expected footfall', money(r.footfall, { dash: false }));
+    if (r.contact)   cell('Primary contact', esc(r.contact));
+    if ((r.audience || []).length) cell('Audience', r.audience.map(a => `<span class="tag">${esc(a)}</span>`).join(' '));
+    cell('VIP attending', r.vip ? 'Yes' : 'No');
+    cell('Media coverage', r.media ? 'Yes' : 'No');
+    if (r.leads || r.revenueOpp) cell('Expected outcome',
+      [r.leads ? `${r.leads} leads` : '', r.revenueOpp ? `${CFG.currency} ${money(r.revenueOpp, {dash:false})} potential` : '']
+        .filter(Boolean).join(' · '));
+    cell('Budget confirmed', r.budgetConfirmed
+      ? 'Yes' + (r.budgetAmount ? ` · ${CFG.currency} ${money(r.budgetAmount, {dash:false})}` : '') : 'No');
+    if (r.strategic) cell('Strategic value', esc(r.strategic));
+    b.appendChild(ev);
+  }
+  if (r.plan) {
+    b.appendChild(el('label', { class: 'fl', text: 'Project plan' }));
+    b.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', text: r.plan }));
+  }
+  if (r.commercial) {
+    b.appendChild(el('label', { class: 'fl', text: 'Path to commercial' }));
+    b.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', text: r.commercial }));
+  }
+  if (r.decisionNote) b.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
+    html: `<b>${esc(reqStatus(r))}</b>${r.decidedBy ? ' by ' + esc(String(r.decidedBy).split('@')[0]) : ''}${
+      r.decidedAt ? ' · ' + esc(fdate(r.decidedAt)) : ''} — ${esc(r.decisionNote)}` }));
+
+  const foot = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center' });
+  if (canManageDemos() && reqStatus(r) === 'Pending') {
+    foot.appendChild(el('button', { class: 'btn sm primary', html: ico('check',12) + ' Approve',
+      onclick: () => decideRequest(r, 'Approved') }));
+    foot.appendChild(el('button', { class: 'btn sm', style: 'color:var(--critical-ink)',
+      html: ico('x',12) + ' Decline', onclick: () => decideRequest(r, 'Declined') }));
+  }
+  if (canManageDemos() && reqStatus(r) === 'Approved' && !r.demoId) {
+    foot.appendChild(el('button', { class: 'btn sm primary', html: ico('board',12) + ' Log it as a demo',
+      title: 'Carries the client, date, devices and people straight into the demo log',
+      onclick: () => requestToDemo(r) }));
+  }
+  if (r.demoId && live('demos').some(d => d.id === r.demoId)) {
+    foot.appendChild(el('button', { class: 'btn sm', html: ico('board',12) + ' Open the demo',
+      onclick: () => openDemo(r.demoId) }));
+  }
+  foot.appendChild(el('div', { style: 'flex:1' }));
+  if (reqCanEdit(r)) foot.appendChild(el('button', { class: 'btn sm ghost', html: ico('edit',12) + ' Edit',
+    onclick: () => editRequest(r) }));
+  if (canManageDemos() || (reqIsMine(r) && reqStatus(r) === 'Pending' && !isReadOnly()))
+    foot.appendChild(el('button', { class: 'btn sm ghost', style: 'color:var(--critical-ink)',
+      html: ico('trash',12), 'aria-label': 'Delete',
+      onclick: () => confirmDo('Delete this request', `The ${r.kind || 'request'} for ${r.client} is removed for everyone.`,
+        'Delete', () => { remove('demoRequests', r.id); render(); toast('Request deleted'); }) }));
+  b.appendChild(foot);
+  n.appendChild(b);
+  return n;
+}
+
+function decideRequest(r, status) {
+  const note = el('textarea', { class: 'inp', rows: 2,
+    placeholder: status === 'Approved' ? 'Anything the rep should know — budget caveats, dates, who is coming.'
+                                       : 'Why not, and what would change the answer.' });
+  modal(`${status === 'Approved' ? 'Approve' : 'Decline'} — ${r.client}`, el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
+      `${esc(ownerName(r.ownerId))} raised this ${esc((r.kind || 'request').toLowerCase())} for <b>${esc(r.client)}</b>` +
+      `${r.startDate ? ` on <b>${esc(fdate(r.startDate))}</b>` : ''}${r.cost ? `, expected to cost <b>${CFG.currency} ${money(r.cost, {dash:false})}</b>` : ''}.` +
+      (status === 'Approved' ? ' Approving it lets the office log it as a demo in one click.' : '') }),
+    fld(status === 'Declined' ? 'Reason *' : 'Note', note)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: status, onclick: () => {
+      if (status === 'Declined' && !note.value.trim()) { note.focus(); return toast('A declined request needs a reason', 'err'); }
+      r.status = status;
+      r.decisionNote = note.value.trim() || null;
+      r.decidedBy = (AUTH.user && AUTH.user.username) || 'local';
+      r.decidedAt = new Date().toISOString();
+      upsert('demoRequests', r);
+      closeAll(); render(); toast(`Request ${status.toLowerCase()}`, status === 'Approved' ? 'ok' : '');
+    } })
+  ]);
+}
+
+/* An approved request already holds everything a demo needs, so it carries
+   across rather than being typed a second time. */
+function requestToDemo(r) {
+  const date = el('input', { class: 'inp', type: 'date', value: (r.startDate || TODAY()).slice(0, 10) });
+  const own = ownerSelect(r.ownerId, { emptyLabel: 'Pick the rep' });
+  const type = el('select', { class: 'inp' });
+  DEMO_TYPES.forEach(t => type.appendChild(el('option', { value: t, text: t,
+    selected: (r.kind === 'Event' ? 'Trade Show' : 'On-site') === t || null })));
+  modal('Log it as a demo', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
+      `<b>${esc(r.client)}</b> comes across with its date, devices and people. The outcome starts as pending — ` +
+      'whoever runs it fills that in afterwards.' }),
+    el('div', { class: 'field-row' }, [ fld('Date', date), fld('Type', type) ]),
+    fld('Rep running it', own)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Log the demo', onclick: () => {
+      const d = upsert('demos', {
+        date: date.value, ownerId: own.value || r.ownerId, supportIds: [],
+        client: r.client, companyId: r.companyId || null,
+        type: type.value, product: (r.devices || []).join(' + ') || null,
+        location: r.location || null, outcome: 'Pending',
+        notes: [r.details, r.participants ? 'Participating: ' + r.participants : '']
+          .filter(Boolean).join('\n'),
+        requestId: r.id, createdAt: new Date().toISOString()
+      });
+      r.demoId = d.id; r.status = 'Done';
+      upsert('demoRequests', r);
+      closeAll(); render(); toast('Demo logged from the request', 'ok');
+    } })
+  ]);
+}
+
+function editRequest(r) {
+  if (isReadOnly()) return toast('You have read-only access', 'err');
+  const isNew = !r;
+  if (r && !reqCanEdit(r)) return toast('That request has already been decided', 'err');
+  r = r || { kind: 'On-site demo', status: 'Pending', devices: [], audience: [] };
+
+  const kind = el('select', { class: 'inp', onchange: () => paintKind() });
+  REQ_KINDS.forEach(k => kind.appendChild(el('option', { value: k, text: k, selected: r.kind === k || null })));
+  const own = ownerSelect(r.ownerId || currentOwnerId(), { emptyLabel: 'Who is asking' });
+  const client = el('input', { class: 'inp', value: r.client || '', placeholder: 'e.g. Emirates Wellness Group' });
+  const cp = coPicker(r.companyId);
+  const details = el('textarea', { class: 'inp', rows: 3, value: r.details || '',
+    placeholder: 'The opportunity, the scope and what this is meant to achieve' });
+  const start = el('input', { class: 'inp', type: 'date', value: (r.startDate || TODAY()).slice(0,10) });
+  const end = el('input', { class: 'inp', type: 'date', value: (r.endDate || r.startDate || TODAY()).slice(0,10) });
+  const loc = el('input', { class: 'inp', value: r.location || '', placeholder: 'Dubai, Abu Dhabi, outside the UAE…' });
+  const commercial = el('input', { class: 'inp', value: r.commercial || '',
+    placeholder: 'The deal or quote this leads to, or who owns the close' });
+  const plan = el('textarea', { class: 'inp', rows: 3, value: r.plan || '',
+    placeholder: 'Milestones, logistics, setup and teardown, dependencies' });
+  const participants = el('input', { class: 'inp', value: r.participants || '',
+    placeholder: 'e.g. Wafiq leading, Jawdat supporting, two client stakeholders' });
+  const cost = el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: r.cost || '' });
+  const devs = el('div', { class: 'sigs' });
+  const devSet = new Set(r.devices || []);
+  unitLines().forEach(L => {
+    const on = devSet.has(L);
+    devs.appendChild(el('button', { class: 'sig' + (on ? ' on' : ''), text: L, 'aria-pressed': on ? 'true' : 'false',
+      onclick: e => { const b = e.currentTarget;
+        if (devSet.has(L)) devSet.delete(L); else devSet.add(L);
+        b.classList.toggle('on', devSet.has(L)); b.setAttribute('aria-pressed', devSet.has(L) ? 'true' : 'false'); } }));
+  });
+
+  /* event-only */
+  const evType = el('select', { class: 'inp' });
+  REQ_EVENTS.forEach(x => evType.appendChild(el('option', { value: x, text: x, selected: r.eventType === x || null })));
+  const organizer = el('input', { class: 'inp', value: r.organizer || '', placeholder: 'Who is running it, and who hosts' });
+  const opHours = el('input', { class: 'inp', value: r.opHours || '', placeholder: 'e.g. 10:00–22:00, three days' });
+  const footfall = el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: r.footfall || '' });
+  const contact = el('input', { class: 'inp', value: r.contact || '', placeholder: 'Name and role on the client side' });
+  const aud = el('div', { class: 'sigs' });
+  const audSet = new Set(r.audience || []);
+  REQ_AUDIENCE.forEach(a => {
+    const on = audSet.has(a);
+    aud.appendChild(el('button', { class: 'sig' + (on ? ' on' : ''), text: a, 'aria-pressed': on ? 'true' : 'false',
+      onclick: e => { const b = e.currentTarget;
+        if (audSet.has(a)) audSet.delete(a); else audSet.add(a);
+        b.classList.toggle('on', audSet.has(a)); b.setAttribute('aria-pressed', audSet.has(a) ? 'true' : 'false'); } }));
+  });
+  const vip = el('select', { class: 'inp' });
+  const media = el('select', { class: 'inp' });
+  const budget = el('select', { class: 'inp', onchange: () => { budgetAmt.parentElement.style.display = budget.value === '1' ? '' : 'none'; } });
+  [['0','No'],['1','Yes']].forEach(([v, l]) => {
+    vip.appendChild(el('option', { value: v, text: l, selected: String(r.vip ? 1 : 0) === v || null }));
+    media.appendChild(el('option', { value: v, text: l, selected: String(r.media ? 1 : 0) === v || null }));
+    budget.appendChild(el('option', { value: v, text: l, selected: String(r.budgetConfirmed ? 1 : 0) === v || null }));
+  });
+  const budgetAmt = el('input', { class: 'inp', type: 'number', min: '0', step: '1000', value: r.budgetAmount || '' });
+  const leads = el('input', { class: 'inp', type: 'number', min: '0', step: '1', value: r.leads || '' });
+  const revenue = el('input', { class: 'inp', type: 'number', min: '0', step: '1000', value: r.revenueOpp || '' });
+  const strategic = el('input', { class: 'inp', value: r.strategic || '',
+    placeholder: 'Relationships or positioning this opens up' });
+
+  const evBox = el('div', { class: 'card', style: 'margin:var(--sp-3) 0 0;background:var(--surface-2)' }, [
+    el('h3', { text: 'Event details' }),
+    el('p', { class: 'sub', style: 'margin:4px 0 var(--sp-3)', text: 'Only asked for when the request is an event.' }),
+    el('div', { class: 'field-row' }, [ fld('Event type', evType), fld('Operating hours', opHours) ]),
+    fld('Organiser & host', organizer),
+    el('div', { class: 'field-row' }, [ fld('Expected footfall', footfall), fld('Primary contact', contact) ]),
+    fld('Audience', aud),
+    el('div', { class: 'field-row' }, [ fld('VIP attending', vip), fld('Media coverage', media) ]),
+    el('div', { class: 'field-row' }, [ fld('Expected leads', leads), fld(`Potential revenue (${CFG.currency})`, revenue) ]),
+    fld('Strategic value', strategic),
+    el('div', { class: 'field-row' }, [ fld('Budget confirmed', budget),
+      fld(`Confirmed budget (${CFG.currency})`, budgetAmt) ])
+  ]);
+  function paintKind() { evBox.style.display = kind.value === 'Event' ? '' : 'none'; }
+  paintKind();
+
+  modal(isNew ? 'Raise a request' : 'Edit request', el('div', {}, [
+    el('div', { class: 'field-row' }, [ fld('Request type', kind), fld('Raised by', own) ]),
+    fld('Client *', client),
+    fld('Company', cp.node),
+    fld('Details *', details),
+    el('div', { class: 'field-row' }, [ fld('Expected start *', start), fld('Expected end', end) ]),
+    el('div', { class: 'field-row' }, [ fld('Location', loc), fld(`Expected cost (${CFG.currency})`, cost) ]),
+    fld('Devices needed', devs),
+    fld('Who will be participating', participants),
+    fld('Path to commercial', commercial),
+    fld('Project plan', plan),
+    evBox
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: isNew ? 'Submit' : 'Save', onclick: () => {
+      if (!client.value.trim()) { client.focus(); return toast('A client name is required', 'err'); }
+      if (!details.value.trim()) { details.focus(); return toast('Say what the request is for', 'err'); }
+      if (!start.value) { start.focus(); return toast('An expected start date is required', 'err'); }
+      if (end.value && end.value < start.value) { end.focus(); return toast('The end date is before the start', 'err'); }
+      const rec = Object.assign({}, r, {
+        kind: kind.value, ownerId: own.value || currentOwnerId(),
+        client: client.value.trim(), companyId: cp.get() || null,
+        details: details.value.trim(), startDate: start.value, endDate: end.value || start.value,
+        location: loc.value.trim() || null, cost: Number(cost.value) || 0,
+        devices: Array.from(devSet), participants: participants.value.trim() || null,
+        commercial: commercial.value.trim() || null, plan: plan.value.trim() || null,
+        status: reqStatus(r), createdAt: r.createdAt || new Date().toISOString()
+      });
+      if (kind.value === 'Event') Object.assign(rec, {
+        eventType: evType.value, organizer: organizer.value.trim() || null,
+        opHours: opHours.value.trim() || null, footfall: Number(footfall.value) || 0,
+        contact: contact.value.trim() || null, audience: Array.from(audSet),
+        vip: vip.value === '1', media: media.value === '1',
+        leads: Number(leads.value) || 0, revenueOpp: Number(revenue.value) || 0,
+        strategic: strategic.value.trim() || null,
+        budgetConfirmed: budget.value === '1', budgetAmount: Number(budgetAmt.value) || 0
+      });
+      upsert('demoRequests', rec);
+      closeAll(); render(); toast(isNew ? 'Request submitted' : 'Saved', 'ok');
+    } })
+  ], true);
+}
+
+function exportRequests(rows) {
+  if (!rows.length) return toast('Nothing to export', 'err');
+  const cols = [
+    { h: 'Type', f: r => r.kind || '' }, { h: 'Event type', f: r => r.eventType || '' },
+    { h: 'Raised by', f: r => ownerName(r.ownerId) }, { h: 'Client', f: r => r.client || '' },
+    { h: 'Status', f: r => reqStatus(r) },
+    { h: 'Expected start', f: r => r.startDate || '' }, { h: 'Expected end', f: r => r.endDate || '' },
+    { h: 'Location', f: r => r.location || '' },
+    { h: 'Expected cost ' + CFG.currency, f: r => r.cost || 0 },
+    { h: 'Devices', f: r => (r.devices || []).join(' / ') },
+    { h: 'Participating', f: r => r.participants || '' },
+    { h: 'Path to commercial', f: r => r.commercial || '' },
+    { h: 'Project plan', f: r => r.plan || '' }, { h: 'Details', f: r => r.details || '' },
+    { h: 'Organiser & host', f: r => r.organizer || '' }, { h: 'Operating hours', f: r => r.opHours || '' },
+    { h: 'Primary contact', f: r => r.contact || '' }, { h: 'Expected footfall', f: r => r.footfall || 0 },
+    { h: 'Audience', f: r => (r.audience || []).join(' / ') },
+    { h: 'VIP', f: r => r.vip ? 'Yes' : 'No' }, { h: 'Media', f: r => r.media ? 'Yes' : 'No' },
+    { h: 'Expected leads', f: r => r.leads || 0 },
+    { h: 'Potential revenue ' + CFG.currency, f: r => r.revenueOpp || 0 },
+    { h: 'Strategic value', f: r => r.strategic || '' },
+    { h: 'Budget confirmed', f: r => r.budgetConfirmed ? 'Yes' : 'No' },
+    { h: 'Confirmed budget ' + CFG.currency, f: r => r.budgetAmount || 0 },
+    { h: 'Decision note', f: r => r.decisionNote || '' },
+    { h: 'Submitted', f: r => (r.createdAt || '').slice(0, 10) }
+  ];
+  download('corev-demo-requests.csv', toCSV(rows, cols), 'text/csv');
+  toast(`${rows.length} requests exported`, 'ok');
+}
+
+/* ================================================================
+   OUTLOOK IMPORT — the shared demo calendar.
+
+   Every non-cancelled event on demo@core-velocity.com is a demo by
+   convention, so nothing is keyword-matched. The organiser becomes the
+   primary rep, internal attendees become supporting reps, the first
+   external attendee names the client when the subject does not, and
+   anything the convention missed is shown as a warning rather than
+   quietly guessed. Nothing is written until the list is confirmed.
+   ================================================================ */
+const OUTLOOK_LOOKBACK = 14;
+let OUTLOOK = { candidates: [], busy: false };
+
+async function calendarToken() {
+  if (!AUTH.msal || !AUTH.user) throw new Error('Sign in with your Microsoft account first.');
+  const req = { scopes: CFG.calendarScopes, account: AUTH.msal.getActiveAccount() };
+  try { return (await AUTH.msal.acquireTokenSilent(req)).accessToken; }
+  catch (e) { return (await AUTH.msal.acquireTokenPopup(req)).accessToken; }
+}
+const repByEmail = mail => {
+  const m = String(mail || '').toLowerCase();
+  if (!m) return null;
+  return DB.owners.find(o => (o.email || '').toLowerCase() === m) || null;
+};
+function outlookGuessType(loc) {
+  const s = String(loc || '').toLowerCase();
+  if (/teams|zoom|meet|virtual|online|webex/.test(s)) return 'Virtual';
+  if (/showroom|office|hq|core[\s-]?velocity/.test(s)) return 'Showroom';
+  if (/expo|trade ?show|conference|exhibition|gitex/.test(s)) return 'Trade Show';
+  return 'On-site';
+}
+/* the booking convention is "<Client> — <Product>" */
+function outlookParseSubject(subject) {
+  const s = String(subject || '').replace(/^\s*(demo|oxefit)\s*[:\-–]\s*/i, '').trim();
+  const parts = s.split(/\s+[—–\-|]\s+/);
+  const out = { client: (parts[0] || '').trim(), product: null };
+  const tail = (parts[1] || '').trim();
+  if (tail) {
+    const hit = demoProducts().find(p => p.toLowerCase() === tail.toLowerCase()) ||
+                unitLines().find(L => new RegExp('\\b' + L + '\\b', 'i').test(tail));
+    out.product = hit || null;
+  }
+  if (!out.product) {
+    const hit = unitLines().filter(L => new RegExp('\\b' + L + '\\b', 'i').test(s));
+    if (hit.length) out.product = hit.length > 1 ? hit.join(' + ') : hit[0];
+  }
+  return out;
+}
+function outlookMap(ev) {
+  const startRaw = ev.start && ev.start.dateTime;
+  const date = startRaw ? String(startRaw).slice(0, 10) : TODAY();
+  let primary = repByEmail(ev.organizer && ev.organizer.emailAddress && ev.organizer.emailAddress.address);
+  const support = [], external = [];
+  (ev.attendees || []).forEach(a => {
+    const em = a && a.emailAddress && a.emailAddress.address;
+    if (!em) return;
+    if (em.toLowerCase() === CFG.demoCalendar.toLowerCase()) return;
+    const rep = repByEmail(em);
+    if (rep) { if (!primary) primary = rep; else if (rep.id !== primary.id) support.push(rep.id); }
+    else if (!/@core-velocity\.com$/i.test(em)) external.push(a.emailAddress);
+  });
+  const parsed = outlookParseSubject(ev.subject || '');
+  let client = parsed.client;
+  if (!client && external.length) client = external[0].name || (external[0].address || '').split('@')[0];
+  const location = (ev.location && ev.location.displayName) || '';
+  const co = client ? live('companies').find(c =>
+    (c.name || '').toLowerCase() === client.toLowerCase()) : null;
+
+  const warn = [];
+  if (!primary) warn.push('The organiser is not a rep on the team list — pick one.');
+  if (!client) warn.push('No client name in the subject. The convention is “Client — Product”.');
+  if (!parsed.product) warn.push('No product in the subject.');
+  const dupe = live('demos').find(d => d.calendarId === ev.id) ||
+    live('demos').find(d => d.date === date && demoClient(d).toLowerCase() === String(client || '').toLowerCase());
+  return { ev, id: ev.id, date, ownerId: primary ? primary.id : '', supportIds: support,
+    client: client || '', companyId: co ? co.id : null, product: parsed.product,
+    type: outlookGuessType(location), location, subject: ev.subject || '',
+    warn, dupe: dupe || null, take: !dupe };
+}
+async function outlookFetch(days) {
+  const tok = await calendarToken();
+  const end = new Date(), start = new Date();
+  start.setDate(start.getDate() - Math.max(1, Math.min(90, days || OUTLOOK_LOOKBACK)));
+  const params = new URLSearchParams({
+    startDateTime: start.toISOString(), endDateTime: end.toISOString(), '$top': '100',
+    '$select': 'id,subject,bodyPreview,start,end,location,organizer,attendees,isCancelled',
+    '$orderby': 'start/dateTime desc'
+  });
+  let url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(CFG.demoCalendar)}/calendarView?${params}`;
+  const out = [];
+  while (url && out.length < 400) {
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + tok, Prefer: 'outlook.timezone="UTC"' } });
+    if (!res.ok) {
+      if (res.status === 403) throw new Error(
+        `No access to the ${CFG.demoCalendar} calendar. It has to be shared with you at Reviewer level or better, and the app needs the Calendars.Read.Shared permission consented.`);
+      if (res.status === 404) throw new Error(`No mailbox called ${CFG.demoCalendar}. Check the address in the code.`);
+      throw new Error(`Microsoft Graph returned ${res.status}.`);
+    }
+    const j = await res.json();
+    (j.value || []).forEach(e => { if (!e.isCancelled) out.push(e); });
+    url = j['@odata.nextLink'] || null;
+  }
+  return out;
+}
+
+async function outlookImport() {
+  if (!canManageDemos()) return toast('Only the office or an admin can import demos', 'err');
+  if (OUTLOOK.busy) return;
+  if (!AUTH.user) return toast('Sign in with Microsoft first — the calendar is read over your account', 'err');
+  OUTLOOK.busy = true;
+  toast('Reading the demo calendar…');
+  try {
+    const events = await outlookFetch(OUTLOOK_LOOKBACK);
+    OUTLOOK.candidates = events.map(outlookMap);
+    outlookPicker();
+  } catch (e) {
+    modal('The calendar could not be read', el('div', {}, [
+      el('p', { style: 'margin:0;line-height:1.65;color:var(--ink-2)', text: String(e && e.message || e) }),
+      el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55', html:
+        `The import reads <b>${esc(CFG.demoCalendar)}</b> over Microsoft Graph and needs the ` +
+        '<b>Calendars.Read.Shared</b> permission on the app registration, consented once by an administrator. ' +
+        'Until then demos can still be logged by hand.' })
+    ]), [ el('button', { class: 'btn primary', text: 'Close', onclick: closeAll }) ]);
+  } finally { OUTLOOK.busy = false; }
+}
+
+function outlookPicker() {
+  const list = el('div', { class: 'picklist', style: 'max-height:52vh' });
+  const bar = el('div', { class: 'picksum' });
+  const cands = OUTLOOK.candidates;
+  function paint() {
+    list.innerHTML = '';
+    if (!cands.length) list.appendChild(el('div', { class: 'sub', style: 'padding:18px;text-align:center',
+      text: `Nothing on ${CFG.demoCalendar} in the last ${OUTLOOK_LOOKBACK} days.` }));
+    cands.forEach(c => {
+      const row = el('label', { class: 'pick' + (c.take ? ' on' : '') + (c.dupe ? ' taken' : '') });
+      row.appendChild(el('input', { type: 'checkbox', checked: c.take || null,
+        onchange: e => { c.take = e.target.checked; row.classList.toggle('on', c.take); updateSum(); } }));
+      const mid = el('div', { style: 'flex:1;min-width:0' });
+      mid.appendChild(el('div', { class: 'nm', text: c.client || c.subject || 'Untitled' }));
+      mid.appendChild(el('div', { class: 'sub', html:
+        `${esc(fdate(c.date))} · ${esc(c.type)}${c.location ? ' · ' + esc(c.location) : ''}` +
+        `${c.ownerId ? ' · ' + esc(ownerName(c.ownerId)) : ''}` +
+        `${c.supportIds.length ? ' + ' + esc(c.supportIds.map(ownerName).join(', ')) : ''}` +
+        `${c.product ? ' · ' + esc(c.product) : ''}` }));
+      if (c.dupe) mid.appendChild(el('div', { class: 'sub', style: 'color:var(--warning)',
+        text: 'Already in the log — leave it unticked unless you meant to add it twice.' }));
+      c.warn.forEach(w => mid.appendChild(el('div', { class: 'sub', style: 'color:var(--warning)', text: w })));
+      row.appendChild(mid);
+      if (!c.ownerId) {
+        const sel = ownerSelect('', { emptyLabel: 'Pick a rep',
+          onchange: e => { c.ownerId = e.target.value; paint(); updateSum(); } });
+        sel.style.width = '150px'; sel.style.flex = 'none';
+        row.appendChild(sel);
+      }
+      list.appendChild(row);
+    });
+    updateSum();
+  }
+  function updateSum() {
+    const n = cands.filter(c => c.take).length;
+    const blocked = cands.filter(c => c.take && !c.ownerId).length;
+    bar.innerHTML = `<b>${n}</b> of ${cands.length} selected` +
+      (blocked ? ` · <span style="color:var(--warning)">${blocked} still need a rep</span>` : '');
+    const go = $('#olgo');
+    if (go) { go.disabled = !n || !!blocked; go.textContent = n ? `Import ${n}` : 'Import'; }
+  }
+  paint();
+  modal(`Demos on ${CFG.demoCalendar}`, el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
+      `The last ${OUTLOOK_LOOKBACK} days. Every event on this calendar is treated as a demo — that is the booking ` +
+      'convention, so nothing is filtered by keyword. The organiser becomes the rep who ran it and internal ' +
+      'attendees are credited as supporting. Nothing is written until you import.' }),
+    bar, list
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', id: 'olgo', disabled: true, text: 'Import', onclick: () => {
+      const take = cands.filter(c => c.take && c.ownerId);
+      if (!take.length) return;
+      batch(() => take.forEach(c => {
+        upsert('demos', { date: c.date, ownerId: c.ownerId, supportIds: c.supportIds,
+          client: c.client || c.subject, companyId: c.companyId, type: c.type,
+          product: c.product, location: c.location || null, outcome: 'Pending',
+          calendarId: c.id, createdAt: new Date().toISOString() });
+      }));
+      closeAll(); render();
+      toast(`${take.length} demo${take.length === 1 ? '' : 's'} imported from the calendar`, 'ok');
+    } })
+  ], true);
+  updateSum();
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
@@ -7034,6 +8110,33 @@ function viewSettings(root) {
       'Every metric goes back to its default green and amber floors.', 'Reset',
       () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
   g.appendChild(cT.node);
+
+  /* ---- who counts in the demo league table ---- */
+  const cD = card('Demo credits', 'Whose demos appear in the Demo Tracker rep table');
+  const exc = demoExcludedRegions();
+  const inTable = activeOwners().filter(o => demoCounts(o.id));
+  const outTable = activeOwners().filter(o => !demoCounts(o.id));
+  cD.body.appendChild(dl([
+    ['Counted', inTable.length ? inTable.map(o => o.name.split(' ')[0]).join(', ') : 'nobody'],
+    ['Not counted', outTable.length ? outTable.map(o => o.name.split(' ')[0]).join(', ') : 'everyone counts']
+  ]));
+  cD.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0;line-height:1.55',
+    html: 'The tracker kept the office and management out of the demo league table so the numbers described ' +
+      'the field. Tick the regions to leave out — anyone in them still shows in the log and still gets ' +
+      'credited on their own demos, they are just not ranked against the reps.' }));
+  const rchips = el('div', { class: 'sigs' });
+  salesRegions().forEach(r => {
+    const on = exc.includes(r);
+    rchips.appendChild(el('button', { class: 'sig' + (on ? ' on' : ''), text: r,
+      'aria-pressed': on ? 'true' : 'false', title: on ? 'Not ranked' : 'Ranked with the reps',
+      onclick: () => {
+        const next = exc.includes(r) ? exc.filter(x => x !== r) : exc.concat([r]);
+        DB.config.demoExcludeRegions = next;
+        DB.config._v = now(); touch('config'); render();
+      } }));
+  });
+  cD.body.appendChild(rchips);
+  g.appendChild(cD.node);
 
   /* ---- stages ---- */
   const c2 = card('Sales stages', 'The probability on each stage is what weights the forecast — edit it and every number follows');
@@ -7708,12 +8811,14 @@ function moveRep(region, id, dir) {
 const VIEWS = {
   dashboard: viewDashboard, pipeline: viewPipeline, deals: viewDeals,
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
-  review: viewReview, monthly: viewMonthly, forecast: viewForecast, settings: viewSettings
+  review: viewReview, demos: viewDemos, requests: viewRequests,
+  monthly: viewMonthly, forecast: viewForecast, settings: viewSettings
 };
 const TITLES = {
   dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
-  review: 'Sales Commitment', monthly: 'Per Month Commit vs. Forecast',
+  review: 'Sales Commitment', demos: 'Demo Tracker', requests: 'Demo Requests',
+  monthly: 'Per Month Commit vs. Forecast',
   forecast: 'Forecast & analytics', settings: 'Settings'
 };
 let rendering = false;
