@@ -801,6 +801,13 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 .spin{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--accent);
   border-radius:99px;animation:sp .7s linear infinite;flex:none;display:inline-block}
 @keyframes sp{to{transform:rotate(360deg)}}
+.spin.sm{width:13px;height:13px;border-width:2px}
+/* the first-load state: never an empty shell with a stale title on it */
+.bootsplash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-3);
+  text-align:center;padding:64px var(--sp-4);max-width:520px;margin:10vh auto}
+.bootsplash .spin{width:26px;height:26px;border-width:3px}
+.bootsplash h3{margin:0}
+.bootsplash .sub{margin:0;line-height:1.55}
 
 .widgets{display:flex;flex-direction:column;gap:6px}
 .wtoggle{display:flex;align-items:center;gap:var(--sp-3);padding:9px var(--sp-3);border:1px solid var(--line);
@@ -865,7 +872,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
   <nav class="side" id="nav"></nav>
 
   <header class="top">
-    <h2 id="vtitle">Dashboard</h2>
+    <h2 id="vtitle">Starting up</h2>
     <div class="top-sp"></div>
     <div class="search">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -902,7 +909,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.10.1';
+const VERSION = '1.10.2';
 const RELEASED = '2026-09-28';
 
 const CFG = {
@@ -1482,7 +1489,11 @@ function weekShift(key, n) { const r = weekRange(key); return weekKey(addDays(r.
 function weekLabel(key) { const r = weekRange(key); return `${fdate(r.from)} – ${fdate(r.to)}`; }
 
 /* ---- write path: every mutation stamps the record and queues a sync ---- */
-const SYNC = { dirty: new Set(), status: 'idle', last: null, err: null, mode: 'local' };
+/* `loaded` is the flag that says "this session has read the shared folder end
+   to end at least once". Until it is true the app does not know that an empty
+   database means empty — it might just mean not-yet-read — so it must not seed
+   over it, must not write emptiness back, and must not draw a confident zero. */
+const SYNC = { dirty: new Set(), status: 'idle', last: null, err: null, mode: 'local', loaded: false };
 
 function stamp(rec) { rec._v = now(); rec._by = (AUTH.user && AUTH.user.username) || 'local'; return rec; }
 
@@ -1540,20 +1551,81 @@ const actsFor = (kind, id) => DB.activities
   .filter(a => !a._del && a[kind + 'Id'] === id)
   .sort((x, y) => (y.at || '').localeCompare(x.at || ''));
 
+/* actsFor() scans AND sorts the whole activity log, which is fine for one deal
+   on a detail page and ruinous in a loop: the dashboard's "no activity in 30+
+   days" row called it once per open deal — 856 full scans and 856 sorts of a
+   log that only ever grows. That is the shape of a frozen tab. These two
+   indexes are built once per render and answer the same questions in O(1).
+   They are invalidated by render(); anything that mutates mid-render should
+   call dropActIndex(). */
+let ACT_LAST = null, ACT_RECENT = null;
+function dropActIndex() { ACT_LAST = null; ACT_RECENT = null; }
+function lastActAt(dealId) {
+  if (!ACT_LAST) {
+    ACT_LAST = new Map();
+    DB.activities.forEach(a => {
+      if (a._del || !a.dealId || !a.at) return;
+      const cur = ACT_LAST.get(a.dealId);
+      if (!cur || a.at > cur) ACT_LAST.set(a.dealId, a.at);
+    });
+  }
+  return ACT_LAST.get(dealId) || null;
+}
+/* The newest n activities without sorting the whole log. */
+function recentActs(n, ownerId) {
+  const key = n + '|' + (ownerId || 'all');
+  if (ACT_RECENT && ACT_RECENT.key === key) return ACT_RECENT.rows;
+  const keep = [];
+  DB.activities.forEach(a => {
+    if (a._del || !a.at) return;
+    if (ownerId && ownerId !== 'all' && String(a.ownerId || '') !== ownerId) return;
+    if (keep.length < n) { keep.push(a); if (keep.length === n) keep.sort((x, y) => (y.at || '').localeCompare(x.at || '')); return; }
+    if (a.at <= keep[n - 1].at) return;
+    let i = n - 1;
+    while (i > 0 && keep[i - 1].at < a.at) { keep[i] = keep[i - 1]; i--; }
+    keep[i] = a;
+  });
+  if (keep.length < n) keep.sort((x, y) => (y.at || '').localeCompare(x.at || ''));
+  ACT_RECENT = { key, rows: keep };
+  return keep;
+}
+
 /* ---------------------------------------------------- localStorage cache */
 /* The cache, the export and the seed all used to hand-list the shards, which
    is how a new one gets added to the database and silently left out of the
    thing that persists it. They all derive from REC_SHARDS now. */
 const FLAT_KEYS = ['owners', 'stages', 'lossReasons', 'config', 'meta'];
+/* Safari caps localStorage at 5MB per origin and counts UTF-16, so this
+   database — 1.5MB of JSON — is already ~3MB there, in the same 5MB the MSAL
+   token cache lives in. Over the line every setItem throws, the whole cache is
+   silently dropped, and every reload becomes a cold full sync: several seconds
+   of blank screen, and an empty CRM if the sync does not land. So the cache is
+   now shed in priority order rather than written all-or-nothing, and the
+   result is reported instead of swallowed. */
+const CACHE_SHED = ['activities', 'attachments', 'reviews', 'contacts', 'companies'];
+let CACHE_STATE = { ok: true, dropped: [], bytes: 0 };
 function saveLocal() {
-  try {
+  const drop = new Set();
+  for (let attempt = 0; attempt <= CACHE_SHED.length; attempt++) {
     const db = {};
-    REC_SHARDS.forEach(k => { db[k] = DB[k]; });
+    REC_SHARDS.forEach(k => { db[k] = drop.has(k) ? [] : DB[k]; });
     FLAT_KEYS.forEach(k => { db[k] = DB[k]; });
-    localStorage.setItem(CFG.cacheKey, JSON.stringify({
-      at: now(), dirty: Array.from(SYNC.dirty), db
-    }));
-  } catch (e) { /* quota — sync is the source of truth */ }
+    try {
+      const s = JSON.stringify({ at: now(), dirty: Array.from(SYNC.dirty),
+        partial: Array.from(drop), db });
+      localStorage.setItem(CFG.cacheKey, s);
+      CACHE_STATE = { ok: true, dropped: Array.from(drop), bytes: s.length };
+      return;
+    } catch (e) {
+      if (attempt === CACHE_SHED.length) break;
+      drop.add(CACHE_SHED[attempt]);      // shed the biggest, least urgent first
+    }
+  }
+  /* Even the skeleton would not fit. Leave no half-written key behind — a
+     truncated cache is worse than none, because it loads as a believable
+     empty CRM. */
+  try { localStorage.removeItem(CFG.cacheKey); } catch (e) {}
+  CACHE_STATE = { ok: false, dropped: REC_SHARDS.slice(), bytes: 0 };
 }
 function loadLocal() {
   try {
@@ -1562,6 +1634,7 @@ function loadLocal() {
     const p = JSON.parse(raw);
     if (!p || !p.db) return false;
     Object.assign(DB, p.db);
+    CACHE_STATE = { ok: true, dropped: p.partial || [], bytes: raw.length };
     (p.dirty || []).forEach(s => SYNC.dirty.add(s));
     reindex(); rebuildStages();
     return true;
@@ -1847,14 +1920,24 @@ async function syncNow(opt) {
       const merged = mergeRecords(DB[s], (remote && remote.rows) || []);
       const changed = SYNC.dirty.has(s) || !remote || merged.length !== ((remote && remote.rows) || []).length;
       DB[s] = merged;
-      if (changed) await writeShard(s, { shard: s, v: 1, at: new Date().toISOString(), rows: merged });
+      /* Writing an EMPTY shard is the one write that can destroy the team's
+         data, and the only honest reason to do it is that someone deleted the
+         last record on purpose. A shard that came out empty on a session that
+         has never successfully read the folder is not that — it is a cold
+         start — so it is never pushed. */
+      const safe = merged.length > 0 || SYNC.loaded || SYNC.dirty.has(s);
+      if (changed && safe) await writeShard(s, { shard: s, v: 1, at: new Date().toISOString(), rows: merged });
       SYNC.dirty.delete(s);
     }
     // config: whole-document last-write-wins
     const rc = await readShard('config');
     if (rc && (rc._v || 0) > (DB.config._v || 0) && !SYNC.dirty.has('config')) {
       DB.config = Object.assign(DB.config, rc);
-    } else if (SYNC.dirty.has('config') || !rc) {
+    } else if (SYNC.dirty.has('config') || (!rc && (SYNC.loaded || DB.owners.length))) {
+      /* Same rule as the record shards: a session that has never read the
+         folder must not push its idea of the team, the stages or the loss
+         reasons over what is there. An absent config file plus no owners is a
+         cold start, not a decision. */
       DB.config._v = now();
       await writeShard('config', Object.assign({ shard: 'config' }, DB.config,
         { owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons, meta: DB.meta }));
@@ -1865,7 +1948,7 @@ async function syncNow(opt) {
     }
     SYNC.dirty.delete('config');
     reindex(); rebuildStages();
-    SYNC.status = 'idle'; SYNC.last = now(); saveLocal();
+    SYNC.status = 'idle'; SYNC.last = now(); SYNC.loaded = true; saveLocal();
     if (o.loud) toast('Synced with OneDrive', 'ok');
     if (!o.quiet) render();
   } catch (e) {
@@ -2956,8 +3039,8 @@ function viewDashboard(root) {
       const c = card('Needs attention', 'Open deals that are drifting');
       const t = TODAY();
       const stale = openD.filter(d => {
-        const a = actsFor('deal', d.id)[0];
-        const last = (a && a.at) ? a.at.slice(0,10) : d.createdAt;
+        const at = lastActAt(d.id);
+        const last = at ? at.slice(0,10) : d.createdAt;
         return last && days(t, last) > 30;
       });
       const overdue = openD.filter(d => d.closeDate && dnum(d.closeDate) < dnum(t));
@@ -2985,9 +3068,7 @@ function viewDashboard(root) {
     },
     recent: () => {
       const c = card('Recent activity', 'Latest changes across the team');
-      const acts = DB.activities.filter(a => !a._del)
-        .filter(a => VIEW.rep === 'all' || String(a.ownerId || '') === VIEW.rep)
-        .sort((x, y) => (y.at || '').localeCompare(x.at || '')).slice(0, 12);
+      const acts = recentActs(12, VIEW.rep);
       if (!acts.length) c.body.appendChild(el('p', { style: 'margin:0;color:var(--ink-3)', text: 'Nothing logged yet.' }));
       else {
         const tl = el('div', { class: 'tl' });
@@ -3179,7 +3260,18 @@ function dataBanner() {
   if (SYNC.mode !== 'onedrive') return null;
   const empty = !live('deals').length && !live('companies').length && !live('contacts').length;
   if (SYNC.status !== 'error' && !empty) return null;
-  if (SYNC.status !== 'error' && !SYNC.last) return null;
+  /* An empty CRM with no explanation is what the reps reported: every tile
+     reading AED 0 as though zero were the answer. Until the shared folder has
+     been read once, an empty database means "not read yet", and the page says
+     so rather than drawing a confident zero. */
+  if (SYNC.status !== 'error' && !SYNC.loaded) {
+    const w = el('div', { class: 'alert' });
+    w.appendChild(el('span', { class: 'ic' }, [el('span', { class: 'spin sm' })]));
+    w.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html:
+      `<b>Still reading the team's data</b><div class="sub">The figures below are not your numbers yet — ` +
+      `they fill in as ${esc(driveRoot())} on ${esc(driveOwner() || 'OneDrive')} comes down.</div>` }));
+    return w;
+  }
   const n = el('div', { class: 'alert', style: 'border-color:var(--critical)' });
   n.appendChild(el('span', { class: 'ic', html: ico('warn', 18) }));
   n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html: SYNC.status === 'error'
@@ -3407,10 +3499,30 @@ function viewPipeline(root) {
     }
     const list = el('div', { class: 'klist' });
     if (!ds.length) list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 4px', text: 'Drop a deal here' }));
-    ds.slice(0, 120).forEach(d => list.appendChild(kcard(d, s)));
-    if (ds.length > 120) list.appendChild(el('div', { style: 'text-align:center;padding:8px' }, [
-      el('button', { class: 'btn sm ghost', text: `+${ds.length - 120} more — open table`, onclick: () => { VIEW.tableFilter.stage = s.id; go('deals'); } })
-    ]));
+    /* The board used to build up to 120 cards per column — nine columns, eight
+       hundred cards, each one a shadowed box inside its own scroll container
+       with a sticky header. That is a lot of compositing layers to ask a
+       browser for, and Safari kills the tab rather than paying for it. A
+       column shows a screenful and grows in place on demand; nothing is
+       hidden, because the count, the value and the forecast in the header are
+       always the whole column. */
+    const PAGE = 25;
+    let shown = 0;
+    const more = el('div', { style: 'text-align:center;padding:8px 4px' });
+    const grow = () => {
+      const next = ds.slice(shown, shown + PAGE);
+      next.forEach(d => list.insertBefore(kcard(d, s), more));
+      shown += next.length;
+      const left = ds.length - shown;
+      more.innerHTML = '';
+      if (!left) return;
+      more.appendChild(el('button', { class: 'btn sm ghost', style: 'width:100%',
+        text: `Show ${Math.min(PAGE, left)} more of ${left}`, onclick: grow }));
+      more.appendChild(el('button', { class: 'btn sm ghost', style: 'width:100%;margin-top:5px',
+        text: 'Open all in the table', onclick: () => { VIEW.tableFilter.stage = s.id; go('deals'); } }));
+    };
+    list.appendChild(more);
+    if (ds.length) grow();
     col.appendChild(list);
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
     col.addEventListener('dragleave', () => col.classList.remove('drop'));
@@ -3444,7 +3556,22 @@ function viewPipeline(root) {
     });
     kan.appendChild(col);
   });
+  kanDelegate(kan);
   root.appendChild(kan);
+}
+/* kcard used to call live('tasks') once PER CARD — with 800 cards on the board
+   that is 800 full scans of the task shard and 800 throwaway arrays on every
+   single render. Counted once per render instead. */
+let TASKMAP = null;
+function taskMap() {
+  if (TASKMAP) return TASKMAP;
+  const m = new Map(), today = dnum(TODAY());
+  live('tasks').forEach(t => {
+    if (t.status === 'done' || !t.dealId) return;
+    const e = m.get(t.dealId) || (m.set(t.dealId, { n: 0, late: 0 }), m.get(t.dealId));
+    e.n++; if (dnum(t.dueDate) < today) e.late++;
+  });
+  return (TASKMAP = m);
 }
 function kcard(d, s) {
   const co = getCo(d.companyId);
@@ -3466,19 +3593,34 @@ function kcard(d, s) {
     text: initials(ownerName(cid)), title: 'Collaborator: ' + ownerName(cid) })));
   if (isCollabOnly(d, VIEW.rep)) foot.appendChild(el('span', { class: 'tag info',
     style: 'font-size:9px;padding:1px 6px', text: 'collab', title: 'Owned by ' + ownerName(d.ownerId) }));
-  const tks = live('tasks').filter(t => t.dealId === d.id && t.status !== 'done');
-  if (tks.length) {
-    const od = tks.filter(t => dnum(t.dueDate) < dnum(TODAY())).length;
+  const tks = taskMap().get(d.id);
+  if (tks) {
+    const od = tks.late;
     foot.appendChild(el('span', { style: `margin-left:auto;font-size:var(--fs-xs);${od ? 'color:var(--critical-ink);font-weight:650' : ''}`,
-      html: ico('check',11) + ' ' + tks.length + (od ? ' (' + od + ' late)' : '') }));
+      html: ico('check',11) + ' ' + tks.n + (od ? ' (' + od + ' late)' : '') }));
   } else if (stage(d.stageId).probability >= .2) {
     foot.appendChild(el('span', { style: 'margin-left:auto;font-size:var(--fs-xs);color:var(--ink-3)', text: 'no task' }));
   }
   n.appendChild(foot);
-  n.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', d.id); n.classList.add('drag'); });
-  n.addEventListener('dragend',   () => n.classList.remove('drag'));
-  n.addEventListener('click',     () => openDeal(d.id));
+  /* Three listeners per card × 800 cards is 2,400 closures held alive for the
+     life of the board, rebuilt from scratch on every render. One delegated set
+     on the board itself does the same job — see kanDelegate(). */
+  n.dataset.deal = d.id;
   return n;
+}
+/* One set of listeners for the whole board, however many cards are on it. */
+function kanDelegate(kan) {
+  const cardOf = e => e.target && e.target.closest ? e.target.closest('.kcard') : null;
+  kan.addEventListener('click', e => {
+    const c = cardOf(e); if (c && c.dataset.deal) openDeal(c.dataset.deal);
+  });
+  kan.addEventListener('dragstart', e => {
+    const c = cardOf(e); if (!c || !c.dataset.deal) return;
+    e.dataTransfer.setData('text/plain', c.dataset.deal); c.classList.add('drag');
+  });
+  kan.addEventListener('dragend', e => {
+    const c = cardOf(e); if (c) c.classList.remove('drag');
+  });
 }
 function moveStage(d, toId) {
   const from = stage(d.stageId), to = stage(toId);
@@ -9129,6 +9271,7 @@ function render() {
   try {
     const name = VIEWS[VIEW.name] ? VIEW.name : 'dashboard';
     VIEW.name = name;
+    TASKMAP = null; dropActIndex();       // per-render memos: taskMap(), lastActAt()
     $('#vtitle').textContent = TITLES[name];
     const root = $('#view');
     const scroll = root.scrollTop;
@@ -9161,16 +9304,38 @@ function setTheme(t) {
 }
 
 /* ------------------------------------------------------------ boot */
+/* The shell used to be unveiled BEFORE the first sync, so everything between
+   sign-in and the first render was a white page with the static "Dashboard"
+   title on it — no nav, no counts, no explanation. At this team's data size
+   that is many seconds of looking at nothing, which reads as a broken tool.
+   Nobody should ever see the shell empty. */
+function bootSplash(msg, sub) {
+  const root = $('#view'); if (!root) return;
+  $('#vtitle').textContent = 'Starting up';   // not the stale "Dashboard" in the markup
+  root.innerHTML = '';
+  root.appendChild(el('div', { class: 'card bootsplash' }, [
+    el('div', { class: 'spin' }),
+    el('h3', { text: msg }),
+    el('p', { class: 'sub', text: sub || '' })
+  ]));
+}
 async function boot() {
   $('#gate').style.display = 'none';
   $('#app').classList.add('on');
 
   const cached = loadLocal();
   if (SYNC.mode === 'onedrive') {
+    if (cached) { VIEW.name = (location.hash.replace('#','') || 'dashboard'); render(); }
+    else bootSplash('Loading the team\'s CRM…',
+      `Reading ${driveRoot()} on ${driveOwner() || 'OneDrive'}. The first load pulls everything down, so it takes a few seconds.`);
     await syncNow({ quiet: true });
   }
-  // nothing anywhere yet → try the seed file shipped beside this page
-  if (!live('deals').length && !live('companies').length && !live('contacts').length) {
+  /* Nothing anywhere yet → the seed file shipped beside this page. But only
+     when we actually KNOW it is empty: a rep whose sync failed used to get a
+     local copy of the migration seed and a CRM that looked fine while being
+     disconnected from the team's. Now a failed read shows the error instead. */
+  const emptyHere = !live('deals').length && !live('companies').length && !live('contacts').length;
+  if (emptyHere && (SYNC.mode !== 'onedrive' || SYNC.loaded)) {
     const ok = await trySeedFile();
     if (!ok) firstRun();
   }
