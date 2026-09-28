@@ -900,7 +900,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.9.0';
+const VERSION = '1.10.0';
 const RELEASED = '2026-09-28';
 
 const CFG = {
@@ -917,6 +917,9 @@ const CFG = {
   // folder with the sales team (edit rights) so everyone reads/writes the same
   // files; each rep's client merges by record with tombstones.
   root     : 'CoreVCRM',
+  /* The one account every copy of the tool reads and writes. Blank means
+     "the signed-in person's own OneDrive", which is single-user only. */
+  driveOwner: 'demo@core-velocity.com',
   shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','config'],
   attachDir: 'attachments',
   cacheKey : 'corevcrm.v1',
@@ -1634,7 +1637,131 @@ async function graph(path, opt) {
   if (!r.ok) throw new Error('Graph ' + r.status + ' ' + (await r.text()).slice(0, 200));
   return o.raw ? r : (r.status === 204 ? null : r.json());
 }
-const shardPath = s => `/me/drive/root:/${CFG.root}/${s}.json`;
+/* ================================================================
+   WHERE THE DATA LIVES
+
+   This used to read and write /me/drive — the signed-in person's OWN
+   OneDrive. That works perfectly for one person and not at all for a
+   team: every rep got their own empty CoreVCRM folder and an empty CRM,
+   which is exactly what they reported. Sharing a folder does not help,
+   because a folder shared with you does not appear at the root of your
+   own drive.
+
+   So the whole tool now reads and writes ONE drive — the CoreVCRM
+   folder on demo@core-velocity.com — and resolves it two ways:
+
+     1. straight at that account's drive, which works when the rep has
+        been given access to it; failing that,
+     2. through "shared with me", which is how the folder shows up once
+        demo@ shares it with the sales team.
+
+   If neither works the app says so loudly instead of quietly showing an
+   empty CRM, because a silent empty CRM is the bug being fixed here.
+   ================================================================ */
+const DRIVE = { id: null, folderId: null, owner: null, via: null, err: null, name: null };
+const DRIVE_KEY = () => CFG.cacheKey + '.driveOwner';
+function driveOwner() {
+  try { const v = localStorage.getItem(DRIVE_KEY()); if (v != null) return v; } catch (e) {}
+  if (DB.config && DB.config.driveOwner != null) return DB.config.driveOwner;
+  return CFG.driveOwner;
+}
+function setDriveOwner(v) {
+  try { localStorage.setItem(DRIVE_KEY(), v || ''); } catch (e) {}
+  DB.config.driveOwner = v || '';
+  DB.config._v = now(); touch('config');
+  DRIVE.id = DRIVE.folderId = DRIVE.owner = DRIVE.via = null; DRIVE.err = null;
+}
+const isPersonalDrive = () => !driveOwner();
+
+/* Graph, but tells 403 apart from the rest so the caller can fall back. */
+async function graphTry(path, opt) {
+  try { return { ok: true, data: await graph(path, opt) }; }
+  catch (e) {
+    const m = String(e.message || e);
+    return { ok: false, status: /Graph (\d+)/.test(m) ? +RegExp.$1 : 0, message: m };
+  }
+}
+
+async function resolveDrive(force) {
+  const owner = (driveOwner() || '').trim();
+  if (!force && DRIVE.folderId && DRIVE.owner === owner && !DRIVE.err) return DRIVE;
+  DRIVE.owner = owner; DRIVE.id = null; DRIVE.folderId = null;
+  DRIVE.via = null; DRIVE.err = null; DRIVE.name = null;
+
+  /* no shared account configured — the old single-person behaviour, kept so
+     a lone user or a demo can still work without any sharing set up */
+  if (!owner) {
+    const f = await graph(`/me/drive/root:/${CFG.root}`);
+    if (f) { DRIVE.id = f.parentReference.driveId; DRIVE.folderId = f.id; }
+    else {
+      const made = await graph('/me/drive/root/children', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: CFG.root, folder: {}, '@microsoft.graph.conflictBehavior': 'replace' })
+      });
+      DRIVE.id = made.parentReference.driveId; DRIVE.folderId = made.id;
+    }
+    DRIVE.via = 'personal'; DRIVE.name = 'your own OneDrive';
+    return DRIVE;
+  }
+
+  /* 1 — straight at the shared account's drive */
+  const direct = await graphTry(`/users/${encodeURIComponent(owner)}/drive/root:/${CFG.root}`);
+  if (direct.ok && direct.data) {
+    DRIVE.id = direct.data.parentReference.driveId;
+    DRIVE.folderId = direct.data.id;
+    DRIVE.via = 'owner'; DRIVE.name = owner;
+    return DRIVE;
+  }
+  if (direct.ok && !direct.data) {
+    /* the drive is reachable but the folder is not there yet — make it */
+    const d = await graphTry(`/users/${encodeURIComponent(owner)}/drive`);
+    if (d.ok && d.data) {
+      const made = await graphTry(`/drives/${d.data.id}/root/children`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: CFG.root, folder: {}, '@microsoft.graph.conflictBehavior': 'replace' })
+      });
+      if (made.ok && made.data) {
+        DRIVE.id = made.data.parentReference.driveId; DRIVE.folderId = made.data.id;
+        DRIVE.via = 'owner'; DRIVE.name = owner;
+        return DRIVE;
+      }
+    }
+  }
+
+  /* 2 — the folder as it appears once demo@ has shared it */
+  const sh = await graphTry('/me/drive/sharedWithMe');
+  if (sh.ok && sh.data) {
+    /* Match on the folder name, and prefer the one shared by the account we
+       are looking for when Graph tells us who shared it — it does not always. */
+    const sharedBy = x => {
+      const r = x.remoteItem || {};
+      return String((((r.shared || {}).owner || {}).user || {}).email ||
+                    ((r.createdBy || x.createdBy || {}).user || {}).email || '').toLowerCase();
+    };
+    const named = (sh.data.value || []).filter(x =>
+      x.remoteItem && String(x.name || x.remoteItem.name || '').toLowerCase() === CFG.root.toLowerCase());
+    const hit = named.find(x => sharedBy(x) === owner.toLowerCase()) || named[0];
+    if (hit) {
+      const r = hit.remoteItem;
+      DRIVE.id = (r.parentReference && r.parentReference.driveId) || null;
+      DRIVE.folderId = r.id || null;
+      if (DRIVE.id && DRIVE.folderId) {
+        DRIVE.via = 'shared';
+        DRIVE.name = (sharedBy(hit) || owner) + ' (shared with you)';
+        return DRIVE;
+      }
+    }
+  }
+
+  DRIVE.err = direct.status === 403 || (sh.ok === false && sh.status === 403)
+    ? `You do not have access to the ${CFG.root} folder on ${owner}.`
+    : `The ${CFG.root} folder on ${owner} could not be found.`;
+  throw new Error(DRIVE.err +
+    ` Ask for the ${CFG.root} folder in that account's OneDrive to be shared with you with edit rights.`);
+}
+
+const driveBase = () => DRIVE.folderId ? `/drives/${DRIVE.id}/items/${DRIVE.folderId}` : `/me/drive/root:/${CFG.root}`;
+const shardPath = s => DRIVE.folderId ? `${driveBase()}:/${s}.json` : `/me/drive/root:/${CFG.root}/${s}.json`;
 
 async function readShard(s) {
   try {
@@ -1653,15 +1780,7 @@ async function writeShard(s, data) {
     body: JSON.stringify(data)
   });
 }
-async function ensureFolder() {
-  const f = await graph(`/me/drive/root:/${CFG.root}`);
-  if (f) return;
-  await graph('/me/drive/root/children', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: CFG.root, folder: {}, '@microsoft.graph.conflictBehavior': 'replace' })
-  });
-}
+async function ensureFolder() { await resolveDrive(); }
 
 /* ---- the merge: per-record last-write-wins, tombstones sticky ---- */
 function mergeRecords(mine, theirs) {
@@ -1685,7 +1804,7 @@ async function syncNow(opt) {
   if (SYNC.status === 'syncing') return;
   SYNC.status = 'syncing'; SYNC.err = null; renderSyncBadge();
   try {
-    await ensureFolder();
+    await resolveDrive();
     for (const s of REC_SHARDS) {
       const remote = await readShard(s);
       const merged = mergeRecords(DB[s], (remote && remote.rows) || []);
@@ -1714,7 +1833,10 @@ async function syncNow(opt) {
     if (!o.quiet) render();
   } catch (e) {
     SYNC.status = 'error'; SYNC.err = String(e.message || e);
+    /* An empty CRM with a quiet badge is what sent people to you in the first
+       place, so a sync that cannot reach the shared folder says so on screen. */
     if (o.loud) toast('Sync failed — ' + SYNC.err.slice(0, 90), 'err');
+    if (!o.quiet && typeof render === 'function') render();
   }
   renderSyncBadge();
 }
@@ -1734,11 +1856,16 @@ function renderSyncBadge() {
   const n = $('#syncbadge'); if (!n) return;
   const cls = SYNC.status === 'error' ? 'err' : SYNC.dirty.size ? 'warn' : SYNC.mode === 'local' ? '' : 'ok';
   const txt = SYNC.status === 'syncing' ? 'Syncing…'
-    : SYNC.status === 'error' ? 'Sync error'
+    : SYNC.status === 'error' ? 'Cannot reach the data'
     : SYNC.mode === 'local' ? 'Local only'
     : SYNC.dirty.size ? SYNC.dirty.size + ' pending'
     : SYNC.last ? 'Synced ' + new Date(SYNC.last).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : 'OneDrive ready';
+  const where = SYNC.mode === 'onedrive' ? (DRIVE.name || driveOwner() || 'your own OneDrive') : '';
+  n.title = where
+    ? (SYNC.status === 'error' ? `Could not reach ${CFG.root} on ${where}`
+                               : `Reading and writing ${CFG.root} on ${where}`)
+    : '';
   n.innerHTML = `<span class="dot ${cls}"></span><span>${esc(txt)}</span>`;
 }
 
@@ -1872,7 +1999,8 @@ async function uploadAttachment(dealId, file) {
   if (SYNC.mode !== 'onedrive') throw new Error('Sign in with Microsoft to upload files. In local-only mode you can still add a link.');
   if (file.size > 60 * 1024 * 1024) throw new Error('That file is over 60 MB — upload it to OneDrive yourself and add it here as a link.');
   const safe = String(file.name).replace(/[\\/:*?"<>|#%]/g, '-').slice(0, 120);
-  const path = `/me/drive/root:/${CFG.root}/${CFG.attachDir}/${dealId}/${safe}:/content`;
+  await resolveDrive();
+  const path = `${driveBase()}:/${CFG.attachDir}/${dealId}/${safe}:/content`;
   const t = await getToken();
   const r = await fetch('https://graph.microsoft.com/v1.0' + path, {
     method: 'PUT',
@@ -1884,6 +2012,7 @@ async function uploadAttachment(dealId, file) {
   return upsert('attachments', {
     dealId, name: safe, size: file.size, mime: file.type || null,
     url: item.webUrl || null, driveItemId: item.id || null,
+    driveId: (item.parentReference && item.parentReference.driveId) || DRIVE.id || null,
     at: new Date().toISOString(), by: (AUTH.user && AUTH.user.username) || 'local', kind: 'file'
   });
 }
@@ -1895,7 +2024,7 @@ function addAttachmentLink(dealId, name, url, label) {
 }
 async function deleteAttachment(a, alsoFile) {
   if (alsoFile && a.driveItemId && SYNC.mode === 'onedrive') {
-    try { await graph('/me/drive/items/' + a.driveItemId, { method: 'DELETE' }); }
+    try { await graph(`/drives/${a.driveId || DRIVE.id}/items/` + a.driveItemId, { method: 'DELETE' }); }
     catch (e) { toast('Record removed, but the file is still in OneDrive', 'err'); }
   }
   remove('attachments', a.id);
@@ -3005,6 +3134,29 @@ function overdueDeals(rep, o) {
     isOpen(d) && d.closeDate && dnum(d.closeDate) < t && match(d, who))
     .sort((a, b) => dnum(a.closeDate) - dnum(b.closeDate));
 }
+/* The failure this exists for: a rep signs in, the shared folder cannot be
+   reached, and the CRM renders perfectly — empty. Nobody reads an empty screen
+   as an error, so it has to say so itself, on every view, not just the one
+   that happens to have a banner slot. */
+function dataBanner() {
+  if (SYNC.mode !== 'onedrive') return null;
+  const empty = !live('deals').length && !live('companies').length && !live('contacts').length;
+  if (SYNC.status !== 'error' && !empty) return null;
+  if (SYNC.status !== 'error' && !SYNC.last) return null;
+  const n = el('div', { class: 'alert', style: 'border-color:var(--critical)' });
+  n.appendChild(el('span', { class: 'ic', html: ico('warn', 18) }));
+  n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.5', html: SYNC.status === 'error'
+    ? `<b>The shared CRM data could not be read</b><div class="sub">${esc(SYNC.err || '')}</div>`
+    : `<b>Signed in, but there is nothing here</b><div class="sub">The ${esc(CFG.root)} folder on ` +
+      `${esc(driveOwner() || 'your own OneDrive')} was reached and is empty. If you expected the team's ` +
+      `records, you are probably pointed at the wrong folder.</div>` }));
+  n.appendChild(el('button', { class: 'btn sm', html: ico('sync',13) + ' Try again',
+    onclick: () => syncNow({ loud: true }) }));
+  if (isAdmin()) n.appendChild(el('button', { class: 'btn sm', text: 'Where the data lives',
+    onclick: () => go('settings') }));
+  return n;
+}
+
 /* Roles cannot be enforced until an admin is reachable by email, and that is
    worth saying out loud rather than leaving everyone quietly at full access. */
 function rolesBanner() {
@@ -8305,8 +8457,42 @@ function viewSettings(root) {
   c4.body.appendChild(hl);
   g.appendChild(c4.node);
 
+  /* ---- where the data lives ---- */
+  const cW = card('Where the data lives', 'One folder, one copy — every person signed in reads and writes the same records');
+  const owner = driveOwner();
+  const st = el('dl', { class: 'kvs' });
+  const addW = (k, v) => { st.appendChild(el('dt', { text: k })); st.appendChild(el('dd', { html: v })); };
+  addW('Folder', `<span class="mono">${esc(CFG.root)}/</span>`);
+  addW('Account', owner ? `<span class="mono">${esc(owner)}</span>`
+    : '<span style="color:var(--warning)">your own OneDrive — single user only</span>');
+  addW('Resolved', DRIVE.folderId
+    ? `<span class="tag good">yes</span> <span style="font-weight:400;color:var(--ink-3)">${
+        DRIVE.via === 'owner' ? 'direct' : DRIVE.via === 'shared' ? 'via shared with me' : 'personal drive'}</span>`
+    : SYNC.mode === 'onedrive' ? '<span class="tag bad">no</span>' : '<span class="tag">local mode</span>');
+  addW('Signed in as', AUTH.user ? esc(AUTH.user.username || AUTH.user.name) : 'local session');
+  addW('Records here', `${live('deals').length} deals · ${live('companies').length} companies · ${live('contacts').length} contacts`);
+  cW.body.appendChild(st);
+  if (SYNC.err) cW.body.appendChild(el('p', { style: 'color:var(--critical-ink);font-size:var(--fs-sm);line-height:1.55;margin:var(--sp-2) 0 0', text: SYNC.err }));
+  if (!owner) cW.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
+    '<b>This is why reps see an empty CRM.</b> With no shared account set, every person reads and writes their ' +
+    'own OneDrive, so each one gets their own empty folder. Set the shared account below.' }));
+  else cW.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
+    `For a rep to see anything, the <span class="mono">${esc(CFG.root)}</span> folder in ` +
+    `<span class="mono">${esc(owner)}</span>'s OneDrive has to be shared with them with <b>edit</b> rights. ` +
+    'Read-only sharing shows the data but every save fails.' }));
+  const wb = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' });
+  wb.appendChild(el('button', { class: 'btn', html: ico('sync',14) + ' Test the connection', onclick: () => testDrive() }));
+  wb.appendChild(el('button', { class: 'btn', html: ico('edit',14) + ' Change the account', onclick: () => editDriveOwner() }));
+  if (SYNC.mode === 'onedrive' && DRIVE.folderId && live('deals').length)
+    wb.appendChild(el('button', { class: 'btn', html: ico('up',14) + ' Push everything here',
+      title: 'Writes every record this browser holds into the shared folder',
+      onclick: () => pushEverything() }));
+  cW.body.appendChild(wb);
+  cW.node.classList.add('span2');
+  g.appendChild(cW.node);
+
   /* ---- data & sync ---- */
-  const c5 = card('Data & sync', `Records live in OneDrive under ${CFG.root}/ — share that folder with the sales team so everyone works on the same data`);
+  const c5 = card('Data & sync', `Backups, imports and the local cache`);
   const stats = el('dl', { class: 'kvs' });
   [['Companies', live('companies').length], ['Contacts', live('contacts').length],
    ['Deals', live('deals').length], ['Tasks', live('tasks').length],
@@ -8805,6 +8991,75 @@ function moveRep(region, id, dir) {
   DB.config._v = now(); touch('config');
   render();
 }
+
+/* ---------------------------------------------- where the data lives */
+async function testDrive() {
+  if (SYNC.mode !== 'onedrive') return toast('Sign in with Microsoft first — local mode has nothing to reach', 'err');
+  toast('Looking for the folder…');
+  try {
+    await resolveDrive(true);
+    const counts = {};
+    for (const sh of ['deals', 'companies', 'contacts']) {
+      const r = await readShard(sh);
+      counts[sh] = ((r && r.rows) || []).filter(x => !x._del).length;
+    }
+    modal('The folder was reached', el('div', {}, [
+      el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.65;color:var(--ink-2)', html:
+        `<span class="mono">${esc(CFG.root)}/</span> on <b>${esc(DRIVE.name || driveOwner() || 'your OneDrive')}</b>, ` +
+        `found ${DRIVE.via === 'shared' ? 'through the folder shared with you' : 'directly'}.` }),
+      el('dl', { class: 'kvs' }, [
+        el('dt', { text: 'Deals in the folder' }), el('dd', { text: String(counts.deals) }),
+        el('dt', { text: 'Companies' }), el('dd', { text: String(counts.companies) }),
+        el('dt', { text: 'Contacts' }), el('dd', { text: String(counts.contacts) })
+      ]),
+      counts.deals || counts.companies ? null : el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6',
+        html: 'The folder is there but empty. If this browser is holding the team\u2019s records, ' +
+          '<b>Push everything here</b> writes them in.' })
+    ].filter(Boolean)), [ el('button', { class: 'btn primary', text: 'Close', onclick: closeAll }) ]);
+    SYNC.err = null; renderSyncBadge();
+  } catch (e) {
+    modal('The folder could not be reached', el('div', {}, [
+      el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.65;color:var(--ink-2)', text: String(e.message || e) }),
+      el('p', { class: 'sub', style: 'margin:0;line-height:1.65', html:
+        `Two things have to be true. <b>One:</b> a folder called <span class="mono">${esc(CFG.root)}</span> exists in ` +
+        `<span class="mono">${esc(driveOwner())}</span>'s OneDrive. <b>Two:</b> it is shared with the person signed in, ` +
+        'with edit rights — "Can edit", not "Can view". Once shared it shows up under Shared with me, and the tool ' +
+        'finds it either way.' })
+    ]), [ el('button', { class: 'btn primary', text: 'Close', onclick: closeAll }) ]);
+  }
+}
+function editDriveOwner() {
+  const v = el('input', { class: 'inp', value: driveOwner() || '', placeholder: 'demo@core-velocity.com' });
+  modal('Where the data lives', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.65;color:var(--ink-2)', html:
+      `Every copy of the tool reads and writes <span class="mono">${esc(CFG.root)}/</span> in this account's OneDrive. ` +
+      'Leave it blank and each person uses their own drive instead, which means each person gets their own empty CRM.' }),
+    fld('Microsoft account', v, 'Changing this points the tool at a different set of records. It does not move anything.'),
+    el('p', { class: 'sub', style: 'margin:0;line-height:1.6', html:
+      'Stored for this browser and shared with the team through the config file, so a rep signing in on a new ' +
+      'machine picks it up without being told.' })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Save and test', onclick: async () => {
+      setDriveOwner(v.value.trim());
+      closeAll(); render();
+      await testDrive();
+    } })
+  ]);
+}
+/* Everything this browser holds, written into the shared folder. The merge is
+   per record, so this adds and updates — it never wipes what is already there. */
+function pushEverything() {
+  const n = REC_SHARDS.reduce((t, s) => t + live(s).length, 0);
+  confirmDo('Push everything into the shared folder',
+    `${n} records from this browser are written into ${CFG.root}/ on ${DRIVE.name || driveOwner()}. ` +
+    'Records already there are merged by last edit, not overwritten wholesale.',
+    'Push', async () => {
+      REC_SHARDS.forEach(s => SYNC.dirty.add(s));
+      SYNC.dirty.add('config');
+      await syncNow({ loud: true });
+    });
+}
 /* ================================================================
    RENDER + BOOT
    ================================================================ */
@@ -8834,6 +9089,8 @@ function render() {
     root.innerHTML = '';
     renderNav();
     renderTopControls();
+    const db = dataBanner();
+    if (db) root.appendChild(db);
     try { VIEWS[name](root); }
     catch (e) {
       console.error(e);
