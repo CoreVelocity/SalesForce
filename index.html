@@ -591,6 +591,24 @@ a.mfact:hover b{text-decoration:underline}
 .trow .tt{font-weight:600;line-height:1.4}
 .trow .tm{font-size:var(--fs-sm);color:var(--ink-3);display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:3px;align-items:center}
 
+/* a region band above each group of rep cards */
+.regionhead{display:flex;align-items:baseline;gap:var(--sp-3);flex-wrap:wrap;
+  margin:0 0 var(--sp-3);padding:0 0 8px;border-bottom:2px solid var(--line)}
+.regionhead h3{margin:0;font-size:var(--fs-lg);font-weight:650;letter-spacing:-.01em}
+.regionhead .sub{margin:0}
+.regionhead .tag{align-self:center}
+@media (max-width:620px){.regionhead .mono{flex:1 0 100%}}
+
+/* ordering people inside a region */
+.ordrow{display:flex;align-items:center;gap:var(--sp-2);padding:6px 9px;border-radius:var(--r-sm);
+  background:var(--surface-2);border:1px solid var(--line-soft);font-size:var(--fs-sm)}
+.ordrow .n{flex:none;width:20px;text-align:right;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.ordrow .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ordrow button{flex:none;width:24px;height:24px;display:grid;place-items:center;border-radius:var(--r-sm);
+  background:var(--surface-3);border:1px solid var(--line);color:var(--ink-2);cursor:pointer;line-height:1}
+.ordrow button:hover:not(:disabled){background:var(--accent);border-color:var(--accent);color:#fff}
+.ordrow button:disabled{opacity:.3;cursor:default}
+
 /* commitment review */
 .wk{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
 .repcard{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
@@ -839,7 +857,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const RELEASED = '2026-09-28';
 
 const CFG = {
@@ -1293,7 +1311,7 @@ function canWrite(quiet) {
 }
 
 /* ---- sales regions: which team a rep sits in, for the monthly review ---- */
-const DEFAULT_SALES_REGIONS = ['Dubai', 'Abu Dhabi', 'International'];
+const DEFAULT_SALES_REGIONS = ['Dubai', 'Abu Dhabi', 'Management'];
 const salesRegions = () => (DB.config.salesRegions && DB.config.salesRegions.length)
   ? DB.config.salesRegions.slice() : DEFAULT_SALES_REGIONS.slice();
 const UNASSIGNED_REGION = 'Unassigned';
@@ -1336,7 +1354,29 @@ function weeksOfMonth(mk) {
 const weekOfMonthLabel = (mk, wk) => 'W' + (weeksOfMonth(mk).indexOf(wk) + 1);
 
 const ownerName = id => (DB.owners.find(o => o.id === String(id)) || {}).name || 'Unassigned';
-const activeOwners = () => DB.owners.filter(o => o.active).sort((a,b) => a.name.localeCompare(b.name));
+/* The team in team order: region first, in the order the regions are
+   configured, then each person's own place inside their region, then name as
+   the tie-break. Everything that presents the team — the commitment cards, the
+   rollup grids, the rep filter, the exports — reads this, so the running order
+   is set once in Settings and holds everywhere. */
+function regionRank(o) {
+  const r = ownerRegion(o.id);
+  const i = salesRegions().indexOf(r);
+  return i < 0 ? 900 : i;                       // Unassigned sorts last
+}
+const teamRank = o => regionRank(o) * 1000 + (Number(o.order) >= 0 ? Number(o.order) : 500);
+const byTeamOrder = (a, b) => (teamRank(a) - teamRank(b)) || a.name.localeCompare(b.name);
+const activeOwners = () => DB.owners.filter(o => o.active).sort(byTeamOrder);
+/* [{ region, owners }] in configured order, only regions with somebody in them */
+function ownersByRegion(list) {
+  const people = (list || activeOwners()).slice().sort(byTeamOrder);
+  const out = [];
+  regionsInPlay(people).forEach(r => {
+    const os = people.filter(o => ownerRegion(o.id) === r);
+    if (os.length) out.push({ region: r, owners: os });
+  });
+  return out;
+}
 
 /* ---- fiscal period helpers ---- */
 function fyBounds(d) {
@@ -5726,10 +5766,15 @@ function viewReview(root) {
     `${weekLabel(wk)} · commit and best case are this week's picks, pipeline is current`);
   const host = el('div'); gr.body.appendChild(host);
   dataTable(host, {
-    key: 'wkgrid', noun: 'reps', rows: W, per: 30, defaultSort: 2, defaultDir: -1,
+    key: 'wkgrid', noun: 'reps', rows: W, per: 30, defaultSort: 1, defaultDir: 1,
     emptyText: 'No active reps. Add your team in Settings and their commitment rows appear here.',
     cols: [
       { h: 'Rep', v: x => x.o.name, r: x => ownerCell(x.o.id) },
+      /* sorts on the team order, not the region's name, so Dubai comes before
+         Abu Dhabi when that is how the regions are arranged */
+      { h: 'Region', v: x => teamRank(x.o), sv: x => teamRank(x.o),
+        r: x => { const r = ownerRegion(x.o.id);
+          return r === UNASSIGNED_REGION ? '<span class="cellsub">not set</span>' : esc(r); } },
       { h: 'Status', v: x => x.r.locked ? 1 : 0, r: x => x.r.locked
           ? `<span class="tag good">Submitted</span>` : `<span class="tag warn">In progress</span>` },
       { h: 'Commit', num: true, v: x => x.commitVal,
@@ -5809,12 +5854,33 @@ function viewReview(root) {
   }
   root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [mv.node]));
 
-  // ---- per-rep cards
-  const grid = el('div', { class: 'wk' });
-  W.forEach(x => grid.appendChild(repReviewCard(x)));
-  root.appendChild(grid);
+  // ---- per-rep cards, grouped by region and in the team's own running order
+  const groups = ownersByRegion(reps);
+  groups.forEach(({ region, owners }) => {
+    const mine = owners.map(o => W.find(x => x.o.id === o.id)).filter(Boolean);
+    if (!mine.length) return;
+    const commit = sum(mine, x => x.commitVal), fc = sum(mine, x => x.forecast);
+    const inN = mine.filter(x => x.r.locked).length;
+    root.appendChild(el('div', { class: 'regionhead' }, [
+      el('h3', { text: region === UNASSIGNED_REGION ? 'No region set' : region }),
+      el('span', { class: 'sub', text: `${mine.length} rep${mine.length === 1 ? '' : 's'} · ${
+        esc(mine.map(x => x.o.name.split(' ')[0]).join(', '))}` }),
+      el('div', { style: 'flex:1' }),
+      el('span', { class: 'sub mono', text: `commit ${CFG.currency} ${money(commit, { dash: false })} · forecast ${CFG.currency} ${money(fc, { dash: false })}` }),
+      el('span', { class: 'tag ' + (mine.length && inN === mine.length ? 'good' : 'warn'),
+        text: `${inN}/${mine.length} in` })
+    ]));
+    const grid = el('div', { class: 'wk', style: 'margin-bottom:var(--sp-4)' });
+    mine.forEach(x => grid.appendChild(repReviewCard(x)));
+    root.appendChild(grid);
+  });
   if (!W.length) root.appendChild(el('div', { class: 'empty', html: ico('user',34) +
     '<h4>No active reps</h4><p>Add your sales team in Settings and their commitment cards appear here.</p>' }));
+  else if (groups.length === 1 && groups[0].region === UNASSIGNED_REGION && isAdmin())
+    root.appendChild(el('p', { class: 'sub', style: 'margin:0;line-height:1.55', html:
+      'Nobody has a sales region yet, so everyone is in one group. Set each person\u2019s region in ' +
+      '<b>Settings \u2192 Sales team &amp; targets</b>, and put them in the order you run the meeting in under ' +
+      '<b>Sales regions</b>.' }));
 }
 
 /* ------------------------------------------------- one rep's card */
@@ -6241,7 +6307,13 @@ function exportReview(wk) {
   if (notIn.length) L.push(`- Not yet submitted: ${notIn.join(', ')}`);
   L.push('');
 
-  W.forEach(x => {
+  ownersByRegion(reps).forEach(({ region, owners }) => {
+    const mine = owners.map(o => W.find(x => x.o.id === o.id)).filter(Boolean);
+    if (!mine.length) return;
+    L.push(`# ${region === UNASSIGNED_REGION ? 'No region set' : region}`);
+    L.push(`Commit ${m(sum(mine, x => x.commitVal))} · Forecast ${m(sum(mine, x => x.forecast))} · ${
+      mine.filter(x => x.r.locked).length}/${mine.length} submitted`, '');
+  mine.forEach(x => {
     const r = x.r;
     L.push(`## ${x.o.name}${r.locked ? '' : ' _(not submitted)_'}`);
     L.push(`- Commit ${m(x.commitVal)} · Best case ${m(x.bestVal)} · Stage weight ${Math.round(x.topProb*100)}%${x.stale ? ' (stale, halved)' : ''} → forecast ${m(x.forecast)}`);
@@ -6269,6 +6341,7 @@ function exportReview(wk) {
       items.forEach(i => L.push(`- ${i.text}${i.done ? ' _(resolved)_' : ''}`));
     });
     L.push('');
+  });
   });
   download(`corev-commitment-review-${wk}.md`, L.join('\n'), 'text/markdown');
   toast('Agenda exported', 'ok');
@@ -6852,17 +6925,38 @@ function viewSettings(root) {
   const cR = card('Sales regions', 'Which team each rep sits in — this is what the monthly review rolls up by');
   const regs = salesRegions();
   const rlist = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-3)' });
-  regs.forEach((r, i) => {
+  regs.concat(activeOwners().some(o => ownerRegion(o.id) === UNASSIGNED_REGION) ? [UNASSIGNED_REGION] : [])
+    .forEach(r => {
     const people = activeOwners().filter(o => ownerRegion(o.id) === r);
-    rlist.appendChild(el('div', { class: 'nitem' }, [
+    const own = r !== UNASSIGNED_REGION;
+    const box = el('div', { class: 'nitem', style: 'flex-direction:column;align-items:stretch;gap:8px' });
+    box.appendChild(el('div', { style: 'display:flex;align-items:center;gap:var(--sp-2)' }, [
       el('span', { class: 'ic', html: ico('bldg', 13) }),
       el('div', { style: 'flex:1', html: `<b>${esc(r)}</b>` +
         `<div style="color:var(--ink-3);margin-top:2px">${people.length
-          ? esc(people.map(o => o.name).join(', '))
+          ? `${people.length} rep${people.length === 1 ? '' : 's'}, in this order`
           : 'nobody assigned yet'}</div>` }),
-      el('button', { html: ico('edit',12), title: 'Rename', onclick: () => renameRegion(r) }),
-      el('button', { html: ico('x',12), title: 'Remove', onclick: () => removeRegion(r) })
-    ]));
+      own ? el('button', { html: ico('up',12), title: 'Move region up',
+        disabled: regs.indexOf(r) === 0 || null, onclick: () => moveRegion(r, -1) }) : null,
+      own ? el('button', { html: ico('down',12), title: 'Move region down',
+        disabled: regs.indexOf(r) === regs.length - 1 || null, onclick: () => moveRegion(r, 1) }) : null,
+      own ? el('button', { html: ico('edit',12), title: 'Rename', onclick: () => renameRegion(r) }) : null,
+      own ? el('button', { html: ico('x',12), title: 'Remove', onclick: () => removeRegion(r) }) : null
+    ].filter(Boolean)));
+    if (people.length) {
+      const ol = el('div', { style: 'display:flex;flex-direction:column;gap:4px' });
+      people.forEach((o, i) => ol.appendChild(el('div', { class: 'ordrow' }, [
+        el('span', { class: 'n', text: (i + 1) + '.' }),
+        el('span', { class: 'avatar', style: `background:${ownerColor(o.id)}`, text: initials(o.name) }),
+        el('span', { class: 'nm', text: o.name }),
+        el('button', { html: ico('up',11), title: 'Move up',
+          disabled: i === 0 || null, onclick: () => moveRep(r, o.id, -1) }),
+        el('button', { html: ico('down',11), title: 'Move down',
+          disabled: i === people.length - 1 || null, onclick: () => moveRep(r, o.id, 1) })
+      ])));
+      box.appendChild(ol);
+    }
+    rlist.appendChild(box);
   });
   cR.body.appendChild(rlist);
   const unset = activeOwners().filter(o => ownerRegion(o.id) === UNASSIGNED_REGION);
@@ -6870,6 +6964,9 @@ function viewSettings(root) {
     html: `<b>${unset.length} ${unset.length === 1 ? 'person has' : 'people have'} no region:</b> ${
       esc(unset.map(o => o.name).join(', '))}. Their numbers show under <b>Unassigned</b> in the monthly review until you set one.` }));
   cR.body.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Add region', onclick: () => addRegion() }));
+  cR.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: 'This order is the order the team appears in everywhere — the commitment cards, the roll-up grids, ' +
+      'the rep filter and both exports. Put it in the order you actually run the meeting in.' }));
   g.appendChild(cR.node);
 
   /* ---- device lines counted on commitments ---- */
@@ -7584,6 +7681,27 @@ function editThreshold(m) {
     } })
   ]);
 }
+
+/* ---- running order: regions, and people inside a region ---- */
+function moveRegion(r, dir) {
+  const list = salesRegions();
+  const i = list.indexOf(r), j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  list.splice(j, 0, list.splice(i, 1)[0]);
+  saveRegions(list);
+  render();
+}
+/* Orders are renumbered from what is on screen before the swap, so a team that
+   has never been ordered gets a sane 1..n instead of everybody sharing a slot. */
+function moveRep(region, id, dir) {
+  const people = activeOwners().filter(o => ownerRegion(o.id) === region);
+  const i = people.findIndex(o => String(o.id) === String(id)), j = i + dir;
+  if (i < 0 || j < 0 || j >= people.length) return;
+  people.splice(j, 0, people.splice(i, 1)[0]);
+  batch(() => { people.forEach((o, n) => { o.order = n; }); });
+  DB.config._v = now(); touch('config');
+  render();
+}
 /* ================================================================
    RENDER + BOOT
    ================================================================ */
@@ -7676,6 +7794,9 @@ function runMigrationsInner() {
     }
   });
   if (c) SYNC.dirty.add('deals');
+  // the running order the team asked for, applied once and only into a blank
+  const teamFix = migrateTeamOrder();
+  if (teamFix.changed) console.log(`Sales regions set on ${teamFix.changed} people`);
   // roles: rep / manager / viewer -> write / write / read, and exactly one admin
   const roleFix = migrateRoles();
   if (roleFix.changed) console.log(`Roles normalised on ${roleFix.changed} people` +
@@ -7686,8 +7807,41 @@ function runMigrationsInner() {
     console.log(`Lead status migrated on ${lead.changed} contacts` +
       (lead.unmapped ? `, ${lead.unmapped} left unmapped for review` : ''));
   }
-  if (c || lead.changed || roleFix.changed) { saveLocal(); scheduleSync(); }
+  if (c || lead.changed || roleFix.changed || teamFix.changed) { saveLocal(); scheduleSync(); }
 }
+/* The regions and the running order inside them, as the team runs the meeting.
+   This only ever fires into a blank — the moment anybody has a region, whatever
+   is in the file is the team's own arrangement and is left alone, so moving
+   someone in Settings is never undone by a reload. People not named here keep
+   no region and show under "No region set" rather than being guessed at. */
+const TEAM_LAYOUT = [
+  ['Dubai',      ['Fatima', 'Milena']],
+  ['Abu Dhabi',  ['Wafiq', 'Jawdat']],
+  ['Management', ['Ahmed', 'Kamal', 'Sami']]
+];
+function migrateTeamOrder() {
+  const people = DB.owners.filter(o => !o._del);
+  if (!people.length) return { changed: 0 };
+  if (people.some(o => o.salesRegion)) return { changed: 0 };       // already arranged
+  const first = o => String(o.name || '').trim().split(/\s+/)[0].toLowerCase();
+  let changed = 0;
+  TEAM_LAYOUT.forEach(([region, names]) => {
+    names.forEach((n, i) => {
+      const hits = people.filter(o => first(o) === n.toLowerCase());
+      if (hits.length !== 1) return;                                 // ambiguous or absent — skip
+      hits[0].salesRegion = region;
+      hits[0].order = i;
+      changed++;
+    });
+  });
+  if (changed) {
+    DB.config.salesRegions = TEAM_LAYOUT.map(t => t[0]);
+    DB.config._v = now();
+    SYNC.dirty.add('config');
+  }
+  return { changed };
+}
+
 /* One admin, everyone else a writer unless they were already read-only.
    Whoever is signed in and already an admin keeps it; failing that the
    longest-standing admin does. Changing it afterwards is two clicks in
