@@ -348,6 +348,109 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .tile .val.fit-m{font-size:var(--fs-xl)}
 .tile .val.fit-s{font-size:var(--fs-lg)}
 .tile .val.fit-xs{font-size:var(--fs-md)}
+.tile .val.good{color:var(--good-ink)}
+.tile .val.warn{color:var(--warning-ink,var(--warning))}
+.tile .val.bad{color:var(--critical-ink)}
+
+/* ======================= rep performance ======================= */
+.perfteams{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.perfteam{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r-md);
+  padding:var(--sp-3);background:var(--surface-2);min-width:0}
+.perfteam.combined{border-left-color:var(--ink-2);background:var(--surface-3)}
+.perfteam .ttl{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-3);font-weight:700}
+.perfteam .big{font-size:var(--fs-xl);font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.perfteam .big .cur{font-size:var(--fs-sm);color:var(--ink-3);font-weight:600}
+.perfteam .sub{font-size:var(--fs-sm);color:var(--ink-3);margin-top:2px;line-height:1.45}
+.perfteam .sub b.good{color:var(--good-ink)}.perfteam .sub b.warn{color:var(--warning)}
+.perfteam .sub b.bad{color:var(--critical-ink)}
+.perfteam .mini{display:flex;gap:var(--sp-3);margin-top:var(--sp-3);flex-wrap:wrap}
+.perfteam .mini>div{min-width:0}
+.perfteam .mini .k{display:block;font-size:var(--fs-xs);color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.05em;font-weight:700}
+.perfteam .mini .v{display:block;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.perfteam .mini .v.good{color:var(--good-ink)}.perfteam .mini .v.warn{color:var(--warning)}
+.perfteam .mini .v.bad{color:var(--critical-ink)}
+
+.covgrid{display:flex;flex-direction:column;gap:7px}
+.covrow{display:flex;align-items:center;gap:var(--sp-3)}
+.covrow .who{flex:0 0 172px;min-width:0;font-weight:600;font-size:var(--fs-sm);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.covrow .who .rg{color:var(--ink-3);font-weight:500;font-size:var(--fs-xs);margin-left:6px}
+.covrow .track{flex:1;min-width:40px;height:16px;border-radius:5px;background:var(--surface-3);
+  position:relative;overflow:hidden}
+.covrow .track i{display:block;height:100%;border-radius:5px;background:var(--ink-3)}
+.covrow .track i.good{background:var(--good)}
+.covrow .track i.warn{background:var(--warning)}
+.covrow .track i.bad{background:var(--critical)}
+.covrow .track .tgt{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink-1);opacity:.55}
+.covrow .n{flex:0 0 96px;text-align:right;min-width:0}
+.covrow .n b{display:block;font-variant-numeric:tabular-nums;font-size:var(--fs-sm);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.covrow .n span{font-size:var(--fs-xs);color:var(--ink-3)}
+.covrow .r{flex:0 0 62px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.covrow .r.good{color:var(--good-ink)}.covrow .r.warn{color:var(--warning)}
+.covrow .r.bad{color:var(--critical-ink)}
+@media (max-width:760px){.covrow .hide-sm{display:none}.covrow .who{flex:0 0 118px}}
+
+.perfgrid{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}
+.perfcard{border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-3);
+  background:var(--surface-2);min-width:0}
+.perfcard>header{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.perfcard>header .nm{font-weight:650;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.perfcard>header .rl{font-size:var(--fs-xs);color:var(--ink-3)}
+.perfcard .ring{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;
+  font-weight:700;font-size:var(--fs-sm);font-variant-numeric:tabular-nums;
+  background:conic-gradient(var(--rc,var(--ink-3)) calc(var(--p,0)*1%),var(--surface-3) 0)}
+.perfcard .ring.good{--rc:var(--good)}
+.perfcard .ring.warn{--rc:var(--warning)}
+.perfcard .ring.bad{--rc:var(--critical)}
+.perfcard .ring span{width:36px;height:36px;border-radius:50%;background:var(--surface-1);
+  display:grid;place-items:center}
+.perfmetrics{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3) var(--sp-3)}
+.perfmetrics>div{min-width:0}
+.perfmetrics .k{display:block;font-size:var(--fs-xs);color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.05em;font-weight:700;line-height:1.35}
+.perfmetrics .v{display:block;font-size:var(--fs-lg);font-weight:700;font-variant-numeric:tabular-nums;
+  line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.perfmetrics .v.good{color:var(--good-ink)}.perfmetrics .v.warn{color:var(--warning)}
+.perfmetrics .v.bad{color:var(--critical-ink)}
+.perfmetrics .s{display:block;font-size:var(--fs-xs);color:var(--ink-3);line-height:1.4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.perfbar{margin-top:var(--sp-3)}
+.perfbar .l{display:flex;justify-content:space-between;font-size:var(--fs-xs);color:var(--ink-3);
+  font-weight:600;margin-bottom:4px}
+.perfbar .tr{height:7px;border-radius:99px;background:var(--surface-3);overflow:hidden}
+.perfbar .tr i{display:block;height:100%;border-radius:99px;background:var(--ink-3)}
+.perfbar .tr i.good{background:var(--good)}.perfbar .tr i.warn{background:var(--warning)}
+.perfbar .tr i.bad{background:var(--critical)}
+.perffoot{display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-3);
+  padding-top:var(--sp-3);border-top:1px solid var(--line-soft)}
+.perffoot>div{min-width:0}
+.perffoot .k{display:block;font-size:var(--fs-xs);color:var(--ink-3);white-space:nowrap}
+.perffoot .v{display:block;font-weight:650;font-variant-numeric:tabular-nums;font-size:var(--fs-sm);
+  white-space:nowrap}
+@media (max-width:420px){.perfmetrics{grid-template-columns:1fr}}
+
+.rank{display:inline-grid;place-items:center;min-width:21px;height:21px;padding:0 5px;border-radius:99px;
+  background:var(--surface-3);color:var(--ink-2);font-size:var(--fs-xs);font-weight:700}
+.rank.m1{background:#c9a227;color:#1b1500}
+.rank.m2{background:#b6bcc6;color:#15181c}
+.rank.m3{background:#b07a4a;color:#1b1000}
+table.dt th.sorted{color:var(--accent)}
+.standing{display:flex;gap:var(--sp-4);align-items:center;flex-wrap:wrap;margin-bottom:var(--sp-3);
+  padding:var(--sp-3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+.standing .rk{text-align:center;flex:none}
+.standing .rk b{display:block;font-size:var(--fs-2xl);font-weight:700;line-height:1}
+.standing .rk span{font-size:var(--fs-xs);color:var(--ink-3)}
+.standing .mt{display:flex;gap:var(--sp-4);flex-wrap:wrap;flex:1;min-width:0}
+.standing .mt>div{min-width:0}
+.standing .mt span{display:block;font-size:var(--fs-xs);color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.05em;font-weight:700}
+.standing .mt b{display:block;font-size:var(--fs-lg);font-weight:700;font-variant-numeric:tabular-nums}
+.standing .mt b.good{color:var(--good-ink)}.standing .mt b.warn{color:var(--warning)}
+.standing .mt b.bad{color:var(--critical-ink)}
 .tile .val .cur{font-size:var(--fs-md);color:var(--ink-3);font-weight:600;margin-right:3px}
 .tile .foot{margin-top:7px;font-size:var(--fs-sm);color:var(--ink-3);display:flex;align-items:center;gap:6px}
 .tile .delta{font-weight:650;display:inline-flex;align-items:center;gap:3px}
@@ -915,7 +1018,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.11.0';
+const VERSION = '1.12.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1217,6 +1320,7 @@ const I = {
   dl:    '<path d="M12 3v12M7 11l5 5 5-5M4 20h16"/>',
   clip:  '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>',
   flag:  '<path d="M5 21V4h10l-1 3h6l-2 5 2 5h-9l-1-3H5"/>',
+  target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
   note:  '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/>'
 };
 const ico = (k, sz, sw) =>
@@ -2655,7 +2759,10 @@ function tile(label, value, o) {
   const str = String(value);
   const len = str.length + (o.cur ? 4 : 0);
   const guess = len > 13 ? ' fit-s' : len > 10 ? ' fit-m' : '';
-  n.appendChild(el('div', { class: 'val mono' + guess, title: (o.cur ? CFG.currency + ' ' : '') + str,
+  /* `tag` colours the figure good / warn / bad, so a KPI carries its own
+     verdict instead of needing the reader to know the threshold. */
+  n.appendChild(el('div', { class: 'val mono' + guess + (o.tag ? ' ' + o.tag : ''),
+    title: (o.cur ? CFG.currency + ' ' : '') + str,
     html: (o.cur ? `<span class="cur">${CFG.currency}</span>` : '') + `<span class="num">${esc(str)}</span>` }));
   if (o.delta != null) {
     const up = o.delta >= 0, good = o.inverse ? !up : up;
@@ -2727,6 +2834,7 @@ const NAV = [
   { id: 'contacts',  label: 'Contacts',  icon: 'user',  count: () => live('contacts').length },
   { g: 'Dashboard' },
   { id: 'dashboard', label: 'Executive Summary', icon: 'grid' },
+  { id: 'perf',      label: 'Rep Performance', icon: 'target' },
   { id: 'monthly',   label: 'Per Month Commit vs. Forecast', icon: 'cal' },
   { id: 'forecast',  label: 'Forecast & analytics', icon: 'chart' },
   { g: 'Setup', admin: true },
@@ -7444,7 +7552,7 @@ function viewDemos(root) {
     periodSeg('demoPeriod'),
     el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportDemos(rows) }),
     canManageDemos() ? el('button', { class: 'btn', html: ico('sync',14) + ' Import from Outlook',
-      title: `Pull the last 14 days from ${CFG.demoCalendar}`, onclick: () => outlookImport() }) : null,
+      title: `Read any date range from ${CFG.demoCalendar}`, onclick: () => outlookImport() }) : null,
     canManageDemos() ? el('button', { class: 'btn primary', html: ico('plus',14) + ' Log a demo',
       onclick: () => editDemo(null) }) : null
   ]));
@@ -8733,6 +8841,486 @@ function testApprovalMail() {
     ]), [ el('button', { class: 'btn primary', text: 'Close', onclick: closeAll }) ]));
 }
 /* ================================================================
+   REP PERFORMANCE   (migrated from the OxeFit Sales Tracker v28)
+
+   Same logic, same layout, same structure — with every number now
+   coming out of this tool instead of HubSpot and a weekly spreadsheet:
+
+     Forecast accuracy  = 1 − |weighted forecast − closed won| ÷ max(the two)
+     Commit variance    = (closed won − committed) ÷ committed        (signed)
+     Goal attainment    = closed won ÷ the period target
+     Pipeline coverage  = open pipeline closing in the period ÷ target
+     Demo effectiveness = volume 40% + conversion 60%
+     Score              = attainment 55 · accuracy 15 · coverage 15 · demos 15
+                          + a closer bonus of up to 10 for beating the goal
+
+   Where the tracker read a hand-kept weekly sheet, this reads:
+     closed won      → deals in a won stage with a close date in the period
+     pipeline        → open deals with a close date in the period
+     weighted fcst   → those deals × stage probability, halved when stale
+     committed       → Sales Commitment records in the period's weeks
+     XS1 / XP1       → the device counts on those commitments
+     goal            → the targets in Settings, via the same repTargetInfo()
+                       fallback the rest of the tool uses
+     demos           → the Demo Tracker, primary and supporting credits
+
+   The thresholds are NOT a second set: coverage, accuracy, attainment
+   and commit variance all read the same configurable values that the
+   Sales Commitment scorecard uses, so a rep cannot be green on one
+   screen and amber on another.
+   ================================================================ */
+
+const PERF_DEMO_TARGET_PER_MONTH = 4;
+
+/* How many months the selected period spans — the demo volume target
+   scales with it, exactly as the tracker did. */
+function perfMonthSpan(b) {
+  if (!b || b.grain === 'all') {
+    const ds = live('deals').map(d => d.closeDate).filter(Boolean).sort();
+    if (!ds.length) return 1;
+    return Math.max(1, Math.round((dnum(ds[ds.length - 1]) - dnum(ds[0])) / 30.44) || 1);
+  }
+  return Math.max(1, Math.round((days(b.to, b.from) + 1) / 30.44));
+}
+/* Every week key that overlaps the period, so commitments can be summed
+   over a quarter or a year and not just a single week. */
+function perfWeeks(b) {
+  const out = [];
+  let k = weekKey(b.from);
+  for (let i = 0; i < 400; i++) {
+    const r = weekRange(k);
+    if (dnum(r.from) > dnum(b.to)) break;
+    out.push(k);
+    k = weekShift(k, 1);
+  }
+  return out;
+}
+
+function perfDemoStats(ownerId, b) {
+  const mine = live('demos').filter(d => demoCredits(d, ownerId) &&
+    (b.grain === 'all' || inPeriod(d.date, b)));
+  const asPrimary = mine.filter(d => String(d.ownerId) === String(ownerId)).length;
+  const won  = mine.filter(demoIsWon).length;
+  const lost = mine.filter(demoIsLost).length;
+  const decided = won + lost;
+  return { total: mine.length, converted: won, lost,
+    pending: mine.length - decided, asPrimary, asSupport: mine.length - asPrimary,
+    /* Only decided demos count, so a wall of Pending does not crater the
+       rate — the tracker's rule, kept. */
+    convRate: decided > 0 ? won / decided : null };
+}
+
+function computeRepPerf(o, b) {
+  const mine = ownedDeals(o.id);
+  const wonD  = mine.filter(d => isWon(d) && inPeriod(d.closeDate, b));
+  const openD = mine.filter(d => isOpen(d) && (b.grain === 'all' || inPeriod(d.closeDate, b)));
+
+  const closed   = sum(wonD, d => d.amount || 0);
+  const pipeline = sum(openD, d => d.amount || 0);
+  /* The tool's own weighted forecast, with the same stale penalty the
+     Sales Commitment screen applies. */
+  const forecast = sum(openD, d => weighted(d) * (isStale(d) ? STALE_PENALTY : 1));
+
+  const wks = perfWeeks(b);
+  const cRecs = [], bRecs = [];
+  wks.forEach(w => { commitsIn(w, o.id, 'commit').forEach(c => cRecs.push(c));
+                     commitsIn(w, o.id, 'best').forEach(c => bRecs.push(c)); });
+  /* One deal committed in four consecutive weeks is one commitment, not
+     four — the tracker read a single end-of-month snapshot for exactly
+     this reason, so the latest week each deal appears in is the one
+     that counts. */
+  const latest = recs => {
+    const by = new Map();
+    recs.forEach(c => { const k = String(c.dealId || c.id);
+      const cur = by.get(k);
+      if (!cur || String(c.week) > String(cur.week)) by.set(k, c); });
+    return Array.from(by.values());
+  };
+  const cOne = latest(cRecs), bOne = latest(bRecs);
+  const commit = sum(cOne, commitValue);
+  const best   = sum(bOne, commitValue);
+  const units = {};
+  unitLines().forEach(L => { const n = unitTotal(cOne.concat(bOne), L); if (n) units[L] = n; });
+
+  const ti = repTargetInfo(o.id, b);
+  const goal = ti.value || 0;
+
+  const denom = Math.max(forecast, closed);
+  const accuracy = denom > 0 ? Math.max(0, 1 - Math.abs(forecast - closed) / denom) : null;
+  const variance = commit > 0 ? (closed - commit) / commit : null;
+  const attain   = goal > 0 ? closed / goal : null;
+  const coverage = goal > 0 ? pipeline / goal : null;
+
+  const demo = perfDemoStats(o.id, b);
+  const demoTarget = Math.max(1, perfMonthSpan(b) * PERF_DEMO_TARGET_PER_MONTH);
+  const volComp  = Math.min(1, demo.total / demoTarget);
+  const convComp = demo.convRate != null ? demo.convRate : 0;
+  const demoComp = volComp * .4 + convComp * .6;
+
+  /* The score uses the configured coverage target as its ceiling, so
+     changing the threshold in Settings moves the score with it rather
+     than leaving a hard-coded 4× behind. */
+  const covTarget = thresholds('coverage').good || 4;
+  const goalComp = attain != null ? Math.min(1, attain) : 0;
+  const accComp  = accuracy != null ? accuracy : 0;
+  const covComp  = coverage != null ? Math.min(1, coverage / covTarget) : 0;
+  const base  = (goalComp * .55 + accComp * .15 + covComp * .15 + demoComp * .15) * 100;
+  const bonus = Math.min(10, Math.max(0, (attain || 0) - 1) * 50);   // +1 per 2% over, cap 10
+  /* 70 of the 100 points are attainment and coverage, and both need a target.
+     Without one the arithmetic still produces a number — a small one — and it
+     would read as a failing grade rather than as "nobody set a number for this
+     person". So there is no score until there is a target. */
+  const score = goal > 0 ? Math.min(100, Math.round(base + bonus)) : null;
+
+  return { o, id: o.id, name: ownerName(o.id), region: ownerRegion(o.id) || 'No region',
+    closed, pipeline, forecast, commit, best, goal, targetBasis: ti,
+    accuracy, variance, attain, coverage, units, demo, demoComp, score,
+    wonCount: wonD.length, openCount: openD.length, deals: { won: wonD, open: openD } };
+}
+
+const scoreTag = s => s == null ? '' : s >= 75 ? 'good' : s >= 50 ? 'warn' : 'bad';
+const demoTag  = c => c == null ? '' : c >= .5 ? 'good' : c >= .25 ? 'warn' : 'bad';
+const pctOrDash    = v => v == null ? '—' : Math.round(v * 100) + '%';
+const signedPct    = v => v == null ? '—' : (v >= 0 ? '+' : '') + Math.round(v * 100) + '%';
+const ratioOrDash  = v => v == null ? '—' : v.toFixed(2) + '×';
+
+/* ------------------------------------------------------------------ view */
+function viewPerf(root) {
+  const b = periodBounds(VIEW.perfPeriod || 'm');
+  const people = activeOwners().filter(o => !VIEW.perfRep || VIEW.perfRep === 'all' || o.id === VIEW.perfRep);
+  const all = activeOwners().map(o => computeRepPerf(o, b));
+  const rows = VIEW.perfRep && VIEW.perfRep !== 'all' ? all.filter(p => p.id === VIEW.perfRep) : all;
+  const single = rows.length === 1 && VIEW.perfRep && VIEW.perfRep !== 'all';
+
+  root.appendChild(viewHead(null, [
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportPerf(rows, b) })
+  ]));
+
+  /* ---- toolbar ---- */
+  const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  bar.appendChild(periodSeg('perfPeriod'));
+  const rep = el('select', { class: 'inp', style: 'width:auto;min-width:160px', 'aria-label': 'Sales rep',
+    onchange: e => { VIEW.perfRep = e.target.value; render(); } });
+  rep.innerHTML = repOptions('All reps');
+  rep.value = VIEW.perfRep || 'all';
+  bar.appendChild(rep);
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)', text: b.label }));
+  root.appendChild(bar);
+
+  if (!rows.length) {
+    root.appendChild(el('div', { class: 'empty', html: ico('user',34) +
+      '<h4>Nobody to measure</h4><p>Add the team in Settings and set their targets, and this fills in.</p>' }));
+    return;
+  }
+
+  /* ---- region roll-up ---- */
+  if (!single) root.appendChild(perfRegionRow(all, b));
+
+  /* ---- KPI strip: the four the whole tool is judged on, plus demos ---- */
+  root.appendChild(perfKpiStrip(rows, single));
+
+  /* ---- pipeline coverage ---- */
+  const cov = card('Pipeline coverage', `Open pipeline closing in ${b.label} ÷ that period's target · ` +
+    `green at ${thresholds('coverage').good}× or better, amber to ${thresholds('coverage').warn}×`);
+  cov.body.appendChild(perfCoverageGrid(rows));
+  root.appendChild(cov.node);
+
+  /* ---- scorecards ---- */
+  const sc = card('Rep scorecards', 'Forecast accuracy · commit variance · units committed · goal attainment · demos');
+  const grid = el('div', { class: 'perfgrid' });
+  rows.slice().sort((a, z) => (z.score == null ? -1 : z.score) - (a.score == null ? -1 : a.score))
+      .forEach(p => grid.appendChild(perfRepCard(p, b)));
+  sc.body.appendChild(grid);
+  root.appendChild(sc.node);
+
+  /* ---- leaderboard ---- */
+  if (!single) root.appendChild(perfLeaderboard(rows));
+  else root.appendChild(perfStanding(all, rows[0]));
+}
+
+function perfRegionRow(all, b) {
+  const c = card('By region', `Everything closed, forecast and committed in ${b.label}`);
+  const wrap = el('div', { class: 'perfteams' });
+  const roll = list => {
+    const g = sum(list, p => p.goal), cl = sum(list, p => p.closed);
+    const f = sum(list, p => p.forecast), pi = sum(list, p => p.pipeline);
+    const den = Math.max(f, cl);
+    return { g, cl, f, pi, n: list.length,
+      attain: g > 0 ? cl / g : null,
+      acc: den > 0 ? Math.max(0, 1 - Math.abs(f - cl) / den) : null,
+      cov: g > 0 ? pi / g : null };
+  };
+  const cards = [];
+  ownersByRegion(all.map(p => p.o)).forEach(g => {
+    const ids = new Set(g.owners.map(o => o.id));
+    cards.push([g.region, roll(all.filter(p => ids.has(p.id)))]);
+  });
+  cards.push(['Combined', roll(all)]);
+  cards.forEach(([label, s]) => {
+    const n = el('div', { class: 'perfteam' + (label === 'Combined' ? ' combined' : '') });
+    n.appendChild(el('div', { class: 'ttl', text: `${label} · ${s.n} ${s.n === 1 ? 'rep' : 'reps'}` }));
+    n.appendChild(el('div', { class: 'big', html: `<span class="cur">${CFG.currency}</span> ${money(s.cl, { dash: false })}` }));
+    n.appendChild(el('div', { class: 'sub', html:
+      `closed of ${CFG.currency} ${money(s.g, { dash: false })} target · ` +
+      `<b class="${attTag(s.attain)}">${esc(pctOrDash(s.attain))}</b>` }));
+    const m = el('div', { class: 'mini' });
+    [['Accuracy', pctOrDash(s.acc), accTag(s.acc)],
+     ['Pipeline', CFG.currency + ' ' + money(s.pi, { compact: true, dash: false }), ''],
+     ['Coverage', ratioOrDash(s.cov), covTag(s.cov)]].forEach(([k, v, cls]) =>
+      m.appendChild(el('div', {}, [ el('span', { class: 'k', text: k }),
+        el('span', { class: 'v ' + cls, text: v }) ])));
+    n.appendChild(m);
+    wrap.appendChild(n);
+  });
+  c.body.appendChild(wrap);
+  return c.node;
+}
+
+function perfKpiStrip(rows, single) {
+  const g = sum(rows, p => p.goal), cl = sum(rows, p => p.closed);
+  const f = sum(rows, p => p.forecast), pi = sum(rows, p => p.pipeline);
+  const den = Math.max(f, cl);
+  const acc = den > 0 ? Math.max(0, 1 - Math.abs(f - cl) / den) : null;
+  const attain = g > 0 ? cl / g : null;
+  const cov = g > 0 ? pi / g : null;
+  const dW = sum(rows, p => p.demo.converted), dL = sum(rows, p => p.demo.lost);
+  const dT = sum(rows, p => p.demo.total);
+  const conv = (dW + dL) > 0 ? dW / (dW + dL) : null;
+
+  const t = el('div', { class: 'tiles' });
+  t.appendChild(tile('Forecast accuracy', pctOrDash(acc), { icon: 'bolt', tag: accTag(acc),
+    foot: `${CFG.currency} ${money(f, { compact: true, dash: false })} weighted vs ${money(cl, { compact: true, dash: false })} closed` }));
+  t.appendChild(tile('Goal attainment', pctOrDash(attain), { icon: 'flag', tag: attTag(attain),
+    foot: g ? `${CFG.currency} ${money(cl, { compact: true, dash: false })} of ${money(g, { compact: true, dash: false })}`
+            : 'no target set for this period' }));
+  t.appendChild(tile('Pipeline coverage', ratioOrDash(cov), { icon: 'chart', tag: covTag(cov),
+    foot: `target ${thresholds('coverage').good}× · floor ${thresholds('coverage').warn}×` }));
+  t.appendChild(tile('Demo conversion', pctOrDash(conv), { icon: 'board', tag: demoTag(conv),
+    foot: `${dW} converted of ${dW + dL} decided · ${dT} run` }));
+  if (single) {
+    const p = rows[0];
+    t.appendChild(tile('Commit variance', signedPct(p.variance), { icon: 'check', tag: varTag(p.variance),
+      foot: p.commit ? `${CFG.currency} ${money(p.closed, { compact: true, dash: false })} against ${money(p.commit, { compact: true, dash: false })} committed`
+                     : 'nothing committed in this period' }));
+  }
+  return t;
+}
+
+function perfCoverageGrid(rows) {
+  const t = thresholds('coverage');
+  const max = Math.max(t.good * 1.25, ...rows.map(p => p.coverage || 0));
+  const wrap = el('div', { class: 'covgrid' });
+  rows.slice().sort((a, z) => (z.coverage || 0) - (a.coverage || 0)).forEach(p => {
+    const row = el('div', { class: 'covrow' });
+    row.appendChild(el('div', { class: 'who', html:
+      `${esc(p.name)}<span class="rg">${esc(p.region)}</span>` }));
+    const track = el('div', { class: 'track' });
+    track.appendChild(el('i', { class: covTag(p.coverage),
+      style: `width:${p.coverage ? Math.min(100, p.coverage / max * 100) : 0}%` }));
+    track.appendChild(el('span', { class: 'tgt', style: `left:${Math.min(100, t.good / max * 100)}%`,
+      title: `target ${t.good}×` }));
+    row.appendChild(track);
+    row.appendChild(el('div', { class: 'n hide-sm', html:
+      `<b>${CFG.currency} ${money(p.pipeline, { compact: true, dash: false })}</b><span>pipeline</span>` }));
+    row.appendChild(el('div', { class: 'n hide-sm', html:
+      `<b>${p.goal ? CFG.currency + ' ' + money(p.goal, { compact: true, dash: false }) : '—'}</b><span>target</span>` }));
+    row.appendChild(el('div', { class: 'r ' + covTag(p.coverage), text: ratioOrDash(p.coverage) }));
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+function perfRepCard(p, b) {
+  const n = el('div', { class: 'perfcard' });
+  const head = el('header', {}, [
+    el('div', { style: 'min-width:0;flex:1' }, [
+      el('div', { class: 'nm', text: p.name }),
+      el('div', { class: 'rl', text: p.region })
+    ])
+  ]);
+  const ring = el('div', { class: 'ring ' + scoreTag(p.score),
+    style: `--p:${p.score == null ? 0 : p.score}`, title: 'Performance score' });
+  ring.appendChild(el('span', { text: p.score == null ? '—' : p.score }));
+  head.appendChild(ring);
+  n.appendChild(head);
+
+  const grid = el('div', { class: 'perfmetrics' });
+  const met = (lbl, val, cls, sub) => grid.appendChild(el('div', {}, [
+    el('span', { class: 'k', text: lbl }),
+    el('span', { class: 'v ' + (cls || ''), text: val }),
+    el('span', { class: 's', text: sub })
+  ]));
+  met('Forecast accuracy', pctOrDash(p.accuracy), accTag(p.accuracy),
+    `${money(p.forecast, { compact: true, dash: false })} weighted vs ${money(p.closed, { compact: true, dash: false })} closed`);
+  met('Commit variance', signedPct(p.variance), varTag(p.variance),
+    p.commit ? `${money(p.closed, { compact: true, dash: false })} vs ${money(p.commit, { compact: true, dash: false })} committed`
+             : 'nothing committed');
+  met('Goal attainment', pctOrDash(p.attain), attTag(p.attain),
+    p.goal ? `${money(p.closed, { compact: true, dash: false })} of ${money(p.goal, { compact: true, dash: false })}`
+           : 'no target set');
+  met('Pipeline coverage', ratioOrDash(p.coverage), covTag(p.coverage),
+    p.goal ? `${money(p.pipeline, { compact: true, dash: false })} ÷ ${money(p.goal, { compact: true, dash: false })}` : 'needs a target');
+  met('Demo effectiveness', pctOrDash(p.demo.convRate), demoTag(p.demo.convRate),
+    `${p.demo.converted} of ${p.demo.converted + p.demo.lost} decided`);
+  met('Demos run', String(p.demo.total), '',
+    `${p.demo.converted} won · ${p.demo.pending} pending · ${p.demo.lost} lost`);
+  n.appendChild(grid);
+
+  const barw = Math.min(100, (p.attain || 0) * 100);
+  n.appendChild(el('div', { class: 'perfbar' }, [
+    el('div', { class: 'l', html: `<span>Goal progress</span><span>${esc(pctOrDash(p.attain))}</span>` }),
+    el('div', { class: 'tr' }, [ el('i', { class: attTag(p.attain), style: `width:${barw}%` }) ])
+  ]));
+
+  const foot = el('div', { class: 'perffoot' });
+  const cell = (k, v) => foot.appendChild(el('div', {}, [
+    el('span', { class: 'k', text: k }), el('span', { class: 'v', text: v }) ]));
+  cell('Open pipeline', CFG.currency + ' ' + money(p.pipeline, { compact: true, dash: false }));
+  unitLines().forEach(L => cell(L + ' committed', String(p.units[L] || 0)));
+  cell('Deals won', String(p.wonCount));
+  n.appendChild(foot);
+
+  /* Where the target came from, stated rather than implied — a figure
+     divided down from a year is not the same as one somebody set. */
+  if (p.targetBasis && p.targetBasis.basis === 'derived')
+    n.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0',
+      text: `Target derived from ${p.targetBasis.from} — no figure is set for ${b.label} itself.` }));
+  else if (!p.goal)
+    n.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;color:var(--warning)',
+      text: 'No target for this period, so attainment and coverage cannot be scored.' }));
+  return n;
+}
+
+const PERF_COLS = [
+  { k: 'name',     l: 'Rep',        v: p => p.name, txt: true },
+  { k: 'region',   l: 'Region',     v: p => p.region, txt: true },
+  { k: 'score',    l: 'Score',      v: p => p.score },
+  { k: 'attain',   l: 'Goal %',     v: p => p.attain },
+  { k: 'accuracy', l: 'Accuracy',   v: p => p.accuracy },
+  { k: 'variance', l: 'Commit Δ',   v: p => p.variance },
+  { k: 'coverage', l: 'Coverage',   v: p => p.coverage },
+  { k: 'demos',    l: 'Demos',      v: p => p.demo.total },
+  { k: 'conv',     l: 'Demo conv',  v: p => p.demo.convRate },
+  { k: 'pipeline', l: 'Pipeline',   v: p => p.pipeline },
+  { k: 'closed',   l: 'Closed won', v: p => p.closed }
+];
+function perfLeaderboard(rows) {
+  const c = card('Leaderboard', 'Ranked by the composite score. Click a heading to re-sort — anything without a number sinks to the bottom either way.');
+  const key = VIEW.perfSort || 'score';
+  const dir = VIEW.perfDir === 'asc' ? 1 : -1;
+  const col = PERF_COLS.find(x => x.k === key) || PERF_COLS[2];
+  const blank = v => v == null || v === '' || (typeof v === 'number' && !isFinite(v));
+  const sorted = rows.slice().sort((a, z) => {
+    const av = col.v(a), zv = col.v(z);
+    if (blank(av) && blank(zv)) return 0;
+    if (blank(av)) return 1;
+    if (blank(zv)) return -1;
+    return col.txt ? String(av).localeCompare(String(zv)) * dir : (av - zv) * dir;
+  });
+  const tb = el('table', { class: 'dt' });
+  const hr = el('tr');
+  PERF_COLS.forEach(x => hr.appendChild(el('th', {
+    class: (x.txt ? '' : 'num') + (key === x.k ? ' sorted' : ''),
+    style: 'cursor:pointer', text: x.l + (key === x.k ? (dir === 1 ? ' ▲' : ' ▼') : ''),
+    onclick: () => { if (VIEW.perfSort === x.k) VIEW.perfDir = VIEW.perfDir === 'asc' ? 'desc' : 'asc';
+      else { VIEW.perfSort = x.k; VIEW.perfDir = x.txt ? 'asc' : 'desc'; } render(); } })));
+  tb.appendChild(el('thead', {}, [hr]));
+  const body = el('tbody');
+  sorted.forEach((p, i) => {
+    const tr = el('tr');
+    tr.appendChild(el('td', { html: `<span class="rank${i < 3 ? ' m' + (i+1) : ''}">${i+1}</span> ` +
+      `<b>${esc(p.name)}</b>` }));
+    tr.appendChild(el('td', { class: 'cellsub', text: p.region }));
+    tr.appendChild(el('td', { class: 'num ' + scoreTag(p.score), text: p.score == null ? '—' : p.score }));
+    tr.appendChild(el('td', { class: 'num ' + attTag(p.attain), text: pctOrDash(p.attain) }));
+    tr.appendChild(el('td', { class: 'num ' + accTag(p.accuracy), text: pctOrDash(p.accuracy) }));
+    tr.appendChild(el('td', { class: 'num ' + varTag(p.variance), text: signedPct(p.variance) }));
+    tr.appendChild(el('td', { class: 'num ' + covTag(p.coverage), text: ratioOrDash(p.coverage) }));
+    tr.appendChild(el('td', { class: 'num', text: p.demo.total }));
+    tr.appendChild(el('td', { class: 'num ' + demoTag(p.demo.convRate), text: pctOrDash(p.demo.convRate) }));
+    tr.appendChild(el('td', { class: 'num', text: money(p.pipeline, { dash: false }) }));
+    tr.appendChild(el('td', { class: 'num', text: money(p.closed, { dash: false }) }));
+    body.appendChild(tr);
+  });
+  tb.appendChild(body);
+  const w = el('div', { style: 'overflow-x:auto' }); w.appendChild(tb);
+  c.body.appendChild(w);
+  return c.node;
+}
+
+/* One rep in view: their standing, with the rest of the team anonymised —
+   the tracker's rule, so a rep sees where they are without seeing
+   everyone else's numbers. */
+function perfStanding(all, me) {
+  const c = card('Where you stand', 'Ranked by the composite score across the team');
+  const ranked = all.slice().sort((a, z) => (z.score == null ? -1 : z.score) - (a.score == null ? -1 : a.score));
+  const idx = ranked.findIndex(p => p.id === me.id);
+  const scores = ranked.map(p => p.score).filter(s => s != null);
+  const avg = scores.length ? Math.round(sum(scores, s => s) / scores.length) : null;
+  const strip = el('div', { class: 'standing' });
+  strip.appendChild(el('div', { class: 'rk' }, [
+    el('b', { text: idx >= 0 ? '#' + (idx + 1) : '—' }),
+    el('span', { text: `of ${ranked.length}` })
+  ]));
+  const meta = el('div', { class: 'mt' });
+  [['Your score', me.score == null ? '—' : me.score, scoreTag(me.score)],
+   ['Best on the team', scores.length ? Math.max.apply(null, scores) : '—', ''],
+   ['Team average', avg == null ? '—' : avg, '']].forEach(([k, v, cls]) =>
+    meta.appendChild(el('div', {}, [ el('span', { text: k }), el('b', { class: cls, text: String(v) }) ])));
+  strip.appendChild(meta);
+  c.body.appendChild(strip);
+
+  const tb = el('table', { class: 'dt' });
+  tb.appendChild(el('thead', {}, [ el('tr', {}, [
+    el('th', { text: 'Rank' }), el('th', { text: 'Rep' }),
+    el('th', { class: 'num', text: 'Score' }), el('th', { class: 'num', text: 'Goal %' })
+  ]) ]));
+  const body = el('tbody');
+  ranked.forEach((p, i) => {
+    const mine = p.id === me.id;
+    const tr = el('tr', { style: mine ? 'background:var(--accent-soft)' : '' });
+    tr.appendChild(el('td', { html: `<span class="rank${i < 3 ? ' m' + (i+1) : ''}">${i+1}</span>` }));
+    tr.appendChild(el('td', { html: mine ? `<b>${esc(p.name)} (you)</b>` : '<span style="color:var(--ink-3)">Team member</span>' }));
+    tr.appendChild(el('td', { class: 'num ' + (mine ? scoreTag(p.score) : ''),
+      text: mine ? (p.score == null ? '—' : String(p.score)) : '•••' }));
+    tr.appendChild(el('td', { class: 'num ' + (mine ? attTag(p.attain) : ''),
+      text: mine ? pctOrDash(p.attain) : '•••' }));
+    body.appendChild(tr);
+  });
+  tb.appendChild(body);
+  c.body.appendChild(tb);
+  return c.node;
+}
+
+function exportPerf(rows, b) {
+  const cols = [
+    { h: 'Rep', f: p => p.name }, { h: 'Region', f: p => p.region },
+    { h: 'Period', f: () => b.label },
+    { h: 'Score', f: p => p.score == null ? '' : p.score },
+    { h: 'Target ' + CFG.currency, f: p => Math.round(p.goal) },
+    { h: 'Target basis', f: p => p.targetBasis && p.targetBasis.basis === 'derived' ? 'derived: ' + p.targetBasis.from
+        : p.goal ? 'set' : 'none' },
+    { h: 'Closed won ' + CFG.currency, f: p => Math.round(p.closed) },
+    { h: 'Goal attainment %', f: p => p.attain == null ? '' : Math.round(p.attain * 100) },
+    { h: 'Weighted forecast ' + CFG.currency, f: p => Math.round(p.forecast) },
+    { h: 'Forecast accuracy %', f: p => p.accuracy == null ? '' : Math.round(p.accuracy * 100) },
+    { h: 'Committed ' + CFG.currency, f: p => Math.round(p.commit) },
+    { h: 'Best case ' + CFG.currency, f: p => Math.round(p.best) },
+    { h: 'Commit variance %', f: p => p.variance == null ? '' : Math.round(p.variance * 100) },
+    { h: 'Open pipeline ' + CFG.currency, f: p => Math.round(p.pipeline) },
+    { h: 'Pipeline coverage', f: p => p.coverage == null ? '' : p.coverage.toFixed(2) },
+    { h: 'Demos run', f: p => p.demo.total },
+    { h: 'Demos converted', f: p => p.demo.converted },
+    { h: 'Demos lost', f: p => p.demo.lost },
+    { h: 'Demo conversion %', f: p => p.demo.convRate == null ? '' : Math.round(p.demo.convRate * 100) },
+    { h: 'Deals won', f: p => p.wonCount }
+  ].concat(unitLines().map(L => ({ h: L + ' committed', f: p => p.units[L] || 0 })));
+  if (!rows.length) return toast('Nothing to export', 'err');
+  download(`corev-rep-performance-${b.label.replace(/\s+/g, '-')}.csv`, toCSV(rows, cols), 'text/csv');
+  toast(`${rows.length} rep${rows.length === 1 ? '' : 's'} exported`, 'ok');
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
@@ -9738,12 +10326,14 @@ const VIEWS = {
   dashboard: viewDashboard, pipeline: viewPipeline, deals: viewDeals,
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
   review: viewReview, demos: viewDemos, requests: viewRequests,
-  monthly: viewMonthly, forecast: viewForecast, settings: viewSettings
+  monthly: viewMonthly, forecast: viewForecast, settings: viewSettings,
+  perf: viewPerf
 };
 const TITLES = {
   dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
   review: 'Sales Commitment', demos: 'Demo Tracker', requests: 'Demo Requests',
+  perf: 'Rep Performance',
   monthly: 'Per Month Commit vs. Forecast',
   forecast: 'Forecast & analytics', settings: 'Settings'
 };
