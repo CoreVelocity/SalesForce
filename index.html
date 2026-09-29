@@ -99,7 +99,13 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 /* ============================ shell ============================ */
 #app{display:none;min-height:100vh}
-#app.on{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);grid-template-rows:var(--topbar-h) 1fr;
+/* The grid was min-height only, so it grew to whatever the nav needed and the
+   nav's own overflow never engaged — which left everything below the menu
+   (who is signed in, the sync state, sign out, the version) stranded past the
+   bottom of the window and unreachable. Pinning the grid to the viewport gives
+   the nav and the working area a scrollbar each instead. */
+#app.on{display:grid;height:100vh;height:100dvh;overflow:hidden;
+  grid-template-columns:var(--sidebar-w) minmax(0,1fr);grid-template-rows:var(--topbar-h) 1fr;
   grid-template-areas:"brand topbar" "nav main"}
 /* collapsed nav: icons only, so the working area gets the width back */
 #app.rail{--sidebar-w:58px}
@@ -138,7 +144,11 @@ button,input,select,textarea{font:inherit;color:inherit}
   display:block;margin-top:-2px;font-weight:600}
 
 nav.side{grid-area:nav;background:var(--surface-1);border-right:1px solid var(--line);
-  padding:var(--sp-3) var(--sp-2);overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+  padding:var(--sp-3) var(--sp-2);overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:0}
+/* the footer stays put; only the menu above it scrolls */
+nav.side .side-foot{position:sticky;bottom:calc(var(--sp-3)*-1);background:var(--surface-1);
+  margin-left:calc(var(--sp-2)*-1);margin-right:calc(var(--sp-2)*-1);
+  padding-left:var(--sp-3);padding-right:var(--sp-3)}
 nav.side .grp{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);
   padding:var(--sp-4) var(--sp-3) var(--sp-2);font-weight:700}
 nav.side a{display:flex;align-items:center;gap:var(--sp-3);padding:8px var(--sp-3);border-radius:var(--r-md);
@@ -157,6 +167,45 @@ nav.side a .pill.alert{background:var(--critical);color:#fff}
 .side-foot .row{display:flex;align-items:center;gap:6px;margin-top:6px}
 .dot{width:7px;height:7px;border-radius:99px;background:var(--ink-3);flex:none}
 .dot.ok{background:var(--good)}.dot.warn{background:var(--warning)}.dot.err{background:var(--critical)}
+
+/* who is signed in — initial, name, role, sign out */
+.side-foot .me{display:flex;align-items:center;gap:8px;margin-bottom:9px;min-width:0}
+.side-foot .me .av{flex:none;width:30px;height:30px;border-radius:99px;display:grid;place-items:center;
+  background:var(--accent);color:#fff;font-weight:700;font-size:13px;letter-spacing:.01em}
+.side-foot .me .id{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.side-foot .me .id b{font-size:var(--fs-sm);font-weight:650;color:var(--ink-1);max-width:100%;
+  /* a name wraps rather than being cut — "Ahmed Abuh…" helps nobody */
+  line-height:1.25;overflow-wrap:anywhere}
+.side-foot .me .id .tag{font-size:9px;padding:0 6px}
+.side-foot .me .out{flex:none;display:grid;place-items:center;width:28px;height:28px;border:0;
+  border-radius:var(--r-sm);background:transparent;color:var(--ink-3);cursor:pointer}
+.side-foot .me .out:hover{background:var(--surface-3);color:var(--critical-ink)}
+
+/* is my work actually reaching the shared folder? green yes, red no */
+.syncpill{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;
+  padding:7px 9px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface-2)}
+.syncpill:hover{border-color:var(--accent)}
+.syncpill .dot{width:9px;height:9px;background:var(--ink-3)}
+.syncpill .t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.syncpill .t b{font-size:var(--fs-sm);font-weight:650;color:var(--ink-1)}
+.syncpill .t em{font-style:normal;font-size:var(--fs-xs);color:var(--ink-3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.syncpill .go{flex:none;color:var(--ink-3);line-height:0}
+.syncpill.good{border-color:var(--good)}
+.syncpill.good .dot{background:var(--good)}
+.syncpill.good .t b{color:var(--good-ink)}
+.syncpill.bad{border-color:var(--critical);background:var(--critical-soft,var(--surface-2))}
+.syncpill.bad .dot{background:var(--critical)}
+.syncpill.bad .t b{color:var(--critical-ink)}
+.syncpill.warn{border-color:var(--warning)}
+.syncpill.warn .dot{background:var(--warning)}
+.syncpill.busy .dot{background:var(--accent);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* collapsed rail: the dot alone still answers the question */
+#app.rail .side-foot .me .id,#app.rail .side-foot .me .out,
+#app.rail .syncpill .t,#app.rail .syncpill .go{display:none}
+#app.rail .side-foot .me{justify-content:center}
+#app.rail .syncpill{justify-content:center;padding:7px 0}
 
 header.top{grid-area:topbar;display:flex;align-items:center;gap:var(--sp-3);padding:0 var(--sp-4);
   background:var(--surface-1);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
@@ -1018,7 +1067,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.12.0';
+const VERSION = '1.13.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1308,6 +1357,7 @@ const I = {
   cog:   '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M3.6 7.2l2.6 1.5M17.8 15.3l2.6 1.5M3.6 16.8l2.6-1.5M17.8 8.7l2.6-1.5"/>',
   bolt:  '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
   x:     '<path d="M6 6l12 12M18 6L6 18"/>',
+  out:   '<path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15M10 16l4-4-4-4M14 12H3"/>',
   plus:  '<path d="M12 5v14M5 12h14"/>',
   up:    '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down:  '<path d="M12 5v14M6 13l6 6 6-6"/>',
@@ -1368,9 +1418,9 @@ function modal(title, bodyNode, footNodes, wide) {
   const first = m.querySelector('input,select,textarea'); if (first) setTimeout(() => first.focus(), 60);
   return m;
 }
-function confirmDo(title, msg, label, fn) {
+function confirmDo(title, msg, label, fn, onCancel) {
   modal(title, el('p', { text: msg, style: 'margin:0;line-height:1.6;color:var(--ink-2)' }), [
-    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); if (onCancel) onCancel(); } }),
     el('button', { class: 'btn danger', text: label, onclick: () => { closeAll(); fn(); } })
   ]);
 }
@@ -1439,8 +1489,8 @@ function stageColor(id) {
 const ROLES = [
   ['admin',  'Admin',     'Everything, including Settings — the team, roles, regions, stages, products, fields and targets'],
   ['office', 'Office',    'Everything a sales rep can do, and owns the demo schedule: logs, reassigns and deletes demos and demo requests. No Settings.'],
-  ['write',  'Sales rep', 'Can create and edit deals, contacts, companies, tasks and commitments, and fill in the outcome on their own demos'],
-  ['read',   'Read only', 'Can see everything and export, but change nothing']
+  ['write',  'Sales rep', 'Can create and edit deals, contacts, companies, tasks and commitments, and fill in the outcome on their own demos. Cannot export the customer lists or open Settings.'],
+  ['read',   'Read only', 'Can see everything but change nothing. Exporting the deal, company and contact lists is admin-only.']
 ];
 /* older records said rep / manager / viewer */
 const ROLE_MAP = { admin:'admin', office:'office', manager:'write', rep:'write', write:'write', read:'read', viewer:'read' };
@@ -1487,6 +1537,15 @@ const isApprover = () => {
   return !!me && !!who && me === who;
 };
 const canManageDemos = () => myRole() === 'admin' || myRole() === 'office' || isApprover();
+/* Exporting the customer book is an admin decision, not a rep one: the deal
+   and contact exports carry every customer's name, email and phone, and a CSV
+   leaves this tool for good the moment it is written. Reps keep every export
+   that is about their own work — commitments, demos, performance — because
+   those are their numbers, not the customer list.
+   Like every other role check here this is a UI and write-path guard, not a
+   security boundary: anyone with access to the shared OneDrive folder can read
+   the JSON directly. */
+const canExportBook = () => isAdmin();
 
 /* Writes that are not the person's doing — migrations, the seed import,
    the sync merge — must go through whatever the role is. */
@@ -1815,6 +1874,34 @@ async function signIn() {
     btn.innerHTML = 'Try again';
   }
 }
+/* Signing out clears the Microsoft session for this browser. Anything not yet
+   sent up would be lost with it, so that is pushed first and said out loud if
+   it cannot be. */
+function signOut() {
+  const pending = SYNC.dirty.size;
+  const go = async () => {
+    if (pending && SYNC.mode === 'onedrive') {
+      try { await syncNow({ quiet: true }); }
+      catch (e) { /* reported below */ }
+      if (SYNC.dirty.size) {
+        const ok = await new Promise(res => confirmDo('Some changes have not been sent up',
+          `${SYNC.dirty.size} change${SYNC.dirty.size === 1 ? '' : 's'} could not reach the shared folder. ` +
+          'Signing out now loses them. Staying signed in gives the sync another chance.',
+          'Sign out anyway', () => res(true), () => res(false)));
+        if (!ok) return;
+      }
+    }
+    try { localStorage.removeItem(CFG.cacheKey); } catch (e) {}
+    try {
+      if (AUTH.msal) { await AUTH.msal.logoutPopup({ account: AUTH.msal.getActiveAccount() }); return; }
+    } catch (e) { /* popup blocked or cancelled — fall through to a reload */ }
+    location.reload();
+  };
+  confirmDo('Sign out', AUTH.user
+    ? `You are signed in as ${AUTH.user.username}. The shared data stays where it is — this only ends the session in this browser.`
+    : 'This ends the session in this browser.', 'Sign out', go);
+}
+
 async function getToken() {
   if (AUTH.token && now() < AUTH.expires - 120000) return AUTH.token;
   const req = { scopes: CFG.scopes, account: AUTH.msal.getActiveAccount() };
@@ -2095,21 +2182,27 @@ window.addEventListener('beforeunload', e => {
   if (SYNC.dirty.size && SYNC.mode === 'onedrive') { e.preventDefault(); e.returnValue = ''; }
 });
 
+/* Green means this person's work is reaching the shared folder; red means it
+   is not. Everything else — syncing, unsaved changes, local-only — is amber,
+   because none of those are "safe" and none of them are "broken". */
 function renderSyncBadge() {
   const n = $('#syncbadge'); if (!n) return;
-  const cls = SYNC.status === 'error' ? 'err' : SYNC.dirty.size ? 'warn' : SYNC.mode === 'local' ? '' : 'ok';
-  const txt = SYNC.status === 'syncing' ? 'Syncing…'
-    : SYNC.status === 'error' ? 'Cannot reach the data'
-    : SYNC.mode === 'local' ? 'Local only'
-    : SYNC.dirty.size ? SYNC.dirty.size + ' pending'
-    : SYNC.last ? 'Synced ' + new Date(SYNC.last).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    : 'OneDrive ready';
+  let cls, txt, sub;
+  if (SYNC.status === 'error')          { cls = 'bad';  txt = 'Not syncing'; sub = 'the shared folder cannot be reached'; }
+  else if (SYNC.mode === 'local')       { cls = 'bad';  txt = 'Not syncing'; sub = 'this browser only — nobody else sees it'; }
+  else if (SYNC.status === 'syncing')   { cls = 'busy'; txt = 'Syncing…';    sub = 'sending and receiving'; }
+  else if (SYNC.dirty.size)             { cls = 'warn'; txt = SYNC.dirty.size + ' waiting'; sub = 'not sent up yet'; }
+  else if (!SYNC.loaded && !SYNC.last)  { cls = 'warn'; txt = 'Connecting…'; sub = 'first read has not finished'; }
+  else                                  { cls = 'good'; txt = 'Synced';
+    sub = SYNC.last ? 'last at ' + new Date(SYNC.last).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'up to date'; }
   const where = SYNC.mode === 'onedrive' ? (DRIVE.name || driveOwner() || 'your own OneDrive') : '';
-  n.title = where
+  n.className = 'syncpill ' + cls;
+  n.title = (where
     ? (SYNC.status === 'error' ? `Could not reach ${driveRoot()} on ${where}`
                                : `Reading and writing ${driveRoot()} on ${where}`)
-    : '';
-  n.innerHTML = `<span class="dot ${cls}"></span><span>${esc(txt)}</span>`;
+    : 'Nothing is being saved to OneDrive from this session') + ' · click to sync now';
+  n.innerHTML = `<span class="dot"></span><span class="t"><b>${esc(txt)}</b><em>${esc(sub)}</em></span>`
+    + `<span class="go">${ico('sync', 13)}</span>`;
 }
 
 /* ================================================================
@@ -2864,19 +2957,28 @@ function renderNav() {
     text: document.documentElement.getAttribute('data-theme') === 'dark' ? 'Light theme' : 'Dark theme',
     onclick: () => setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark') }));
   f.appendChild(mob);
-  f.appendChild(el('div', { id: 'syncbadge', class: 'row' }));
-  f.appendChild(el('div', { class: 'row', style: 'margin-top:8px' }, [
-    el('button', { class: 'btn sm ghost', style: 'padding:3px 6px', html: ico('sync', 13) + ' Sync now',
-      onclick: () => syncNow({ loud: true }) })
-  ]));
-  f.appendChild(el('div', { class: 'row', style: 'margin-top:6px;opacity:.75', text:
-    (AUTH.user ? AUTH.user.name || AUTH.user.username : 'Local session') }));
+  /* Who is signed in, what they are allowed to do, and whether their work is
+     actually reaching the shared folder — the three things a person needs to
+     know about their own session, in one block they can always see. */
   const rr = myRole();
-  f.appendChild(el('div', { class: 'row', style: 'margin-top:6px' }, [
+  const who = AUTH.user ? (AUTH.user.name || AUTH.user.username) : 'Local session';
+  const mail = AUTH.user ? AUTH.user.username : 'not signed in';
+  const me = el('div', { class: 'me' });
+  me.appendChild(el('span', { class: 'av', title: who,
+    text: (AUTH.user ? who : '?').trim().charAt(0).toUpperCase() || '?' }));
+  me.appendChild(el('div', { class: 'id' }, [
+    el('b', { text: who, title: mail }),
     el('span', { class: 'tag ' + (rr === 'admin' ? 'info' : rr === 'read' ? 'warn' : ''),
       title: (ROLES.find(x => x[0] === rr) || [])[2] || '', text: roleLabel(rr) })
   ]));
-  f.appendChild(el('div', { class: 'row mono', style: 'margin-top:6px;opacity:.6;letter-spacing:.04em',
+  if (AUTH.user) me.appendChild(el('button', { class: 'out', title: 'Sign out of ' + mail,
+    'aria-label': 'Sign out', html: ico('out', 15), onclick: signOut }));
+  f.appendChild(me);
+
+  /* a real button, so it is reachable by keyboard as well as by mouse */
+  f.appendChild(el('button', { id: 'syncbadge', class: 'syncpill', type: 'button',
+    title: 'Click to sync now', onclick: () => syncNow({ loud: true }) }));
+  f.appendChild(el('div', { class: 'row mono', style: 'margin-top:8px;opacity:.6;letter-spacing:.04em',
     text: 'v' + CFG.version, title: 'CoreV CRM v' + CFG.version + ' · released ' + CFG.released }));
   n.appendChild(f);
   renderSyncBadge();
@@ -3871,7 +3973,8 @@ function viewDeals(root) {
 
   root.appendChild(viewHead(null, [
     el('button', { class: 'btn', html: ico('board',14) + ' Board view', onclick: () => go('pipeline') }),
-    el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => exportDeals(rows) }),
+    canExportBook() ? el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV',
+      onclick: () => exportDeals(rows) }) : null,
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New deal', onclick: () => editDeal(null) })
   ]));
   if (VIEW.riskList) {
@@ -3924,6 +4027,7 @@ function viewDeals(root) {
   });
 }
 function exportDeals(rows) {
+  if (!canExportBook()) return toast('Exporting the deal book is admin-only', 'err');
   download('corev-deals-' + TODAY() + '.csv', toCSV(rows, [
     { h: 'Deal', f: d => d.name }, { h: 'Company', f: d => (getCo(d.companyId) || {}).name || '' },
     { h: 'Stage', f: d => stage(d.stageId).label }, { h: 'Probability', f: d => stage(d.stageId).probability },
@@ -3969,7 +4073,7 @@ function viewCompanies(root) {
   if (tf.noDomain) rows = rows.filter(c => !cleanDomain(c.domain));
 
   root.appendChild(viewHead(null, [
-    el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
+    canExportBook() ? el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
       download('corev-companies-' + TODAY() + '.csv', toCSV(rows, [
         { h: 'Company', f: c => c.name }, { h: 'Domain', f: c => c.domain || '' },
         { h: 'Industry', f: c => c.industry || '' }, { h: 'City', f: c => c.city || '' },
@@ -3978,7 +4082,7 @@ function viewCompanies(root) {
         { h: 'Contacts', f: c => c._people }, { h: 'Open deals', f: c => c._open },
         { h: 'Open pipeline', f: c => c._pipe || '' }, { h: 'Won value', f: c => c._won || '' },
         { h: 'Created', f: c => c.createdAt || '' }
-      ]), 'text/csv'); toast('CSV exported', 'ok'); } }),
+      ]), 'text/csv'); toast('CSV exported', 'ok'); } }) : null,
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New company', onclick: () => editCompany(null) })
   ]));
 
@@ -4103,7 +4207,7 @@ function viewContacts(root) {
       el('button', { class: VIEW.contactView === 'board' ? 'on' : '', text: 'Staging board',
         onclick: () => { VIEW.contactView = 'board'; render(); } })
     ]),
-    el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
+    canExportBook() ? el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV', onclick: () => {
       download('corev-contacts-' + TODAY() + '.csv', toCSV(rows, [
         { h: 'First name', f: c => c.firstName || '' }, { h: 'Last name', f: c => c.lastName || '' },
         { h: 'Email', f: c => c.email || '' }, { h: 'Phone', f: c => c.phone || '' },
@@ -4111,7 +4215,7 @@ function viewContacts(root) {
         { h: 'Owner', f: c => ownerName(c.ownerId) },
         { h: 'Lead status', f: c => leadLabel(c.leadStatus) || c.leadStatus || '' },
         { h: 'Created', f: c => c.createdAt || '' }
-      ]), 'text/csv'); toast('CSV exported', 'ok'); } }),
+      ]), 'text/csv'); toast('CSV exported', 'ok'); } }) : null,
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New contact', onclick: () => editContact(null) })
   ]));
 
@@ -6306,6 +6410,24 @@ function viewReview(root) {
     el('button', { class: 'btn', html: ico('dl',14) + ' Export agenda', onclick: () => exportReview(wk) }),
     el('button', { class: 'btn primary', html: ico('flag',14) + ' Commit deals', onclick: () => addCommitment(wk) })
   ]));
+
+  /* A rep filter on the page itself. The meeting runs the whole team, but a
+     one-to-one runs one person, and scrolling past six other scorecards to
+     find yours is the wrong way to start it. */
+  const fbar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rsel = el('select', { class: 'inp', style: 'width:auto;min-width:160px', 'aria-label': 'Sales rep',
+    onchange: e => { VIEW.rep = e.target.value; render(); } });
+  rsel.innerHTML = repOptions('All sales reps');
+  rsel.value = VIEW.rep;
+  fbar.appendChild(rsel);
+  if (VIEW.rep !== 'all') fbar.appendChild(el('button', { class: 'btn sm ghost', text: 'Back to the team',
+    onclick: () => { VIEW.rep = 'all'; render(); } }));
+  fbar.appendChild(el('div', { style: 'flex:1' }));
+  fbar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: VIEW.rep === 'all'
+      ? `${reps.length} rep${reps.length === 1 ? '' : 's'} · ${weekLabel(wk)}`
+      : `${ownerName(VIEW.rep)} · ${weekLabel(wk)}` }));
+  root.appendChild(fbar);
 
   // ---- team roll-up: commitment, forecast and pipeline in one band
   const commitVal = sum(W, x => x.commitVal), bestVal = sum(W, x => x.bestVal);
