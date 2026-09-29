@@ -1102,7 +1102,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1406,6 +1406,7 @@ const I = {
   clip:  '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>',
   flag:  '<path d="M5 21V4h10l-1 3h6l-2 5 2 5h-9l-1-3H5"/>',
   target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  link:  '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   chat:  '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z"/>',
   note:  '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/>'
 };
@@ -5286,7 +5287,10 @@ function openCompany(id) {
     { label: 'Deals', count: ds.length, render: () => {
         const w = el('div');
         w.appendChild(el('div', { class: 'card-head' }, [ el('h3', { text: 'Deals' }), el('div', { class: 'sp' }),
-          el('button', { class: 'btn sm primary', html: ico('plus',13) + ' New deal',
+          isReadOnly() ? null : el('button', { class: 'btn sm', html: ico('link',13) + ' Link existing',
+            title: 'Attach a deal that is already in the tool to this account',
+            onclick: () => linkDealToCompany(c) }),
+          isReadOnly() ? null : el('button', { class: 'btn sm primary', html: ico('plus',13) + ' New deal',
             onclick: () => editDeal(null, { companyId: c.id, name: c.name }) }) ]));
         if (!ds.length) w.appendChild(el('p', { class: 'sub', text: 'No deals on this account yet.' }));
         ds.sort((a,b) => (b.amount||0)-(a.amount||0)).forEach(d => {
@@ -5304,7 +5308,10 @@ function openCompany(id) {
     { label: 'People', count: ps.length, render: () => {
         const w = el('div');
         w.appendChild(el('div', { class: 'card-head' }, [ el('h3', { text: 'Contacts' }), el('div', { class: 'sp' }),
-          el('button', { class: 'btn sm primary', html: ico('plus',13) + ' New contact',
+          isReadOnly() ? null : el('button', { class: 'btn sm', html: ico('link',13) + ' Link existing',
+            title: 'Attach someone already on file to this account',
+            onclick: () => linkContactToCompany(c) }),
+          isReadOnly() ? null : el('button', { class: 'btn sm primary', html: ico('plus',13) + ' New contact',
             onclick: () => editContact(null, { companyId: c.id }) }) ]));
         if (!ps.length) w.appendChild(el('p', { class: 'sub', text: 'No contacts on this account yet.' }));
         ps.forEach(p => {
@@ -5434,6 +5441,9 @@ function openContact(id) {
   if (c.phone) act.appendChild(el('a', { class: 'btn', href: 'tel:' + String(c.phone).replace(/\s/g,''), html: ico('phone',14) + ' Call' }));
   act.appendChild(el('button', { class: 'btn', html: ico('check',14) + ' Task',
     onclick: () => editTask(null, { contactId: c.id, ownerId: c.ownerId, dealId: ds[0] ? ds[0].id : null }) }));
+  act.appendChild(el('button', { class: 'btn', html: ico('link',14) + ' Link a deal',
+    title: 'Put this person on a deal that already exists',
+    onclick: () => linkDealToContact(c) }));
   act.appendChild(el('button', { class: 'btn primary', html: ico('plus',14) + ' New deal',
     onclick: () => editDeal(null, { companyId: c.companyId, contactIds: [c.id], name: co ? co.name : (c.fullName || '') }) }));
   body.appendChild(act);
@@ -5896,10 +5906,13 @@ function linkContact(d) {
   const p = picker({
     placeholder: 'Search people…',
     items: () => {
+      /* Never slice here: picker() filters this list by what was typed and
+         then caps the result. Capping first makes anything past the window
+         unfindable — which is what it did. */
       const all = live('contacts').filter(c => !(d.contactIds || []).includes(c.id));
-      if (!co) return all.slice(0, 400);
+      if (!co) return all;
       const same = all.filter(c => c.companyId === co.id);
-      return same.concat(all.filter(c => c.companyId !== co.id)).slice(0, 400);
+      return same.concat(all.filter(c => c.companyId !== co.id));
     },
     match: (c, q) => (c.fullName || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) ||
       ((getCo(c.companyId) || {}).name || '').toLowerCase().includes(q),
@@ -5926,6 +5939,134 @@ function linkContact(d) {
       upsert('deals', d);
       const c = getCt(id); if (c) { c.dealIds = Array.from(new Set((c.dealIds || []).concat([d.id]))); upsert('contacts', c); }
       closeAll(); openDeal(d.id); toast('Linked', 'ok');
+    } })
+  ]);
+}
+
+/* ---- move an existing deal onto a company ----
+   Records that came out of HubSpot without an account, or were created in a
+   hurry, need to be attached to the right company rather than re-typed. */
+function linkDealToCompany(co) {
+  if (!canWrite()) return;
+  const p = picker({
+    placeholder: 'Search deals…',
+    items: () => {
+      const all = live('deals').filter(d => d.companyId !== co.id);
+      /* the ones with no account at all are almost always the ones being
+         looked for, so they come first */
+      const orphan = all.filter(d => !d.companyId);
+      return orphan.concat(all.filter(d => d.companyId));
+    },
+    match: (d, q) => (d.name || '').toLowerCase().includes(q) ||
+      ((getCo(d.companyId) || {}).name || '').toLowerCase().includes(q) ||
+      ownerName(d.ownerId).toLowerCase().includes(q),
+    label: d => d.name, value: d => d.id,
+    render: d => `<span>${esc(d.name)}</span><span class="sub">${
+      d.companyId ? esc((getCo(d.companyId) || {}).name || 'another account') : 'no account'} · ${
+      esc(stage(d.stageId).label)}${d.amount ? ' · ' + CFG.currency + ' ' + money(d.amount, { compact: true }) : ''}</span>`
+  });
+  modal('Link an existing deal to ' + co.name, el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', text:
+      'Deals with no account on them are listed first. Picking one moves it to this company — nothing is copied, and ' +
+      'the deal keeps its stage, value, owner and history.' }),
+    fld('Deal', p.node)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Link it', onclick: () => {
+      const id = p.get(); if (!id) return toast('Pick a deal first', 'err');
+      const d = getDl(id); if (!d) return toast('That deal is gone', 'err');
+      const from = d.companyId ? (getCo(d.companyId) || {}).name : null;
+      d.companyId = co.id; upsert('deals', d);
+      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+        html: from ? `Moved from <b>${esc(from)}</b> to <b>${esc(co.name)}</b>`
+                   : `Linked to <b>${esc(co.name)}</b>` });
+      closeAll(); openCompany(co.id);
+      toast(from ? `Moved from ${from} to ${co.name}` : `Linked to ${co.name}`, 'ok');
+    } })
+  ]);
+}
+
+/* ---- move an existing contact onto a company ---- */
+function linkContactToCompany(co) {
+  if (!canWrite()) return;
+  const p = picker({
+    placeholder: 'Search people…',
+    items: () => {
+      const all = live('contacts').filter(c => c.companyId !== co.id);
+      const orphan = all.filter(c => !c.companyId);
+      /* somebody whose email is on this company's domain is very likely theirs */
+      const dom = cleanDomain(co.domain);
+      const byDom = dom ? all.filter(c => c.companyId && String(c.email || '').toLowerCase().endsWith('@' + dom)) : [];
+      const inFront = new Set(orphan.concat(byDom));
+      return orphan.concat(byDom, all.filter(c => !inFront.has(c)));
+    },
+    match: (c, q) => (c.fullName || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) ||
+      ((getCo(c.companyId) || {}).name || '').toLowerCase().includes(q),
+    label: c => c.fullName || c.email, value: c => c.id,
+    render: c => `<span>${esc(c.fullName || c.email || '—')}</span><span class="sub">${
+      c.companyId ? esc((getCo(c.companyId) || {}).name || 'another account') : 'no company'}${
+      c.jobTitle ? ' · ' + esc(c.jobTitle) : ''}</span>`,
+    allowNew: true,
+    onNew: (name, setLabel, setValue) => {
+      const parts = name.split(/\s+/);
+      const c = upsert('contacts', { firstName: parts[0], lastName: parts.slice(1).join(' ') || null,
+        fullName: name, companyId: co.id, ownerId: co.ownerId || currentOwnerId(), createdAt: TODAY() });
+      if (setValue) setValue(c.id);
+      setLabel(name); toast('Contact created on this account', 'ok');
+    }
+  });
+  modal('Link an existing contact to ' + co.name, el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', text:
+      'People with no company are listed first, then anyone whose email is on this company’s domain. ' +
+      'Picking one moves them to this account; type a new name to create them here instead.' }),
+    fld('Contact', p.node)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Link it', onclick: () => {
+      const id = p.get(); if (!id) return toast('Pick a contact first', 'err');
+      const c = getCt(id); if (!c) return toast('That contact is gone', 'err');
+      const from = c.companyId ? (getCo(c.companyId) || {}).name : null;
+      c.companyId = co.id; upsert('contacts', c);
+      closeAll(); openCompany(co.id);
+      toast(from ? `${c.fullName || 'Contact'} moved from ${from}` : `${c.fullName || 'Contact'} linked to ${co.name}`, 'ok');
+    } })
+  ]);
+}
+
+/* ---- put an existing deal against a contact ---- */
+function linkDealToContact(c) {
+  if (!canWrite()) return;
+  const p = picker({
+    placeholder: 'Search deals…',
+    items: () => {
+      const all = live('deals').filter(d => !(d.contactIds || []).includes(c.id));
+      /* deals on this person's own account first — that is nearly always it */
+      const same = c.companyId ? all.filter(d => d.companyId === c.companyId) : [];
+      const front = new Set(same);
+      return same.concat(all.filter(d => !front.has(d)));
+    },
+    match: (d, q) => (d.name || '').toLowerCase().includes(q) ||
+      ((getCo(d.companyId) || {}).name || '').toLowerCase().includes(q),
+    label: d => d.name, value: d => d.id,
+    render: d => `<span>${esc(d.name)}</span><span class="sub">${
+      esc((getCo(d.companyId) || {}).name || 'no account')} · ${esc(stage(d.stageId).label)}${
+      d.amount ? ' · ' + CFG.currency + ' ' + money(d.amount, { compact: true }) : ''}</span>`
+  });
+  const co = getCo(c.companyId);
+  modal('Link ' + (c.fullName || 'this contact') + ' to a deal', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', text:
+      co ? `Deals on ${co.name} are listed first. A deal can carry more than one person — the buyer and the champion are often different.`
+         : 'Search any deal on file. A deal can carry more than one person.' }),
+    fld('Deal', p.node)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Link it', onclick: () => {
+      const id = p.get(); if (!id) return toast('Pick a deal first', 'err');
+      const d = getDl(id); if (!d) return toast('That deal is gone', 'err');
+      d.contactIds = Array.from(new Set((d.contactIds || []).concat([c.id])));
+      d.contactInferred = false; upsert('deals', d);
+      c.dealIds = Array.from(new Set((c.dealIds || []).concat([d.id]))); upsert('contacts', c);
+      closeAll(); openContact(c.id); toast(`Linked to ${d.name}`, 'ok');
     } })
   ]);
 }
