@@ -1067,7 +1067,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.13.0';
+const VERSION = '1.14.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -3406,6 +3406,18 @@ function repTargetInfo(rep, b) {
   if (g === 'quarter') {
     const fy = fyBounds(b.from), yv = targetAt(rep, fy.label);
     if (yv) return { value: yv / 4, basis: 'derived', from: `${fy.label} ÷ 4` };
+    /* A quarter used to look only at the year above it, so a team that sets
+       targets month by month — which is how this one does it — got "no target"
+       for every quarter while all three months underneath had one. Add them
+       up, the same way a range of months already does. */
+    let v = 0, allSet = true, any = false, k = monthKey(b.from);
+    for (let i = 0; i < 3; i++) {
+      const mv = targetAt(rep, mBounds(k + '-01').label);
+      if (mv) { v += mv; any = true; } else allSet = false;
+      k = monthShift(k, 1);
+    }
+    if (any) return { value: v, basis: allSet ? 'derived' : 'derived',
+      from: allSet ? 'its three months' : 'the months of it that have one' };
     return { value: 0, basis: null, from: null };
   }
   if (g === 'week') {
@@ -9115,7 +9127,13 @@ function viewPerf(root) {
   const single = rows.length === 1 && VIEW.perfRep && VIEW.perfRep !== 'all';
 
   root.appendChild(viewHead(null, [
-    el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportPerf(rows, b) })
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportPerf(rows, b) }),
+    el('button', { class: 'btn primary', html: ico('clip',14) +
+        (rows.length === 1 ? ' Report (PDF)' : ` Reports (PDF) · ${rows.length}`),
+      title: rows.length === 1
+        ? `A full performance report for ${rows[0].name} over ${b.label}`
+        : `One report per rep over ${b.label}, ${rows.length} in a single PDF — pick a rep above for just theirs`,
+      onclick: () => perfReport(rows, b) })
   ]));
 
   /* ---- toolbar ---- */
@@ -9443,6 +9461,374 @@ function exportPerf(rows, b) {
   toast(`${rows.length} rep${rows.length === 1 ? '' : 's'} exported`, 'ok');
 }
 /* ================================================================
+   REP PERFORMANCE REPORT (PDF)
+
+   The tracker's report, rebuilt on this tool's data. Same shape:
+   a KPI grid, a month-by-month table, a weighted 200-point rubric
+   with a performance band, and a 30-day improvement plan against
+   minimum expectations.
+
+   The tracker asked for four numbers by hand every time — outreach,
+   contacts built, deals added, quotes shared — because they lived in
+   HubSpot. All four are in this tool, so all four are read, not typed.
+   The only thing still asked for is the join date, because nothing
+   else knows it.
+
+   It prints rather than rasterising through html2canvas: the PDF comes
+   out as real text you can select, search and copy, at whatever DPI the
+   printer driver wants, with no third-party library to load.
+   ================================================================ */
+
+const PIP_DEFAULT = { demos: 8, estimates: 4, contacts: 40, coverage: null };
+function pipTargets() {
+  const c = (DB.config && DB.config.pip) || {};
+  const n = (v, d) => (v === '' || v == null || !isFinite(Number(v))) ? d : Number(v);
+  return {
+    demos:     n(c.demos, PIP_DEFAULT.demos),          // per month
+    estimates: n(c.estimates, PIP_DEFAULT.estimates),  // per week
+    contacts:  n(c.contacts, PIP_DEFAULT.contacts),    // per month
+    coverage:  n(c.coverage, thresholds('coverage').good)
+  };
+}
+
+const joinDateOf = id => {
+  const o = DB.owners.find(x => x.id === String(id));
+  return (o && o.joinDate) || '';
+};
+function tenureText(iso) {
+  if (!iso) return 'not recorded';
+  const d = new Date(iso); if (isNaN(d)) return 'not recorded';
+  const now = new Date();
+  let m = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) m--;
+  if (m < 0) m = 0;
+  const y = Math.floor(m / 12), mo = m % 12;
+  return (y ? `${y} yr${y > 1 ? 's' : ''} ` : '') + `${mo} mo · since ` +
+    d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+}
+
+/* The four the tracker had to be told. Every one of them is a question
+   this tool can already answer about a rep in a period. */
+function repActivity(id, b) {
+  const inB = v => v && (b.grain === 'all' || inPeriod(String(v).slice(0, 10), b));
+  const mine = live('deals').filter(d => String(d.ownerId) === String(id));
+  const dealsAdded = mine.filter(d => inB(d.createdAt)).length;
+  const estimates  = mine.filter(d => (d.items || []).length && inB(d.createdAt)).length;
+  const contacts   = live('contacts').filter(c => String(c.ownerId) === String(id) && inB(c.createdAt)).length;
+  const acts       = DB.activities.filter(a => !a._del && String(a.ownerId) === String(id) && inB(a.at)).length;
+  const tasksDone  = live('tasks').filter(t => String(t.ownerId) === String(id) &&
+    t.status === 'done' && inB(t.doneAt || t.dueDate)).length;
+  return { dealsAdded, estimates, contacts, touches: acts + tasksDone };
+}
+
+/* Month-by-month rows for the period, so a quarter reads as three months. */
+function repMonths(id, b) {
+  if (b.grain === 'all') return [];
+  const out = [];
+  let k = monthKey(b.from);
+  const last = monthKey(b.to);
+  for (let i = 0; i < 60; i++) {
+    const mb = Object.assign(mBounds(k + '-01'), { grain: 'month' });
+    const o = DB.owners.find(x => x.id === String(id));
+    out.push(Object.assign({ key: k, label: mb.label }, computeRepPerf(o, mb)));
+    if (k === last) break;
+    k = monthShift(k, 1);
+  }
+  return out;
+}
+
+const BANDS = [
+  [.90, 'Exceeding',              '#0b7a3b'],
+  [.75, 'Achievable',             '#16833f'],
+  [.60, 'Towards achievement',    '#9a6b00'],
+  [.40, 'Moderate performance',   '#b1531a'],
+  [0,   'Low performance',        '#b3261e']
+];
+const bandOf = pct => (BANDS.find(x => pct >= x[0]) || BANDS[BANDS.length - 1]);
+
+/* The weighted rubric — the tracker's weights, out of 200. */
+function repRubric(p, act, monthsN) {
+  const t = pipTargets();
+  const covT = t.coverage || 4;
+  const demoTarget = Math.max(1, monthsN * PERF_DEMO_TARGET_PER_MONTH);
+  const dealTarget = Math.max(1, monthsN * PERF_DEMO_TARGET_PER_MONTH);
+  const g = p.goal || 0;
+  const cur = n => CFG.currency + ' ' + money(n, { dash: false });
+  const comps = [
+    ['Demos achieved', 10,
+      Math.min(1, p.demo.total / demoTarget), `${p.demo.total} of ${demoTarget} target`],
+    ['Demo → sale conversion', 25,
+      p.demo.convRate != null ? p.demo.convRate : 0,
+      p.demo.convRate != null ? `${Math.round(p.demo.convRate * 100)}% of ${p.demo.converted + p.demo.lost} decided` : 'no decided demos'],
+    [`Pipeline coverage (≥ ${covT}×)`, 50,
+      p.coverage != null ? Math.min(1, p.coverage / covT) : 0,
+      p.coverage != null ? p.coverage.toFixed(2) + '×' : 'no target set'],
+    [`Total pipeline (${covT}× the target)`, 20,
+      g > 0 ? Math.min(1, p.pipeline / (covT * g)) : 0,
+      g > 0 ? `${cur(p.pipeline)} of ${cur(covT * g)}` : 'no target set'],
+    ['Deals closed (vs target)', 50,
+      p.attain != null ? Math.min(1, p.attain) : 0,
+      g > 0 ? `${cur(p.closed)} of ${cur(g)}` : 'no target set'],
+    ['Deals generated', 20,
+      Math.min(1, act.dealsAdded / dealTarget), `${act.dealsAdded} of ${dealTarget} target`],
+    ['Forecast accuracy', 25,
+      p.accuracy != null ? p.accuracy : 0,
+      p.accuracy != null ? Math.round(p.accuracy * 100) + '%' : 'nothing to compare']
+  ];
+  const total = comps.reduce((s, c) => s + c[2] * c[1], 0);
+  const max = comps.reduce((s, c) => s + c[1], 0);
+  return { comps, total, max, band: bandOf(total / max), scorable: g > 0 };
+}
+
+/* -------------------------------------------------------- the document */
+const RPT_ESC = s => esc(String(s == null ? '' : s));
+function reportSection(p, b, act, months) {
+  const t = pipTargets();
+  const cur = n => CFG.currency + ' ' + money(n, { dash: false });
+  const curC = n => CFG.currency + ' ' + money(n, { compact: true, dash: false });
+  const rub = repRubric(p, act, Math.max(1, perfMonthSpan(b)));
+  const pctT = v => v == null ? '—' : Math.round(v * 100) + '%';
+  const sgn  = v => v == null ? '—' : (v >= 0 ? '+' : '') + Math.round(v * 100) + '%';
+  const covT = t.coverage || 4;
+
+  const kpi = (l, v, s, colour) =>
+    `<div class="k"><div class="kl">${RPT_ESC(l)}</div>` +
+    `<div class="kv"${colour ? ` style="color:${colour}"` : ''}>${RPT_ESC(v)}</div>` +
+    `<div class="ks">${RPT_ESC(s)}</div></div>`;
+  const ok = '#0b7a3b', bad = '#b3261e';
+
+  const kpis = [
+    kpi('Demos achieved', p.demo.total, `${p.demo.converted} converted · ${p.demo.pending} pending`),
+    kpi('Demo → sale', pctT(p.demo.convRate), 'of decided demos'),
+    kpi('Pipeline coverage', p.coverage == null ? '—' : p.coverage.toFixed(2) + '×', `target ${covT}×`,
+      p.coverage == null ? null : p.coverage >= covT ? ok : bad),
+    kpi('Open pipeline', curC(p.pipeline), `${p.openCount} deals closing in period`),
+    kpi('Closed won', curC(p.closed), `${p.wonCount} deal${p.wonCount === 1 ? '' : 's'}`),
+    kpi('Goal attainment', pctT(p.attain), p.goal ? `of ${curC(p.goal)}` : 'no target set',
+      p.attain == null ? null : p.attain >= 1 ? ok : null),
+    kpi('Deals generated', act.dealsAdded, 'created in period'),
+    kpi('Estimates built', act.estimates, 'deals with a priced estimate'),
+    kpi('Contacts added', act.contacts, 'new people on the book'),
+    kpi('Activity logged', act.touches, 'notes, changes and completed tasks'),
+    kpi('Forecast accuracy', pctT(p.accuracy), `${curC(p.forecast)} weighted vs ${curC(p.closed)}`),
+    kpi('Commit variance', sgn(p.variance), p.commit ? `against ${curC(p.commit)} committed` : 'nothing committed',
+      p.variance == null ? null : p.variance >= 0 ? ok : bad)
+  ].join('');
+
+  const monthRows = months.length ? months.map(m =>
+    `<tr><td>${RPT_ESC(m.label)}</td>` +
+    `<td class="n">${m.goal ? RPT_ESC(cur(m.goal)) : '—'}</td>` +
+    `<td class="n">${RPT_ESC(cur(m.closed))}</td>` +
+    `<td class="n">${m.attain == null ? '—' : Math.round(m.attain * 100) + '%'}</td>` +
+    `<td class="n">${RPT_ESC(cur(m.pipeline))}</td>` +
+    `<td class="n">${m.demo.total}</td>` +
+    `<td class="n" style="font-weight:700;color:${m.coverage == null ? '#5b6474'
+      : m.coverage >= covT ? ok : m.coverage >= thresholds('coverage').warn ? '#9a6b00' : bad}">` +
+      `${m.coverage == null ? '—' : m.coverage.toFixed(2) + '×'}</td></tr>`).join('')
+    : `<tr><td colspan="7" style="color:#5b6474">A month-by-month breakdown needs a bounded period — pick a month, quarter or year rather than All time.</td></tr>`;
+
+  const rubRows = rub.comps.map(c =>
+    `<tr><td>${RPT_ESC(c[0])}</td><td class="c">${c[1]}</td>` +
+    `<td class="n" style="color:#3d4654">${RPT_ESC(c[3])}</td>` +
+    `<td class="n" style="font-weight:700">${(c[2] * c[1]).toFixed(1)}</td></tr>`).join('');
+
+  /* The 30-day plan: minimum expectations against the pace actually run. */
+  const mn = Math.max(1, perfMonthSpan(b)), weeks = mn * 4.345;
+  const rows = [
+    ['Demos run', `≥ ${t.demos} / month`, (p.demo.total / mn).toFixed(1) + ' / month', p.demo.total / mn >= t.demos],
+    ['Pipeline coverage', `≥ ${covT}× target`, p.coverage == null ? '—' : p.coverage.toFixed(2) + '×',
+      p.coverage != null && p.coverage >= covT],
+    ['Estimates built', `≥ ${t.estimates} / week`, (act.estimates / weeks).toFixed(1) + ' / week', act.estimates / weeks >= t.estimates],
+    ['New contacts', `≥ ${t.contacts} / month`, Math.round(act.contacts / mn) + ' / month', act.contacts / mn >= t.contacts]
+  ];
+  const pipRows = rows.map(r =>
+    `<tr><td style="font-weight:600">${RPT_ESC(r[0])}</td><td style="color:#3d4654">${RPT_ESC(r[1])}</td>` +
+    `<td class="n" style="color:#3d4654">${RPT_ESC(r[2])}</td>` +
+    `<td class="n" style="font-weight:700;color:${r[3] ? ok : bad}">${r[3] ? 'On track' : 'Below'}</td></tr>`).join('');
+  const review = new Date(Date.now() + 30 * 864e5).toLocaleDateString('en-GB',
+    { day: 'numeric', month: 'short', year: 'numeric' });
+  const behind = rows.filter(r => !r[3]).length;
+
+  const basis = p.targetBasis && p.targetBasis.basis === 'derived'
+    ? `Target derived from ${p.targetBasis.from} — no figure is set for ${b.label} itself.`
+    : p.goal ? '' : `No target is set for ${b.label}, so attainment, coverage and 120 of the 200 points cannot be scored.`;
+
+  return `<section class="rep">
+  <header class="rh">
+    <div><h1>Sales Performance Report</h1>
+      <div class="sub">${RPT_ESC(p.name)}${p.region ? ' · ' + RPT_ESC(p.region) : ''}</div></div>
+    <div class="brand"><b>CoreV</b><span>Sales CRM</span></div>
+  </header>
+  <div class="meta">Period <b>${RPT_ESC(b.label)}</b> &nbsp;·&nbsp; Tenure at CoreV <b>${RPT_ESC(tenureText(joinDateOf(p.id)))}</b>
+    &nbsp;·&nbsp; Generated ${RPT_ESC(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }))}</div>
+  ${basis ? `<div class="note">${RPT_ESC(basis)}</div>` : ''}
+
+  <div class="kpis">${kpis}</div>
+
+  <h2>Month by month</h2>
+  <table>
+    <colgroup><col style="width:17%"><col style="width:15%"><col style="width:15%"><col style="width:10%"><col style="width:16%"><col style="width:11%"><col style="width:16%"></colgroup>
+    <thead><tr><th>Month</th><th class="n">Target</th><th class="n">Closed won</th><th class="n">Goal %</th>
+      <th class="n">Pipeline</th><th class="n">Demos</th><th class="n">Coverage</th></tr></thead>
+    <tbody>${monthRows}</tbody>
+  </table>
+
+  <div class="band">
+    <div class="chip" style="background:${rub.band[2]}">${RPT_ESC(rub.band[1])}</div>
+    <div class="bs">Weighted score <b>${rub.total.toFixed(0)} / ${rub.max}</b> (${Math.round(rub.total / rub.max * 100)}%)
+      ${rub.scorable ? '' : '<em> — incomplete without a target</em>'}</div>
+  </div>
+
+  <h2>How this is evaluated</h2>
+  <table class="sm">
+    <colgroup><col style="width:32%"><col style="width:11%"><col style="width:43%"><col style="width:14%"></colgroup>
+    <thead><tr><th>Criterion</th><th class="c">Weight</th><th class="n">Actual</th><th class="n">Points</th></tr></thead>
+    <tbody>${rubRows}</tbody>
+    <tfoot><tr><td>Total</td><td class="c">${rub.max}</td><td></td><td class="n">${rub.total.toFixed(0)}</td></tr></tfoot>
+  </table>
+  <p class="fine"><b>Bands:</b> Low performance below 40% · Moderate 40–60% · Towards achievement 60–75% ·
+    Achievable 75–90% · Exceeding 90% and above.<br>
+    <b>Method:</b> each criterion earns its weight × how close the rep is to target, capped at 100%.
+    Coverage and total pipeline are measured against ${covT}× the target, which is the figure set in Settings;
+    demos and deals generated against ${PERF_DEMO_TARGET_PER_MONTH} per month in the period; conversion,
+    forecast accuracy and deals closed against their own 100%.</p>
+
+  <div class="pagebreak"></div>
+
+  <h2 class="warn">30-day improvement plan</h2>
+  <p class="fine">Minimum expectations for the next 30 days, against the pace run in ${RPT_ESC(b.label)}.
+    ${behind ? `<b>${behind} area${behind === 1 ? ' is' : 's are'} below</b> and ${behind === 1 ? 'is' : 'are'} the priority.` : 'Every area is on track.'}
+    Review on <b>${RPT_ESC(review)}</b>.</p>
+  <table>
+    <colgroup><col style="width:28%"><col style="width:28%"><col style="width:24%"><col style="width:20%"></colgroup>
+    <thead class="w"><tr><th>Area</th><th>30-day expectation</th><th class="n">Current pace</th><th class="n">Status</th></tr></thead>
+    <tbody>${pipRows}</tbody>
+  </table>
+  <div class="sign">
+    <div><span>Rep</span><i></i></div>
+    <div><span>Manager</span><i></i></div>
+    <div><span>Date</span><i></i></div>
+  </div>
+  <footer class="rf">CoreV Sales CRM v${RPT_ESC(CFG.version)} · ${RPT_ESC(p.name)} · ${RPT_ESC(b.label)}</footer>
+</section>`;
+}
+
+const REPORT_CSS = `
+@page{size:A4;margin:14mm 12mm}
+*{box-sizing:border-box}
+body{margin:0;font:12px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#11151c;background:#fff}
+section.rep{page-break-after:always;break-after:page}
+section.rep:last-child{page-break-after:auto;break-after:auto}
+.rh{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+  border-bottom:2px solid #1b3a8f;padding-bottom:9px;margin-bottom:11px}
+.rh h1{margin:0;font-size:20px;letter-spacing:-.2px}
+.rh .sub{font-size:13px;color:#3d4654;margin-top:2px}
+.brand{text-align:right;line-height:1.1}
+.brand b{display:block;font-size:16px;letter-spacing:-.2px}
+.brand span{font-size:9px;text-transform:uppercase;letter-spacing:1.6px;color:#5b6474}
+.meta{font-size:11px;color:#3d4654;margin-bottom:10px}
+.note{font-size:11px;color:#8a4b00;background:#fff7e8;border:1px solid #f0d9ae;
+  border-radius:6px;padding:7px 10px;margin-bottom:11px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:15px}
+.k{border:1px solid #dfe3ea;border-radius:8px;padding:8px 10px;min-width:0}
+.kl{font-size:8.5px;letter-spacing:.6px;color:#5b6474;text-transform:uppercase;font-weight:700}
+.kv{font-size:17px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ks{font-size:9.5px;color:#5b6474;margin-top:1px;overflow-wrap:anywhere}
+h2{font-size:12.5px;font-weight:800;color:#1b3a8f;margin:14px 0 6px}
+h2.warn{color:#8a4b00}
+table{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
+th,td{padding:5px 8px;border-bottom:1px solid #eef1f6;overflow-wrap:anywhere;text-align:left;vertical-align:top}
+thead tr{background:#eef2fb;color:#1b3a8f}
+thead.w tr{background:#fff4e6;color:#8a4b00}
+th{font-weight:700}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td.c,th.c{text-align:center}
+table.sm{font-size:10.5px}
+tfoot tr{font-weight:800;background:#f6f8fc}
+.band{display:flex;align-items:center;gap:13px;margin:14px 0 0}
+.band .chip{color:#fff;padding:9px 17px;border-radius:8px;font-weight:800;font-size:15px}
+.band .bs{font-size:11.5px;color:#3d4654}
+.band .bs b{color:#11151c;font-size:14px}
+.band .bs em{color:#8a4b00;font-style:normal}
+.fine{font-size:10px;color:#5b6474;line-height:1.55;margin:7px 0 0}
+.pagebreak{page-break-before:always;break-before:page}
+.sign{display:flex;gap:22px;margin-top:26px}
+.sign>div{flex:1}
+.sign span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#5b6474;font-weight:700}
+.sign i{display:block;border-bottom:1px solid #b9c0cc;height:26px}
+.rf{margin-top:20px;border-top:1px solid #dfe3ea;padding-top:7px;font-size:9.5px;color:#8b93a1;text-align:center}
+@media screen{body{background:#eceef2;padding:18px}
+  section.rep{background:#fff;max-width:794px;margin:0 auto 18px;padding:20px 22px;
+    box-shadow:0 2px 14px rgba(0,0,0,.12);border-radius:4px}}
+`;
+
+/* ----------------------------------------------------------- the action */
+function perfReport(rows, b) {
+  if (!rows.length) return toast('Nobody to report on', 'err');
+  const missing = rows.filter(p => !joinDateOf(p.id));
+  const build = () => {
+    const docs = rows.map(p => {
+      const act = repActivity(p.id, b);
+      return reportSection(p, b, act, repMonths(p.id, b));
+    }).join('\n');
+    printDoc(`<!doctype html><html><head><meta charset="utf-8">` +
+      `<title>Performance report — ${RPT_ESC(rows.length === 1 ? rows[0].name : 'the team')} — ${RPT_ESC(b.label)}</title>` +
+      `<style>${REPORT_CSS}</style></head><body>${docs}</body></html>`);
+  };
+  /* The join date is the one thing the tool cannot work out, and tenure on a
+     performance report matters — three months in is not the same as three
+     years. Asked once, then kept on the person's record. */
+  if (missing.length && canWrite()) return askJoinDates(missing, build);
+  build();
+}
+
+function askJoinDates(people, then) {
+  const wrap = el('div', {});
+  wrap.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', html:
+    `Everything else on the report is read out of the tool. The one thing it cannot work out is when ` +
+    `${people.length === 1 ? 'this person' : 'these people'} joined, and tenure belongs on a performance ` +
+    `report — three months in is not the same as three years. Set ${people.length === 1 ? 'it' : 'them'} ` +
+    `once and ${people.length === 1 ? 'it stays' : 'they stay'} on the record.` }));
+  const ins = people.map(p => {
+    const i = el('input', { class: 'inp', type: 'date', max: TODAY() });
+    wrap.appendChild(fld(p.name, i));
+    return { id: p.id, input: i };
+  });
+  modal('When did they join CoreV?', wrap, [
+    el('button', { class: 'btn', text: 'Skip — leave tenure blank', onclick: () => { closeAll(); then(); } }),
+    el('button', { class: 'btn primary', text: 'Save and generate', onclick: () => {
+      batch(() => ins.forEach(x => {
+        if (!x.input.value) return;
+        const o = DB.owners.find(y => y.id === x.id);
+        if (o) { o.joinDate = x.input.value; }
+      }));
+      touch('config');
+      closeAll(); then();
+    } })
+  ]);
+}
+
+/* A hidden frame, printed. The browser's own PDF writer keeps the text as
+   text — selectable, searchable and sharp — where a canvas rasteriser would
+   hand over a blurry picture of it. */
+function printDoc(html) {
+  const old = document.getElementById('printframe');
+  if (old) old.remove();
+  const f = el('iframe', { id: 'printframe', 'aria-hidden': 'true',
+    style: 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0' });
+  document.body.appendChild(f);
+  const d = f.contentWindow.document;
+  d.open(); d.write(html); d.close();
+  const go = () => {
+    try { f.contentWindow.focus(); f.contentWindow.print(); }
+    catch (e) { toast('The browser would not open the print dialog', 'err'); }
+    setTimeout(() => { const n = document.getElementById('printframe'); if (n) n.remove(); }, 60000);
+  };
+  if (d.readyState === 'complete') setTimeout(go, 120);
+  else f.onload = () => setTimeout(go, 120);
+  toast('Choose “Save as PDF” in the print dialog', 'ok');
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
@@ -9615,6 +10001,28 @@ function viewSettings(root) {
       'Every metric goes back to its default green and amber floors.', 'Reset',
       () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
   g.appendChild(cT.node);
+
+  /* ---- the minimums on the performance report's 30-day plan ---- */
+  const cP = card('30-day minimums', 'The pace a rep is held to on the improvement plan at the end of their performance report');
+  const pt = pipTargets();
+  const pIn = {};
+  const pRow = (k, label, unit, hint) => {
+    pIn[k] = el('input', { class: 'inp', type: 'number', min: '0', step: '1', value: pt[k] });
+    cP.body.appendChild(fld(`${label} (${unit})`, pIn[k], hint));
+  };
+  pRow('demos',     'Demos run',        'per month', 'Counts primary and supporting credits, as the Demo Tracker does.');
+  pRow('estimates', 'Estimates built',  'per week',  'Deals created in the period that carry a priced estimate.');
+  pRow('contacts',  'New contacts',     'per month', 'People added to the book by that rep.');
+  cP.body.appendChild(fld('Pipeline coverage (×)',
+    el('div', { class: 'sub', style: 'padding-top:7px',
+      html: `Uses the <b>${esc(String(thresholds('coverage').good))}×</b> green threshold above, so there is only one coverage target in the tool.` })));
+  cP.body.appendChild(el('button', { class: 'btn primary', style: 'margin-top:var(--sp-3)', text: 'Save minimums',
+    onclick: () => {
+      const c = {};
+      Object.keys(pIn).forEach(k => { const v = Number(pIn[k].value); if (isFinite(v) && v >= 0) c[k] = v; });
+      DB.config.pip = c; touch('config'); render(); toast('Minimums saved', 'ok');
+    } }));
+  g.appendChild(cP.node);
 
   /* ---- who counts in the demo league table ---- */
   const cD = card('Demo credits', 'Whose demos appear in the Demo Tracker rep table');
@@ -9910,6 +10318,7 @@ function editOwner(o) {
   const ac = el('select', { class: 'inp' });
   [['1','Active'],['0','Inactive']].forEach(([v,l]) =>
     ac.appendChild(el('option', { value: v, text: l, selected: String(o.active ? 1 : 0) === v || null })));
+  const jd = el('input', { class: 'inp', type: 'date', max: TODAY(), value: o.joinDate || '' });
   const b = periodBounds();
   const tg = el('input', { class: 'inp', type: 'number',
     value: ((DB.config.targets || {})[o.id] || {})[b.label] || '' });
@@ -9920,6 +10329,7 @@ function editOwner(o) {
     el('p', { class: 'sub', style: 'margin:-6px 0 var(--sp-4);line-height:1.55',
       html: ROLES.map(([v, l, d]) => `<b>${esc(l)}</b> — ${esc(d)}`).join('<br>') }),
     fld('Sales region', rg, 'Groups this person under Dubai, Abu Dhabi or International in the monthly review. Edit the list in the Sales regions card.'),
+    fld('Joined CoreV', jd, 'The only figure on the performance report the tool cannot work out for itself — it is what puts tenure next to the numbers.'),
     fld(`Target for ${b.label} (${CFG.currency})`, tg,
       `Targets are stored against the period you are looking at — right now ${b.label}. Switch the period filter at the top and edit again to set another one.`)
   ]), [
@@ -9937,6 +10347,7 @@ function editOwner(o) {
       }
       o.role = rl.value; o.active = ac.value === '1';
       o.salesRegion = rg.value || null;
+      o.joinDate = jd.value || null;
       o.initials = initials(o.name);
       if (isNew) DB.owners.push(o);
       DB.config.targets = DB.config.targets || {};
