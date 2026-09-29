@@ -169,6 +169,11 @@ header.top h2{margin:0;font-size:var(--fs-lg);font-weight:650;letter-spacing:-.0
 .search-res{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--raised);
   border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-3);max-height:60vh;
   overflow-y:auto;display:none;z-index:60}
+/* AFTER the base rule, not before — at equal specificity the later one wins,
+   and this override is the whole point of the floating layer. */
+#picklayer{position:fixed;inset:0;pointer-events:none;z-index:400}
+#picklayer .search-res{pointer-events:auto}
+.search-res.floating{position:fixed;right:auto}
 .search-res.on{display:block}
 .search-res .sec{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);
   padding:var(--sp-3) var(--sp-3) var(--sp-1);font-weight:700}
@@ -627,6 +632,7 @@ a.mfact:hover b{text-decoration:underline}
 .reqcard.pending{border-color:var(--warning)}
 .reqcard>header{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
   background:var(--surface-3);border-bottom:1px solid var(--line)}
+.reqcard.focused{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .reqcard>header .nm{font-weight:650;line-height:1.35}
 .reqcard>header .rl{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;line-height:1.45}
 .reqcard .b{padding:var(--sp-4)}
@@ -909,7 +915,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.10.3';
+const VERSION = '1.11.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -921,6 +927,10 @@ const CFG = {
   /* Asked for only when someone runs the demo-calendar import, so the daily
      sign-in never has to carry a calendar permission it does not use. */
   calendarScopes: ['Calendars.Read.Shared'],
+  /* Asked for separately, only when a request is submitted, so the whole app
+     does not demand Mail.Send consent on day one. */
+  mailScopes   : ['Mail.Send'],
+  approver     : 'ahmed@core-velocity.com',
   demoCalendar  : 'demo@core-velocity.com',
   // Data lives in the signed-in user's OneDrive under this folder. Share the
   // folder with the sales team (edit rights) so everyone reads/writes the same
@@ -1363,7 +1373,16 @@ const isReadOnly = () => myRole() === 'read';
 /* Who owns the demo schedule. In the tracker this was Gladys and Ahmed; here
    it is whoever holds Admin or Office. A rep still fills in the outcome on a
    demo they ran — that is demoCanEdit() below, not this. */
-const canManageDemos = () => myRole() === 'admin' || myRole() === 'office';
+/* The approver is whoever the approval emails are addressed to. They have to
+   be able to open and decide anything they were emailed about, even if their
+   owner record never got a role — otherwise the link in the mail lands on a
+   list that does not contain the request it was sent about. */
+const isApprover = () => {
+  const me = String((AUTH.user && AUTH.user.username) || '').toLowerCase();
+  const who = String((DB.config && DB.config.approver) || CFG.approver || '').toLowerCase();
+  return !!me && !!who && me === who;
+};
+const canManageDemos = () => myRole() === 'admin' || myRole() === 'office' || isApprover();
 
 /* Writes that are not the person's doing — migrations, the seed import,
    the sync merge — must go through whatever the role is. */
@@ -2761,9 +2780,27 @@ function go(name) {
   $('#nav').classList.remove('open');
   render();
 }
+/* A hash can carry a record: #requests?r=R123 is the link in an approval
+   email, and it has to land on that request with it open, not just on the
+   list. Parsed here so every view gets the same treatment. */
+function routeOf(hash) {
+  const h = String(hash || '').replace(/^#/, '') || 'dashboard';
+  const i = h.indexOf('?');
+  if (i < 0) return { name: h, args: {} };
+  const args = {};
+  new URLSearchParams(h.slice(i + 1)).forEach((v, k) => { args[k] = v; });
+  return { name: h.slice(0, i), args };
+}
+function applyRoute() {
+  const r = routeOf(location.hash);
+  VIEW.name = r.name;
+  VIEW.route = r.args;
+  render();
+  if (r.args.r && typeof openRequestById === 'function') openRequestById(r.args.r);
+}
 addEventListener('hashchange', () => {
-  const h = location.hash.replace('#','') || 'dashboard';
-  if (h !== VIEW.name) { VIEW.name = h; render(); }
+  const r = routeOf(location.hash);
+  if (r.name !== VIEW.name || r.args.r) applyRoute();
 });
 
 /* ------------------------------------------------------- scoping */
@@ -4181,6 +4218,24 @@ function viewTasks(root) {
       onclick: () => { VIEW.tableFilter.done = !showDone; render(); } }),
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New task', onclick: () => editTask(null) })
   ]));
+
+  /* A rep filter on the page itself, the way the pipeline has one — the list
+     is long enough that scoping it to one person is the first thing anybody
+     wants to do in a one-to-one. */
+  const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rep = el('select', { class: 'inp', style: 'width:auto;min-width:148px', 'aria-label': 'Sales rep',
+    onchange: e => { VIEW.rep = e.target.value; render(); } });
+  rep.innerHTML = repOptions('All sales reps');
+  bar.appendChild(rep);
+  if (VIEW.rep !== 'all') bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Reset filter',
+    onclick: () => { VIEW.rep = 'all'; render(); } }));
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: VIEW.rep === 'all'
+      ? `${mine.filter(t => t.status !== 'done').length} open across the team`
+      : `${mine.filter(t => t.status !== 'done').length} open for ${ownerName(VIEW.rep)}` }));
+  root.appendChild(bar);
+
   const tl = el('div', { class: 'tiles' });
   tl.appendChild(tile('Overdue', (by.get('overdue') || []).length, { icon: 'warn' }));
   tl.appendChild(tile('Due today', (by.get('today') || []).length, { icon: 'cal' }));
@@ -5120,14 +5175,38 @@ function dealTypes() {
   return base;
 }
 /* type-ahead picker over an entity list */
+/* The results list is absolutely positioned, and inside a modal it sat in a
+   `.body` that scrolls — so in a tall form like the demo request the company
+   suggestions were clipped at the edge of the scroll box and could not be
+   clicked. The list is now put in a fixed layer on the page itself and
+   positioned off the input's own rectangle, so nothing can crop it. */
+let PICKER_LAYER = null;
+function pickerLayer() {
+  if (PICKER_LAYER && PICKER_LAYER.isConnected) return PICKER_LAYER;
+  PICKER_LAYER = el('div', { id: 'picklayer' });
+  document.body.appendChild(PICKER_LAYER);
+  return PICKER_LAYER;
+}
 function picker(opts) {
   const o = opts || {};
   const wrap = el('div', { style: 'position:relative' });
   const inp = el('input', { class: 'inp', placeholder: o.placeholder || 'Type to search…', autocomplete: 'off',
     value: o.initialLabel || '' });
-  const res = el('div', { class: 'search-res' });
+  const res = el('div', { class: 'search-res floating' });
   let chosen = o.initialValue || null;
-  wrap.appendChild(inp); wrap.appendChild(res);
+  wrap.appendChild(inp);
+  const place = () => {
+    const r = inp.getBoundingClientRect();
+    /* flip above the field when there is more room up there */
+    const below = window.innerHeight - r.bottom, above = r.top;
+    const maxH = Math.max(140, Math.min(320, (below > 180 || below >= above ? below : above) - 14));
+    res.style.left = r.left + 'px';
+    res.style.width = r.width + 'px';
+    res.style.maxHeight = maxH + 'px';
+    if (below > 180 || below >= above) { res.style.top = (r.bottom + 6) + 'px'; res.style.bottom = 'auto'; }
+    else { res.style.bottom = (window.innerHeight - r.top + 6) + 'px'; res.style.top = 'auto'; }
+  };
+  const close = () => { res.classList.remove('on'); if (res.parentNode) res.parentNode.removeChild(res); };
   const paint = () => {
     const q = inp.value.trim().toLowerCase();
     res.innerHTML = '';
@@ -5136,19 +5215,26 @@ function picker(opts) {
     list = list.slice(0, 40);
     if (o.allowNew && q) {
       res.appendChild(el('button', { html: `${ico('plus',13)} <b>Create “${esc(inp.value.trim())}”</b>`,
-        onclick: () => { res.classList.remove('on'); o.onNew(inp.value.trim(), lbl => { inp.value = lbl; }); } }));
+        onclick: () => { close(); o.onNew(inp.value.trim(), lbl => { inp.value = lbl; }, id => { chosen = id; }); } }));
     }
     if (!list.length && !o.allowNew) res.appendChild(el('div', { class: 'sec', text: 'No match' }));
     list.forEach(x => res.appendChild(el('button', { html: o.render(x), onclick: () => {
-      chosen = o.value(x); inp.value = o.label(x); res.classList.remove('on');
+      chosen = o.value(x); inp.value = o.label(x); close();
       if (o.onPick) o.onPick(x);
     } })));
+    pickerLayer().appendChild(res);
+    place();
     res.classList.add('on');
   };
   inp.addEventListener('focus', paint);
   inp.addEventListener('input', () => { chosen = null; paint(); });
-  inp.addEventListener('blur', () => setTimeout(() => res.classList.remove('on'), 180));
-  return { node: wrap, get: () => chosen, getText: () => inp.value.trim(), clear: () => { chosen = null; inp.value = ''; } };
+  inp.addEventListener('blur', () => setTimeout(close, 180));
+  /* the field moves when the modal behind it scrolls */
+  addEventListener('scroll', () => { if (res.classList.contains('on')) place(); }, true);
+  addEventListener('resize', () => { if (res.classList.contains('on')) place(); });
+  return { node: wrap, get: () => chosen, getText: () => inp.value.trim(),
+    set: id => { chosen = id; }, close,
+    clear: () => { chosen = null; inp.value = ''; } };
 }
 const coPicker = (value) => picker({
   placeholder: 'Search companies…',
@@ -5158,9 +5244,14 @@ const coPicker = (value) => picker({
   label: c => c.name, value: c => c.id,
   render: c => `<span>${esc(c.name || 'Unnamed')}</span><span class="sub">${esc(c.domain || c.city || '')}</span>`,
   allowNew: true,
-  onNew: (name, setLabel) => {
+  /* A company created from the picker used to be parked in `pendingCo`, which
+     only two of the five forms using this picker ever read — so on the demo
+     request the new company was created and then thrown away. The picker now
+     selects it itself, which is what every caller already expected. */
+  onNew: (name, setLabel, setValue) => {
     const c = upsert('companies', { name, createdAt: TODAY(), ownerId: currentOwnerId() });
-    setLabel(name); toast('Company created', 'ok');
+    setLabel(name); if (setValue) setValue(c.id);
+    toast('Company created', 'ok');
     pendingCo = c.id;
   }
 });
@@ -7790,8 +7881,33 @@ function viewRequests(root) {
   root.appendChild(list);
 }
 
+/* The link in the approval email lands here: scroll the request into view,
+   highlight it, and say plainly if it has already been decided. */
+function openRequestById(id) {
+  const r = live('demoRequests').find(x => x.id === String(id));
+  if (!r) return toast('That request is not here any more', 'err');
+  VIEW.reqFocus = r.id;
+  /* Arriving from a link has to beat whatever filters were left on the page,
+     or the approver follows the mail and lands on a list that does not show
+     the one thing they came for. */
+  VIEW.reqStatus = null;
+  if (VIEW.rep !== 'all' && String(r.ownerId) !== VIEW.rep) VIEW.rep = 'all';
+  VIEW.name = 'requests';
+  render();
+  if (!reqVisible(r)) return toast('That request belongs to someone else', 'err');
+  setTimeout(() => {
+    const n = document.querySelector(`.reqcard[data-req="${CSS.escape(r.id)}"]`);
+    if (!n) return;
+    n.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    n.classList.add('focused');
+    if (reqStatus(r) !== 'Pending')
+      toast(`This one was already ${reqStatus(r).toLowerCase()}`, '');
+  }, 60);
+}
 function requestCard(r) {
-  const n = el('div', { class: 'reqcard' + (reqStatus(r) === 'Pending' ? ' pending' : '') });
+  const n = el('div', { class: 'reqcard' + (reqStatus(r) === 'Pending' ? ' pending' : '')
+    + (VIEW.reqFocus === r.id ? ' focused' : '') });
+  n.dataset.req = r.id;
   n.appendChild(el('header', {}, [
     el('div', { style: 'min-width:0;flex:1' }, [
       el('div', { class: 'nm', text: r.client || 'Unnamed' }),
@@ -7810,6 +7926,21 @@ function requestCard(r) {
   if (r.participants) add('Participating', esc(r.participants));
   b.appendChild(kv);
   if (r.details) b.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', text: r.details }));
+
+  /* Whether the approver actually heard about it. A rep should never have to
+     wonder, and a request nobody was told about needs a visible way to fix it. */
+  if (reqStatus(r) === 'Pending') {
+    const line = el('div', { class: 'sub', style: 'margin:0 0 var(--sp-3);display:flex;gap:8px;align-items:center;flex-wrap:wrap' });
+    if (r.notifiedAt) line.appendChild(el('span', { style: 'color:var(--good-ink)',
+      html: ico('check',12) + ` ${esc(r.notifiedTo || approverAddress())} was emailed ${esc(frel(r.notifiedAt.slice(0,10)))}` }));
+    else {
+      line.appendChild(el('span', { style: 'color:var(--warning)',
+        html: ico('warn',12) + ' The approver has not been emailed about this one yet.' }));
+      if (!isReadOnly()) line.appendChild(el('button', { class: 'btn sm', text: 'Send it now',
+        onclick: () => notifyApprover(r).then(() => render()) }));
+    }
+    b.appendChild(line);
+  }
 
   if (r.kind === 'Event') {
     const ev = el('div', { class: 'reqev' });
@@ -7891,6 +8022,7 @@ function decideRequest(r, status) {
       r.decidedAt = new Date().toISOString();
       upsert('demoRequests', r);
       closeAll(); render(); toast(`Request ${status.toLowerCase()}`, status === 'Approved' ? 'ok' : '');
+      notifyDecision(r);        // the rep who raised it hears the answer
     } })
   ]);
 }
@@ -8044,8 +8176,10 @@ function editRequest(r) {
         strategic: strategic.value.trim() || null,
         budgetConfirmed: budget.value === '1', budgetAmount: Number(budgetAmt.value) || 0
       });
-      upsert('demoRequests', rec);
+      const saved = upsert('demoRequests', rec);
       closeAll(); render(); toast(isNew ? 'Request submitted' : 'Saved', 'ok');
+      /* A request nobody is told about is a request nobody approves. */
+      if (isNew) notifyApprover(saved);
     } })
   ], true);
 }
@@ -8402,6 +8536,201 @@ function outlookPicker() {
     } })
   ], true);
   updateSum();
+}
+/* ================================================================
+   APPROVAL NOTIFICATIONS
+
+   A request raised in the tool is no use to anybody if the person who
+   has to approve it never learns it exists. Submitting one now sends
+   the approver a summary by email with a link straight back to that
+   request, and the decision sends the rep the answer.
+
+   It sends over Microsoft Graph as the signed-in person, which needs
+   the Mail.Send permission consented once. That consent is asked for
+   only at the moment a request is submitted, so nobody is made to
+   grant mail access just to look at the pipeline — and if it is
+   refused or unavailable, the mail opens in Outlook already written
+   instead, so the flow never dead-ends with the approver uninformed.
+   ================================================================ */
+
+const approverAddress = () =>
+  String((DB.config && DB.config.approver) || CFG.approver || '').trim().toLowerCase();
+
+/* The deep link: the tool's own URL, the Demo Requests view, and the record.
+   applyRoute() in the router opens it. */
+function requestLink(r) {
+  const base = location.origin + location.pathname + location.search;
+  return `${base}#requests?r=${encodeURIComponent(r.id)}`;
+}
+function ownerEmail(id) {
+  const o = DB.owners.find(x => x.id === String(id));
+  const m = o && String(o.email || '').trim();
+  return m && m.includes('@') ? m : null;
+}
+
+async function mailToken() {
+  if (!AUTH.msal || !AUTH.user) throw new Error('Not signed in');
+  const req = { scopes: CFG.mailScopes, account: AUTH.msal.getActiveAccount() };
+  try { return (await AUTH.msal.acquireTokenSilent(req)).accessToken; }
+  catch (e) { return (await AUTH.msal.acquireTokenPopup(req)).accessToken; }
+}
+
+const R = v => (v == null || v === '' ? '—' : String(v));
+function requestRows(r) {
+  const rows = [
+    ['Request type', r.kind + (r.kind === 'Event' && r.eventType ? ` · ${r.eventType}` : '')],
+    ['Client', r.client],
+    ['Raised by', ownerName(r.ownerId)],
+    ['Dates', r.startDate === r.endDate || !r.endDate
+      ? fdate(r.startDate) : `${fdate(r.startDate)} – ${fdate(r.endDate)}`],
+    ['Location', r.location],
+    ['Expected cost', r.cost ? `${CFG.currency} ${money(r.cost, { dash: false })}` : null],
+    ['Devices needed', (r.devices || []).join(', ')],
+    ['Who is participating', r.participants],
+    ['Path to commercial', r.commercial]
+  ];
+  if (r.kind === 'Event') rows.push(
+    ['Organiser & host', r.organizer],
+    ['Operating hours', r.opHours],
+    ['Expected footfall', r.footfall || null],
+    ['Audience', (r.audience || []).join(', ')],
+    ['VIP attending', r.vip ? 'Yes' : null],
+    ['Media coverage', r.media ? 'Yes' : null],
+    ['Expected leads', r.leads || null],
+    ['Potential revenue', r.revenueOpp ? `${CFG.currency} ${money(r.revenueOpp, { dash: false })}` : null],
+    ['Budget confirmed', r.budgetConfirmed
+      ? `Yes${r.budgetAmount ? ` · ${CFG.currency} ${money(r.budgetAmount, { dash: false })}` : ''}` : 'No'],
+    ['Strategic value', r.strategic]);
+  return rows.filter(([, v]) => v != null && v !== '' && v !== 0);
+}
+function requestHtml(r) {
+  const link = requestLink(r);
+  const rows = requestRows(r).map(([k, v]) =>
+    `<tr><td style="padding:7px 14px 7px 0;color:#5b6474;vertical-align:top;white-space:nowrap">${esc(k)}</td>` +
+    `<td style="padding:7px 0;color:#11151c"><b>${esc(String(v))}</b></td></tr>`).join('');
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#11151c;max-width:640px">
+  <p style="margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#5b6474">CoreV Sales CRM · approval needed</p>
+  <h2 style="margin:0 0 6px;font-size:21px">${esc(r.kind)} — ${esc(r.client)}</h2>
+  <p style="margin:0 0 18px;color:#5b6474">${esc(ownerName(r.ownerId))} submitted this for your approval.</p>
+  <table style="border-collapse:collapse;margin:0 0 18px">${rows}</table>
+  <p style="margin:0 0 6px;font-weight:600">What it is for</p>
+  <p style="margin:0 0 22px;white-space:pre-wrap">${esc(r.details || '')}</p>
+  ${r.plan ? `<p style="margin:0 0 6px;font-weight:600">Project plan</p>
+  <p style="margin:0 0 22px;white-space:pre-wrap">${esc(r.plan)}</p>` : ''}
+  <p style="margin:0 0 22px">
+    <a href="${esc(link)}" style="background:#2f6df6;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-weight:600">Open it in the CRM to approve or decline</a>
+  </p>
+  <p style="margin:0;color:#5b6474;font-size:13px">If the button does not work, paste this into your browser:<br>
+    <a href="${esc(link)}" style="color:#2f6df6">${esc(link)}</a></p>
+</div>`;
+}
+function requestText(r) {
+  return `CoreV Sales CRM — approval needed\n\n${r.kind} — ${r.client}\n` +
+    `${ownerName(r.ownerId)} submitted this for your approval.\n\n` +
+    requestRows(r).map(([k, v]) => `${k}: ${v}`).join('\n') +
+    `\n\nWhat it is for:\n${R(r.details)}\n` +
+    (r.plan ? `\nProject plan:\n${r.plan}\n` : '') +
+    `\nApprove or decline here:\n${requestLink(r)}\n`;
+}
+
+async function graphSendMail(to, subject, html) {
+  const tok = await mailToken();
+  const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: 'HTML', content: html },
+        toRecipients: to.filter(Boolean).map(a => ({ emailAddress: { address: a } }))
+      },
+      saveToSentItems: true
+    })
+  });
+  if (!res.ok) throw new Error(`Graph ${res.status} ${(await res.text()).slice(0, 160)}`);
+}
+/* The fallback: hand the person a mail already written. Not as good as
+   sending it, but it is the difference between the approver hearing about
+   this today and not at all. */
+function mailtoFallback(to, subject, body) {
+  const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}` +
+    `&body=${encodeURIComponent(body)}`;
+  const a = el('a', { href: url });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* Sends, and records on the record itself what happened, so the card can say
+   "the approver was notified" instead of leaving the rep to wonder. */
+async function notifyApprover(r, opt) {
+  const to = approverAddress();
+  const subject = `Approval needed · ${r.kind} — ${r.client} · ${fdate(r.startDate)}`;
+  if (!to) { toast('No approver address is set — Settings → Approvals', 'err'); return false; }
+  try {
+    await graphSendMail([to], subject, requestHtml(r));
+    r.notifiedAt = new Date().toISOString(); r.notifiedTo = to; r.notifyMode = 'sent';
+    sysWrite(() => upsert('demoRequests', r));
+    toast(`${to} has been emailed for approval`, 'ok');
+    return true;
+  } catch (e) {
+    r.notifyMode = 'manual'; r.notifyErr = String(e && e.message || e);
+    sysWrite(() => upsert('demoRequests', r));
+    if (opt && opt.silent) return false;
+    modal('The approval email could not be sent for you', el('div', {}, [
+      el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.65;color:var(--ink-2)', html:
+        `The request is saved and is sitting in <b>Demo Requests</b> as Pending — that part is fine. What did not ` +
+        `work is sending the mail on your behalf, which needs the <b>Mail.Send</b> permission consented once by an ` +
+        `administrator on the app registration.` }),
+      el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55', text: r.notifyErr }),
+      el('p', { style: 'margin:0;line-height:1.65;color:var(--ink-2)', html:
+        `You can open it in Outlook already written, or copy the summary and send it however you like. Either way ` +
+        `<b>${esc(to)}</b> gets a link straight to the request.` })
+    ]), [
+      el('button', { class: 'btn', text: 'Copy the summary', onclick: () => {
+        navigator.clipboard.writeText(requestText(r)).then(() => toast('Copied', 'ok'),
+          () => toast('Could not copy', 'err')); } }),
+      el('button', { class: 'btn primary', text: 'Open it in Outlook', onclick: () => {
+        mailtoFallback(to, subject, requestText(r)); closeAll(); } })
+    ], true);
+    return false;
+  }
+}
+
+/* The other half of the loop: the rep who raised it hears the answer. */
+async function notifyDecision(r) {
+  const to = ownerEmail(r.ownerId);
+  if (!to) return false;                      // no email on file — stay quiet
+  const ok = r.status === 'Approved';
+  const subject = `${r.status} · ${r.kind} — ${r.client}`;
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#11151c;max-width:640px">
+  <h2 style="margin:0 0 6px;font-size:21px">${ok ? 'Approved' : 'Declined'} — ${esc(r.client)}</h2>
+  <p style="margin:0 0 18px;color:#5b6474">Your ${esc((r.kind || 'request').toLowerCase())} on ${esc(fdate(r.startDate))} was ${esc(r.status.toLowerCase())} by ${esc(String(r.decidedBy || '').split('@')[0])}.</p>
+  ${r.decisionNote ? `<p style="margin:0 0 6px;font-weight:600">Note</p><p style="margin:0 0 22px;white-space:pre-wrap">${esc(r.decisionNote)}</p>` : ''}
+  <p style="margin:0"><a href="${esc(requestLink(r))}" style="color:#2f6df6">Open it in the CRM</a></p>
+</div>`;
+  try { await graphSendMail([to], subject, html); return true; }
+  catch (e) { return false; }
+}
+
+/* A one-click check that the whole chain works — permission, address, link —
+   without making somebody raise a fake request to find out. */
+function testApprovalMail() {
+  const to = approverAddress();
+  if (!to) return toast('Set an approver address first', 'err');
+  const sample = {
+    id: 'TEST', kind: 'On-site demo', client: 'Test — please ignore',
+    ownerId: currentOwnerId(), startDate: TODAY(), endDate: TODAY(),
+    location: 'Court Tower, Office 403', cost: 0, devices: ['XS1'],
+    details: 'This is a test of the approval notification. If it arrived, the flow works.',
+    status: 'Pending'
+  };
+  graphSendMail([to], `Test · approval notifications are working`, requestHtml(sample))
+    .then(() => toast(`Test sent to ${to}`, 'ok'))
+    .catch(e => modal('The test could not be sent', el('div', {}, [
+      el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.65;color:var(--ink-2)', html:
+        'Sending mail on your behalf needs the <b>Mail.Send</b> permission consented once by an administrator on ' +
+        'the app registration. Requests still work without it — the mail opens in Outlook already written instead.' }),
+      el('p', { class: 'sub', style: 'margin:0;line-height:1.55', text: String(e && e.message || e) })
+    ]), [ el('button', { class: 'btn primary', text: 'Close', onclick: closeAll }) ]));
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
@@ -8770,6 +9099,27 @@ function viewSettings(root) {
   });
   c4.body.appendChild(hl);
   g.appendChild(c4.node);
+
+  /* ---- who approves requests ---- */
+  const cA = card('Approvals', 'Who is emailed when a demo or event request is submitted');
+  const appIn = el('input', { class: 'inp', type: 'email', value: approverAddress(),
+    placeholder: 'ahmed@core-velocity.com' });
+  cA.body.appendChild(fld('Approver', appIn,
+    'Every new request emails this address a summary and a link straight to it. The decision goes back to the rep who raised it, when their record has an email on file.'));
+  cA.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap' }, [
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      const v = appIn.value.trim().toLowerCase();
+      if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return toast('That is not an email address', 'err');
+      DB.config.approver = v; touch('config'); render(); toast('Approver saved', 'ok');
+    } }),
+    el('button', { class: 'btn', text: 'Send myself a test',
+      onclick: () => testApprovalMail() })
+  ]));
+  cA.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55', html:
+    'The mail is sent as whoever is signed in, over Microsoft Graph, which needs the <b>Mail.Send</b> permission ' +
+    'consented once by an administrator. Until that is granted the request is still saved and the mail opens in ' +
+    'Outlook already written, so nothing is lost — it just is not automatic.' }));
+  g.appendChild(cA.node);
 
   /* ---- where the data lives ---- */
   const cW = card('Where the data lives', 'One folder, one copy — every person signed in reads and writes the same records');
@@ -9458,7 +9808,7 @@ async function boot() {
 
   const cached = loadLocal();
   if (SYNC.mode === 'onedrive') {
-    if (cached) { VIEW.name = (location.hash.replace('#','') || 'dashboard'); render(); }
+    if (cached) { VIEW.name = routeOf(location.hash).name; render(); }
     else bootSplash('Loading the team\'s CRM…',
       `Reading ${driveRoot()} on ${driveOwner() || 'OneDrive'}. The first load pulls everything down, so it takes a few seconds.`);
     await syncNow({ quiet: true });
@@ -9481,8 +9831,7 @@ async function boot() {
   }
   reindex(); rebuildStages();
   runMigrations();
-  VIEW.name = (location.hash.replace('#','') || 'dashboard');
-  render();
+  applyRoute();          // honours #requests?r=<id> from an approval email
   if (SYNC.mode === 'onedrive' && SYNC.dirty.size) scheduleSync();
 }
 /* One-shot data migrations, safe to run on every load. */
