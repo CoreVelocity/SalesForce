@@ -908,6 +908,16 @@ a.mfact:hover b{text-decoration:underline}
 .picklist .pick .nm{font-weight:600;font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .picklist .pick .sub{font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}
 
+/* bringing leads across from the tracker — the column mapper */
+.migmap{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:0 var(--sp-3)}
+.migmap .field{margin-bottom:var(--sp-3)}
+.migsample{display:flex;flex-direction:column;gap:6px}
+.migs{padding:8px 11px;border-radius:var(--r-sm);background:var(--surface-2);
+  border:1px solid var(--line-soft);min-width:0}
+.migs .nm{font-weight:600;font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.migs .sub{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;line-height:1.45}
+@media(max-width:560px){.migmap{grid-template-columns:1fr}}
+
 /* device counts on the picked deals */
 .unitrows{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--sp-4)}
 .unitrow{display:flex;gap:var(--sp-2);align-items:center;padding:7px 10px;border-radius:var(--r-sm);
@@ -1102,7 +1112,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.17.2';
+const VERSION = '1.18.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1181,6 +1191,12 @@ function frel(d) {
   if (n < 0)  return `${-n}d overdue`;
   if (n < 30) return `in ${n}d`;
   return fdate(d);
+}
+function fbytes(n) {
+  const b = Number(n) || 0;
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(0) + ' KB';
+  return (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + ' MB';
 }
 function money(v, opt) {
   const o = opt || {};
@@ -1406,6 +1422,7 @@ const I = {
   clip:  '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>',
   flag:  '<path d="M5 21V4h10l-1 3h6l-2 5 2 5h-9l-1-3H5"/>',
   target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  right: '<path d="M9 6l6 6-6 6"/>',
   link:  '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   chat:  '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z"/>',
   note:  '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/>'
@@ -10518,10 +10535,28 @@ function expandSci(s) {
 function leadNormalise(o) {
   o = o || {};
   const blob = [o.note, o.phone, o.email, o.address, o.source, o.company].filter(Boolean).join('\n');
-  let type = String(o.type || '').toUpperCase();
+  let type = String(o.type || '').trim().toUpperCase();
   if (type !== 'B2B' && type !== 'B2C') {
-    const t = ((o.type || '') + ' ' + (o.company || '') + ' ' + (o.note || '') + ' ' + (o.name || '')).toLowerCase();
-    type = /b2b|business|gym|hotel|studio|clinic|company|corporate|reseller|wellness|fitness cent/.test(t) ? 'B2B' : 'B2C';
+    const stated = String(o.type || '').toLowerCase();
+    if (/business|commercial|corporate|company|trade|wholesale|dealer/.test(stated)) type = 'B2B';
+    else if (/consumer|home|residential|individual|personal|retail/.test(stated)) type = 'B2C';
+    else {
+      /* A business named in the company column is strong evidence. The same
+         word in a note is weak: "villa gym" and "a gym for my home" are homes,
+         and reading them as businesses put them in front of the wrong rep with
+         the wrong opening line. So the home words can outvote the trade words. */
+      const co = String(o.company || '').toLowerCase();
+      const txt = (String(o.note || '') + ' ' + String(o.name || '')).toLowerCase();
+      const BIZ = /gym|hotel|studio|clinic|spa|resort|academy|fitness cent|wellness|club|centre|center|hospital|university|school|\bllc\b|l\.l\.c|\bfz\b|trading|group|company/;
+      const HOME = /\b(home|house|villa|apartment|apt|flat|residen\w*|personal|myself|my own|family)\b/;
+      let score = 0;
+      if (co.trim()) score += 2;
+      if (BIZ.test(co)) score += 2;
+      if (/\bb2b\b|corporate|reseller|wholesale|distributor|franchise|multiple locations|our members|our clients/.test(txt)) score += 3;
+      if (BIZ.test(txt)) score += 1;
+      if (HOME.test(txt)) score -= 3;
+      type = score > 0 ? 'B2B' : 'B2C';
+    }
   }
   const mail = (String(o.email || '') + ' ' + blob).match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/);
   const rawPhone = expandSci(o.phone || '');
@@ -10660,6 +10695,8 @@ function viewLeads(root) {
     el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportLeads(all) }),
     isReadOnly() ? null : el('button', { class: 'btn', html: ico('clip',14) + ' Import a list',
       onclick: leadImportModal }),
+    isReadOnly() ? null : el('button', { class: 'btn', html: ico('link',14) + ' From the Sales Tracker',
+      title: 'Read the marketing leads straight out of the tracker’s OneDrive folder', onclick: migOpen }),
     isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus',14) + ' New lead',
       onclick: () => leadEdit(null) })
   ]));
@@ -11079,6 +11116,600 @@ function exportLeads(rows) {
   ];
   download('corev-marketing-leads-' + TODAY() + '.csv', toCSV(rows, cols), 'text/csv');
   toast(`${rows.length} leads exported`, 'ok');
+}
+/* ================================================================
+   BRING DATA ACROSS FROM THE SALES TRACKER
+
+   The tracker (corevelocity/sales) keeps its records as JSON in the
+   same OneDrive this CRM reads, so nothing has to be exported by hand:
+   sign in, point at the tracker's folder, and its marketing leads come
+   across with the stage they were at, the rep who had them and the day
+   they arrived.
+
+   Four things make it safe to run on live data:
+     · a backup of the tracker's folder downloads before anything is
+       read across, and OneDrive keeps its own version history besides;
+     · nothing is ever written back to the tracker — this only reads;
+     · every lead carries the id it had over there, so running it a
+       second time updates what came across instead of doubling it;
+     · the last run can be undone in one click.
+
+   It does not assume the tracker's field names. It reads the file,
+   finds the arrays that look like leads, guesses the columns, and then
+   shows that guess for correction before a single record is written.
+   ================================================================ */
+
+const MIG = { step: 'src', busy: '', err: '', folders: [], files: [], folder: null,
+  file: null, raw: null, cands: [], pick: null, map: {}, rows: [], opts: {} };
+
+/* ---------------------------------------------------- reading OneDrive */
+const migFolderId = () => (DB.config && DB.config.trackerFolder) || '';
+
+async function migChildren(id) {
+  const r = await graph(`/drives/${DRIVE.id}/items/${id}/children` +
+    '?$top=200&$select=id,name,size,folder,file,lastModifiedDateTime');
+  return (r && r.value) || [];
+}
+async function migScan() {
+  MIG.busy = 'Looking in OneDrive…'; MIG.err = ''; migPaint();
+  try {
+    await resolveDrive();
+    /* The CRM's own folder sits beside the tracker's — OXEFIT/CoreVCRM and
+       OXEFIT/<whatever the tracker called itself> — so the parent is where
+       to look first. */
+    const me = await graph(`/drives/${DRIVE.id}/items/${DRIVE.folderId}?$select=id,name,parentReference`);
+    const parent = me && me.parentReference && me.parentReference.id;
+    const sibs = parent ? await migChildren(parent) : [];
+    MIG.folders = sibs.filter(x => x.folder && x.id !== DRIVE.folderId);
+    MIG.step = 'folder';
+  } catch (e) {
+    MIG.err = String(e.message || e);
+    MIG.step = 'folder';
+  } finally { MIG.busy = ''; migPaint(); }
+}
+async function migOpenFolder(f) {
+  MIG.folder = f; MIG.busy = 'Reading ' + f.name + '…'; MIG.err = ''; migPaint();
+  try {
+    const kids = await migChildren(f.id);
+    MIG.files = kids.filter(x => x.file && /\.(json|csv|txt)$/i.test(x.name))
+      .sort((a, b) => String(b.lastModifiedDateTime).localeCompare(String(a.lastModifiedDateTime)));
+    /* One level down as well — some tools keep a data/ subfolder. */
+    for (const sub of kids.filter(x => x.folder).slice(0, 6)) {
+      const deeper = await migChildren(sub.id);
+      deeper.filter(x => x.file && /\.(json|csv|txt)$/i.test(x.name))
+        .forEach(x => MIG.files.push(Object.assign({}, x, { name: sub.name + '/' + x.name })));
+    }
+    MIG.step = 'file';
+  } catch (e) { MIG.err = String(e.message || e); }
+  finally { MIG.busy = ''; migPaint(); }
+}
+async function migGrab(item) {
+  const r = await graph(`/drives/${DRIVE.id}/items/${item.id}/content`, { raw: true });
+  return await r.text();
+}
+async function migReadFile(item) {
+  MIG.busy = 'Opening ' + item.name + '…'; MIG.err = ''; migPaint();
+  try {
+    MIG.file = item;
+    migTake(await migGrab(item), item.name);
+  } catch (e) { MIG.err = String(e.message || e); MIG.busy = ''; migPaint(); }
+}
+
+/* Downloads everything in the tracker's folder as one file, before a single
+   record is read across. This is the backup. */
+async function migBackup() {
+  const f = MIG.folder; if (!f) return;
+  MIG.busy = 'Packing a backup of ' + f.name + '…'; migPaint();
+  const bundle = { tool: f.name, folder: f.name, takenAt: new Date().toISOString(),
+    takenBy: (AUTH.user && AUTH.user.username) || 'local', files: {} };
+  let bytes = 0, failed = [];
+  try {
+    for (const item of MIG.files) {
+      try {
+        const text = await migGrab(item);
+        bytes += text.length;
+        try { bundle.files[item.name] = JSON.parse(text); }
+        catch (e) { bundle.files[item.name] = text; }
+      } catch (e) { failed.push(item.name); }
+    }
+    download(`${f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-backup-${TODAY()}.json`,
+      JSON.stringify(bundle, null, 1));
+    toast(`Backup of ${Object.keys(bundle.files).length} file${Object.keys(bundle.files).length === 1 ? '' : 's'} downloaded` +
+      (failed.length ? ` · ${failed.length} could not be read` : ''), failed.length ? 'warn' : 'ok');
+  } catch (e) { toast('Backup failed: ' + String(e.message || e).slice(0, 110), 'err'); }
+  finally { MIG.busy = ''; migPaint(); }
+}
+
+/* ---------------------------------------------------- finding the leads */
+function migTake(text, label) {
+  MIG.busy = '';
+  let data;
+  try { data = JSON.parse(text); }
+  catch (e) {
+    /* Not JSON — read it as a sheet, keeping EVERY column as its own field.
+       The plain lead reader would be simpler here, but it throws away any
+       column it does not recognise, and stage and rep are exactly the two
+       columns worth keeping off a tracker export. */
+    const rows = migCsvRows(text);
+    if (!rows.length) { MIG.err = 'That file is neither JSON nor a table with a row of headings.'; return migPaint(); }
+    MIG.cands = [{ path: label, rows: rows, score: 99, keys: migKeys(rows) }];
+    MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys); MIG.step = 'map';
+    return migPaint();
+  }
+  MIG.cands = migArrays(data).map(c => Object.assign(c, { score: migScore(c.rows), keys: migKeys(c.rows) }))
+    .filter(c => c.score > 0)
+    .sort((a, b) => b.score - a.score || b.rows.length - a.rows.length);
+  if (!MIG.cands.length) { MIG.err = 'Nothing in that file looks like a list of people — no names with a phone or an email.'; return migPaint(); }
+  MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys);
+  MIG.step = MIG.cands.length > 1 ? 'pick' : 'map';
+  migPaint();
+}
+/* A sheet, as rows of its own columns — headings kept exactly as written so
+   they read back recognisably in the mapper. */
+function migCsvRows(text) {
+  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const delim = lines[0].indexOf('\t') >= 0 ? '\t' : ',';
+  const head = splitCsvLine(lines[0], delim).map((h, i) => h.trim() || 'column ' + (i + 1));
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvLine(lines[i], delim);
+    if (!cells.some(c => String(c).trim())) continue;
+    const o = {}; head.forEach((h, n) => { o[h] = cells[n] === undefined ? '' : cells[n]; });
+    out.push(o);
+  }
+  return out;
+}
+
+/* Every array of objects in the file, with the path that got there. */
+function migArrays(node, path, out, depth) {
+  out = out || []; depth = depth || 0;
+  if (depth > 5 || !node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) {
+    if (node.length && node.some(x => x && typeof x === 'object' && !Array.isArray(x)))
+      out.push({ path: path || '(the file itself)', rows: node.filter(x => x && typeof x === 'object') });
+    node.slice(0, 3).forEach(x => migArrays(x, (path || '') + '[]', out, depth + 1));
+    return out;
+  }
+  Object.keys(node).forEach(k => migArrays(node[k], path ? path + '.' + k : k, out, depth + 1));
+  return out;
+}
+const migFlat = (o, pre, out) => {
+  out = out || {}; pre = pre || '';
+  Object.keys(o || {}).forEach(k => {
+    const v = o[k];
+    if (v && typeof v === 'object' && !Array.isArray(v) && pre.split('.').length < 3) migFlat(v, pre + k + '.', out);
+    else out[pre + k] = v;
+  });
+  return out;
+};
+const migGet = (o, path) => String(path || '').split('.').reduce((n, k) => (n == null ? n : n[k]), o);
+/* Keys across the first 200 rows, most-filled first — the empty ones are
+   noise in a mapping dropdown. */
+function migKeys(rows) {
+  const fill = {};
+  rows.slice(0, 200).forEach(r => Object.entries(migFlat(r)).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && String(v).trim() !== '') fill[k] = (fill[k] || 0) + 1;
+  }));
+  return Object.keys(fill).sort((a, b) => fill[b] - fill[a]);
+}
+const MIG_NAMEY  = /^(name|full.?name|lead.?name|customer|client|contact|contact.?name|first.?name|fname)$/i;
+const MIG_PHONEY = /phone|mobile|whats|tel|msisdn/i;
+const MIG_MAILY  = /mail/i;
+function migScore(rows) {
+  const keys = migKeys(rows);
+  const has = re => keys.some(k => re.test(k.split('.').pop()));
+  let s = 0;
+  if (has(MIG_NAMEY) || has(/name/i)) s += 3;
+  if (has(MIG_PHONEY)) s += 3;
+  if (has(MIG_MAILY)) s += 2;
+  if (has(/stage|status/i)) s += 2;
+  if (has(/source|channel|campaign/i)) s += 2;
+  if (has(/lead/i)) s += 1;
+  if (has(/emirate|area|city|location|address/i)) s += 1;
+  /* A list of stages or of reps is not a list of leads. */
+  if (keys.length <= 2 && !has(MIG_PHONEY) && !has(MIG_MAILY)) s -= 3;
+  return s < 5 ? 0 : s;
+}
+
+/* ---------------------------------------------------- guessing the columns */
+const MIG_FIELDS = [
+  ['name',      'Name',            /^(name|full.?name|lead.?name|customer.?name|client.?name|contact.?name|first.?name|fname|customer|client)$/i, /name|customer|client/i],
+  ['name2',     'Last name',       /^(last.?name|surname|family.?name|lname)$/i, /last.?name|surname/i],
+  ['phone',     'Phone',           /^(phone|mobile|whats.?app|whatsapp.?number|contact.?number|phone.?number|tel|number)$/i, MIG_PHONEY],
+  ['email',     'Email',           /^(e-?mail|email.?address|mail)$/i, MIG_MAILY],
+  ['company',   'Company',         /^(company|company.?name|business|business.?name|organisation|organization|gym|account|brand)$/i, /company|business|organi|account|gym/i],
+  ['address',   'Address or area', /^(address|location|area|city|emirate|region|district)$/i, /address|location|area|city|emirate|region/i],
+  ['source',    'Source',          /^(source|lead.?source|channel|campaign|platform|medium|form)$/i, /source|channel|campaign|platform|medium/i],
+  ['stage',     'Stage or status', /^(stage|status|state|pipeline|lead.?status|progress)$/i, /stage|status|pipeline/i],
+  ['type',      'B2B / B2C',       /^(type|lead.?type|segment|category|b2b)$/i, /type|segment|categ/i],
+  ['note',      'Note',            /^(note|notes|message|comment|comments|remark|remarks|enquiry|inquiry|requirement|details|description)$/i, /note|message|comment|remark|enquir|inquir|requirement|detail|descr/i],
+  ['assignee',  'Assigned rep',    /^(assigned|assigned.?to|assignee|owner|rep|sales.?rep|agent|handled.?by|salesperson)$/i, /assign|owner|\brep\b|agent|salesperson/i],
+  ['language',  'Language',        /^(language|lang|preferred.?language)$/i, /language/i],
+  ['createdAt', 'Date added',      /^(created|created.?at|created.?date|date|date.?added|added|added.?on|timestamp|submitted|submission.?date|received)$/i, /creat|^date|added|timestamp|submit|received/i]
+];
+function migGuess(keys) {
+  const map = {}, used = new Set();
+  const tail = k => k.split('.').pop();
+  /* Exact matches first across every field, so a loose match on one field
+     cannot steal the column another field names outright. */
+  [2, 3].forEach(pass => MIG_FIELDS.forEach(([f, , exact, loose]) => {
+    if (map[f]) return;
+    const re = pass === 2 ? exact : loose;
+    const hit = keys.find(k => !used.has(k) && re.test(tail(k)));
+    if (hit) { map[f] = hit; used.add(hit); }
+  }));
+  return map;
+}
+
+/* ---------------------------------------------------- mapping a row */
+const MIG_STAGE_RULES = [
+  [/won|closed.?won|purchas|sold|customer|deal.?closed/i, 'Won'],
+  [/lost|closed.?lost|dead|not.?interest|unqualif|junk|spam|dnc|no.?response$/i, 'Lost'],
+  [/demo|appointment|booked|meeting|scheduled|visit|trial/i, 'Demo booked'],
+  [/engag|interest|qualif|hot|warm|negoti|proposal|quote|discussion/i, 'Engaged'],
+  [/refer/i, 'Referral'],
+  [/contact|follow|reach|attempt|called|whats|responded|working/i, 'Contacted'],
+  [/new|fresh|open|unassign|inbound|untouched|pending/i, 'New']
+];
+function migStage(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return 'New';
+  if (MLEAD_STAGES.includes(s)) return s;
+  const hit = MIG_STAGE_RULES.find(([re]) => re.test(s));
+  return hit ? hit[1] : 'New';
+}
+function migOwner(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  const people = activeOwners();
+  const byId = people.find(o => o.id === s);
+  if (byId) return byId.id;
+  const byMail = /@/.test(s) && people.find(o => String(o.email || '').toLowerCase() === s.toLowerCase());
+  if (byMail) return byMail.id;
+  const hit = uniqueByName(people, norm(/@/.test(s) ? s.split('@')[0].replace(/[._-]+/g, ' ') : s));
+  return hit ? hit.id : '';
+}
+function migDate(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number') {
+    /* Seconds, milliseconds, or an Excel serial — all three turn up. */
+    if (v > 1e12) return new Date(v).toISOString();
+    if (v > 1e9) return new Date(v * 1000).toISOString();
+    if (v > 20000 && v < 60000) return new Date(Date.UTC(1899, 11, 30) + v * 864e5).toISOString();
+  }
+  const s = String(v).trim();
+  const dmy = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);      // 07/03/2026 is 7 March here
+  if (dmy) return new Date(Date.UTC(+dmy[3], +dmy[2] - 1, +dmy[1])).toISOString();
+  const t = Date.parse(s);
+  return isNaN(t) ? '' : new Date(t).toISOString();
+}
+function migRowToLead(src, map) {
+  const flat = migFlat(src);
+  const rawOf = f => { const k = map[f]; if (!k) return null;
+    return flat[k] !== undefined ? flat[k] : migGet(src, k); };
+  const g = f => { const v = rawOf(f);
+    return v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v)); };
+  const name = [g('name'), g('name2')].filter(Boolean).join(' ').trim();
+  const l = leadNormalise({ name, company: g('company'), phone: g('phone'), email: g('email'),
+    address: g('address'), source: g('source') || (MIG.folder ? MIG.folder.name : 'Sales Tracker'),
+    note: g('note'), type: g('type'), language: g('language') });
+  l.stage = migStage(g('stage'));
+  l.rawStage = g('stage');
+  l.rawAssignee = g('assignee');
+  l.assignee = migOwner(g('assignee'));
+  l.createdAt = migDate(rawOf('createdAt'));   /* raw: an epoch is a number, not '1772409600000' */
+  l.srcId = String(src.id || src._id || src.uuid || src.leadId || '') || leadKey(l);
+  return l;
+}
+function migBuild() {
+  const rows = (MIG.pick.rows || []).map(r => migRowToLead(r, MIG.map)).filter(r => r.name || r.phone || r.email);
+  const byKey = leadIndex();
+  const bySrc = new Map();
+  live('leads').forEach(l => { if (l.srcId) bySrc.set('s:' + l.srcId, l); });
+  const seen = new Set();
+  rows.forEach(r => {
+    const dupInFile = seen.has(leadKey(r)); seen.add(leadKey(r));
+    const here = bySrc.get('s:' + r.srcId) || byKey.get(leadKey(r)) || null;
+    r._here = here ? here.id : null;
+    r._twice = dupInFile;
+    r._take = !dupInFile;
+  });
+  MIG.rows = rows;
+}
+
+/* ---------------------------------------------------- writing it in */
+function migCommit() {
+  const take = MIG.rows.filter(r => r._take);
+  if (!take.length) return;
+  const made = [], touched = [];
+  let routed = 0, deals = 0;
+  batch(() => take.forEach(r => {
+    let l = r._here ? getLead(r._here) : null;
+    if (l) {
+      /* Update, never overwrite: anything a rep has already put in here wins. */
+      ['company', 'phone', 'email', 'address', 'source', 'note'].forEach(k => { if (!l[k] && r[k]) l[k] = r[k]; });
+      if (!l.assignee && r.assignee) l.assignee = r.assignee;
+      if (MIG.opts.stage !== false && r.stage && r.stage !== 'New') l.stage = r.stage;
+      l.srcId = l.srcId || r.srcId; l.srcTool = l.srcTool || 'Sales Tracker';
+      leadSave(l); touched.push(l.id);
+    } else {
+      l = leadCreate(Object.assign({}, r, { assignee: r.assignee || '' }), { quiet: true });
+      if (r.createdAt) l.createdAt = r.createdAt;
+      if (r.stage) l.stage = r.stage;
+      l.srcId = r.srcId; l.srcTool = 'Sales Tracker';
+      if (r.rawStage && r.stage === 'New' && !/new|fresh|open/i.test(r.rawStage))
+        leadAddUpdate(l, `Came across from the Sales Tracker as "${r.rawStage}" — parked at New`, true);
+      if (r.rawAssignee && !r.assignee)
+        leadAddUpdate(l, `Was with "${r.rawAssignee}" in the Sales Tracker — no one here matched that name` +
+          (l.assignee ? `, so it was routed to ${ownerName(l.assignee)}` : ''), true);
+      leadSave(l); made.push(l.id);
+      if (l.assignee) routed++;
+      if (MIG.opts.deals && LEAD_DEAL_AT.includes(l.stage)) { try { leadToDeal(l); leadSave(l); deals++; } catch (e) {} }
+    }
+  }));
+  DB.config.leadMigLast = { at: new Date().toISOString(),
+    by: (AUTH.user && AUTH.user.username) || 'local',
+    from: (MIG.folder ? MIG.folder.name + '/' : '') + (MIG.file ? MIG.file.name : 'a file'),
+    made, touched: touched.length };
+  touch('config');
+  closeAll(); VIEW.name = 'leads'; render();
+  toast(`${made.length} lead${made.length === 1 ? '' : 's'} brought across` +
+    (touched.length ? ` · ${touched.length} already here were topped up` : '') +
+    ` · ${routed} routed` + (deals ? ` · ${deals} deals created` : ''), 'ok');
+}
+function migUndoLast() {
+  const last = DB.config && DB.config.leadMigLast;
+  if (!last || !(last.made || []).length) return toast('Nothing to undo', 'err');
+  confirmDo('Undo the last import',
+    `${last.made.length} leads came across on ${new Date(last.at).toLocaleString('en-GB')}. ` +
+    'Removing them takes their contacts with them, unless a rep has since worked one — those are left alone. ' +
+    'Leads that were already here and only topped up are not touched.',
+    'Undo it', () => {
+      let gone = 0, kept = 0;
+      batch(() => last.made.forEach(id => {
+        const l = getLead(id); if (!l) return;
+        const worked = (l.updates || []).some(u => !/came across|was with/i.test(u.text)) ||
+          l.lastWhatsAppAt || l.dealId || (l.touches || []).some(t => t.status === 'sent');
+        if (worked) { kept++; return; }
+        if (l.contactId) { const c = getCt(l.contactId); if (c && c.isLead) remove('contacts', c.id); }
+        remove('leads', id); gone++;
+      }));
+      DB.config.leadMigLast = null; touch('config');
+      closeAll(); render();
+      toast(`${gone} removed` + (kept ? ` · ${kept} left alone because they have been worked` : ''), 'ok');
+    });
+}
+
+/* ================================================================
+   THE SCREENS
+   ================================================================ */
+function migOpen() {
+  MIG.step = 'src'; MIG.err = ''; MIG.busy = ''; MIG.rows = []; MIG.cands = [];
+  MIG.folder = null; MIG.file = null; MIG.pick = null; MIG.opts = { stage: true, deals: false };
+  migPaint();
+}
+function migPaint() {
+  const body = el('div', {});
+  if (MIG.busy) body.appendChild(el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' }, [
+    el('span', { class: 'ic', html: ico('sync', 16) }), el('div', { style: 'flex:1', text: MIG.busy })]));
+  if (MIG.err) body.appendChild(el('div', { class: 'alert', style: 'border-color:var(--critical);margin-bottom:var(--sp-3)' }, [
+    el('span', { class: 'ic', html: ico('warn', 16) }), el('div', { style: 'flex:1;line-height:1.5', text: MIG.err })]));
+  const foot = [];
+  MIG._after = null;
+  ({ src: migStepSrc, folder: migStepFolder, file: migStepFile, pick: migStepPick,
+     map: migStepMap, preview: migStepPreview }[MIG.step] || migStepSrc)(body, foot);
+  modal('Bring leads across from the Sales Tracker', body, foot, true);
+  /* The footer buttons only exist once modal() has put them in the page, so
+     anything that labels one runs here rather than while building the step. */
+  if (MIG._after) MIG._after();
+}
+
+function migStepSrc(body, foot) {
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.65;color:var(--ink-2)', html:
+    'The tracker keeps its records in OneDrive, in a folder beside this one, so they can be read straight across — ' +
+    'no export, no copy and paste. <b>Nothing is written back to the tracker</b>, and nothing lands here until you have ' +
+    'seen it.' }));
+  const opt = (title, sub, on, dis) => {
+    const b = el('button', { class: 'btn', style:
+      'display:block;width:100%;text-align:left;padding:var(--sp-3);height:auto;margin-bottom:var(--sp-2)',
+      disabled: dis || null, onclick: on });
+    b.appendChild(el('div', { style: 'font-weight:600', text: title }));
+    b.appendChild(el('div', { class: 'sub', style: 'margin-top:2px;white-space:normal;line-height:1.5', text: sub }));
+    return b;
+  };
+  body.appendChild(opt('Read it from OneDrive',
+    SYNC.mode === 'onedrive' ? 'Pick the tracker’s folder, download a backup of it, then choose the file to read.'
+      : 'Sign in with Microsoft first — this browser is not synced at the moment.',
+    migScan, SYNC.mode !== 'onedrive'));
+
+  const file = el('input', { type: 'file', accept: '.json,.csv,.txt', style: 'display:none',
+    onchange: e => { const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { MIG.file = { name: f.name }; migTake(String(r.result || ''), f.name); };
+      r.readAsText(f); } });
+  body.appendChild(file);
+  body.appendChild(opt('Choose a file I already exported',
+    'A backup or export from the tracker — JSON or CSV. Use this if the tracker’s data is only in the browser it was typed into.',
+    () => file.click()));
+
+  const last = DB.config && DB.config.leadMigLast;
+  if (last && (last.made || []).length) body.appendChild(el('div', { class: 'alert', style: 'margin-top:var(--sp-3)' }, [
+    el('span', { class: 'ic', html: ico('warn', 16) }),
+    el('div', { style: 'flex:1;line-height:1.55' }, [
+      el('div', { text: `${last.made.length} leads came across on ${new Date(last.at).toLocaleString('en-GB')} from ${last.from}.` }),
+      el('button', { class: 'btn sm ghost', style: 'margin-top:6px', text: 'Undo that import', onclick: migUndoLast })
+    ])]));
+  foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
+}
+
+function migStepFolder(body, foot) {
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)',
+    text: MIG.folders.length
+      ? `These folders sit beside ${driveRoot()} on ${DRIVE.name || driveOwner()}. Pick the tracker’s.`
+      : `Nothing else is in the folder beside ${driveRoot()}. The tracker may keep its data somewhere else — export a file from it instead.` }));
+  const list = el('div', { class: 'picklist', style: 'max-height:46vh' });
+  MIG.folders.forEach(f => {
+    const row = el('button', { class: 'pick', style: 'width:100%;text-align:left', onclick: () => migOpenFolder(f) });
+    row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+      el('div', { class: 'nm', text: f.name }),
+      el('div', { class: 'sub', text: 'changed ' + fdate(String(f.lastModifiedDateTime || '').slice(0, 10), 'long') })
+    ]));
+    row.appendChild(el('span', { class: 'ic', html: ico('right', 14) }));
+    list.appendChild(row);
+  });
+  if (MIG.folders.length) body.appendChild(list);
+  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = 'src'; migPaint(); } }));
+  foot.push(el('div', { style: 'flex:1' }));
+  foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
+}
+
+function migStepFile(body, foot) {
+  body.appendChild(el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' }, [
+    el('span', { class: 'ic', html: ico('warn', 16) }),
+    el('div', { style: 'flex:1;line-height:1.55' }, [
+      el('div', { html: `<b>Take the backup first.</b> It downloads every file in ${esc(MIG.folder.name)} as one JSON, ` +
+        'so there is a copy of the tracker on your own machine before anything is read across. ' +
+        'OneDrive keeps its own version history of that folder besides — right-click it in OneDrive → Version history.' }),
+      el('button', { class: 'btn sm', style: 'margin-top:8px', html: ico('dl', 14) + ' Download a backup of ' + esc(MIG.folder.name),
+        onclick: migBackup })
+    ])]));
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-2);color:var(--ink-2);line-height:1.6',
+    text: MIG.files.length ? 'Now pick the file the leads are in. If you are not sure, open the biggest one — the tool will say what it found.'
+      : 'No JSON or CSV in that folder.' }));
+  const list = el('div', { class: 'picklist', style: 'max-height:40vh' });
+  MIG.files.forEach(f => {
+    const row = el('button', { class: 'pick', style: 'width:100%;text-align:left', onclick: () => migReadFile(f) });
+    row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+      el('div', { class: 'nm', text: f.name }),
+      el('div', { class: 'sub', text: `${fbytes(f.size)} · changed ${fdate(String(f.lastModifiedDateTime || '').slice(0, 10), 'long')}` })
+    ]));
+    list.appendChild(row);
+  });
+  body.appendChild(list);
+  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = 'folder'; migPaint(); } }));
+  foot.push(el('div', { style: 'flex:1' }));
+  foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
+}
+
+function migStepPick(body, foot) {
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6',
+    text: 'That file holds more than one list. This one looks most like leads — change it if it is the wrong one.' }));
+  const list = el('div', { class: 'picklist', style: 'max-height:44vh' });
+  MIG.cands.slice(0, 12).forEach(c => {
+    const row = el('button', { class: 'pick' + (c === MIG.pick ? ' on' : ''), style: 'width:100%;text-align:left',
+      onclick: () => { MIG.pick = c; MIG.map = migGuess(c.keys); MIG.step = 'map'; migPaint(); } });
+    row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+      el('div', { class: 'nm', text: `${c.rows.length} rows · ${c.path}` }),
+      el('div', { class: 'sub', text: c.keys.slice(0, 8).join(', ') })
+    ]));
+    list.appendChild(row);
+  });
+  body.appendChild(list);
+  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = MIG.folder ? 'file' : 'src'; migPaint(); } }));
+  foot.push(el('div', { style: 'flex:1' }));
+  foot.push(el('button', { class: 'btn primary', text: 'Use this list',
+    onclick: () => { MIG.map = migGuess(MIG.pick.keys); MIG.step = 'map'; migPaint(); } }));
+}
+
+function migStepMap(body, foot) {
+  const keys = MIG.pick.keys;
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6', html:
+    `<b>${MIG.pick.rows.length} rows.</b> This is the tool’s guess at which column is which. ` +
+    'Correct anything it got wrong — the three sample rows underneath follow your changes as you make them.' }));
+  const grid = el('div', { class: 'migmap' });
+  const sample = el('div', { class: 'migsample' });
+  const redraw = () => {
+    sample.innerHTML = '';
+    MIG.pick.rows.slice(0, 3).map(r => migRowToLead(r, MIG.map)).forEach(l => {
+      const c = el('div', { class: 'migs' });
+      c.appendChild(el('div', { class: 'nm', text: (l.name || '— no name —') + (l.company ? ' · ' + l.company : '') }));
+      c.appendChild(el('div', { class: 'sub', text: [l.type, l.phone || 'no phone', l.email || 'no email',
+        l.region || 'no region yet', l.stage, l.assignee ? ownerName(l.assignee) : (l.rawAssignee ? l.rawAssignee + ' (no match)' : 'nobody'),
+        l.createdAt ? fdate(l.createdAt) : 'no date'].filter(Boolean).join(' · ') }));
+      if (l.note) c.appendChild(el('div', { class: 'sub', style: 'color:var(--ink-3)', text: l.note.slice(0, 120) }));
+      sample.appendChild(c);
+    });
+  };
+  MIG_FIELDS.forEach(([f, label]) => {
+    const sel = el('select', { class: 'inp', onchange: e => { MIG.map[f] = e.target.value || null; redraw(); } });
+    sel.appendChild(el('option', { value: '', text: '— not in the file —' }));
+    keys.forEach(k => sel.appendChild(el('option', { value: k, text: k, selected: MIG.map[f] === k || null })));
+    grid.appendChild(fld(label, sel));
+  });
+  body.appendChild(grid);
+  body.appendChild(el('div', { class: 'sub', style: 'margin:var(--sp-3) 0 6px;font-weight:600', text: 'The first three rows, read your way' }));
+  body.appendChild(sample);
+  redraw();
+  foot.push(el('button', { class: 'btn', text: 'Back',
+    onclick: () => { MIG.step = MIG.cands.length > 1 ? 'pick' : (MIG.folder ? 'file' : 'src'); migPaint(); } }));
+  foot.push(el('div', { style: 'flex:1' }));
+  foot.push(el('button', { class: 'btn primary', text: 'Check them',
+    onclick: () => { if (!MIG.map.name && !MIG.map.phone && !MIG.map.email) {
+        MIG.err = 'Map at least a name, a phone or an email — otherwise there is no lead to bring across.'; return migPaint(); }
+      MIG.err = ''; migBuild(); MIG.step = 'preview'; migPaint(); } }));
+}
+
+function migStepPreview(body, foot) {
+  const rows = MIG.rows;
+  const list = el('div', { class: 'picklist', style: 'max-height:40vh' });
+  const sum = el('div', { class: 'picksum' });
+  const count = () => {
+    const n = rows.filter(r => r._take).length;
+    const upd = rows.filter(r => r._take && r._here).length;
+    const routed = rows.filter(r => r._take && r.assignee).length;
+    sum.innerHTML = `<b>${rows.length}</b> read · <b>${n}</b> ticked · ${n - upd} new · ${upd} already here ` +
+      `· ${routed} keep their rep`;
+    const go = $('#miggo'); if (go) { go.disabled = !n; go.textContent = n ? `Bring ${n} across` : 'Bring across'; }
+  };
+  const paint = () => {
+    list.innerHTML = '';
+    rows.forEach(r => {
+      const row = el('label', { class: 'pick' + (r._take ? ' on' : '') + (r._here || r._twice ? ' taken' : '') });
+      row.appendChild(el('input', { type: 'checkbox', checked: r._take || null,
+        onchange: e => { r._take = e.target.checked; row.classList.toggle('on', r._take); count(); } }));
+      row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { class: 'nm', text: (r.name || '— no name —') + (r.company ? ' · ' + r.company : '') }),
+        el('div', { class: 'sub', text: [r.phone, r.email, r.stage, r.region || 'no region',
+          r.assignee ? ownerName(r.assignee) : (r.rawAssignee ? r.rawAssignee + ' — no match here' : 'needs a rep'),
+          r.createdAt ? fdate(r.createdAt) : ''].filter(Boolean).join(' · ') }),
+        r._twice ? el('div', { class: 'sub', style: 'color:var(--warning)', text: 'Twice in the file — left unticked' })
+          : r._here ? el('div', { class: 'sub', style: 'color:var(--warning)',
+              text: 'Already in the CRM — ticking it fills in blanks, it will not make a second one' }) : null
+      ]));
+      list.appendChild(row);
+    });
+    count();
+  };
+  const cb = (label, key, hint) => {
+    const w = el('label', { style: 'display:flex;gap:8px;align-items:flex-start;line-height:1.5;margin-bottom:6px;cursor:pointer' });
+    w.appendChild(el('input', { type: 'checkbox', checked: MIG.opts[key] || null, style: 'margin-top:3px',
+      onchange: e => { MIG.opts[key] = e.target.checked; } }));
+    w.appendChild(el('div', {}, [ el('div', { text: label }),
+      el('div', { class: 'sub', style: 'white-space:normal', text: hint }) ]));
+    return w;
+  };
+  paint();
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6', html:
+    'Each one becomes a lead <b>and a contact</b>, keeping the stage it was at, the rep who had it and the day it arrived. ' +
+    'Anything with no rep is routed by the emirate in its address. The seven-step follow-up is built for every one of them.' }));
+  body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);margin-bottom:var(--sp-2);flex-wrap:wrap' }, [
+    el('button', { class: 'btn sm', text: 'Tick all', onclick: () => { rows.forEach(r => { r._take = !r._twice; }); paint(); } }),
+    el('button', { class: 'btn sm ghost', text: 'Only the new ones',
+      onclick: () => { rows.forEach(r => { r._take = !r._here && !r._twice; }); paint(); } }),
+    el('button', { class: 'btn sm ghost', text: 'Tick none', onclick: () => { rows.forEach(r => { r._take = false; }); paint(); } })
+  ]));
+  body.appendChild(sum);
+  body.appendChild(list);
+  body.appendChild(el('div', { style: 'margin-top:var(--sp-3)' }, [
+    cb('Keep the stage each lead was at', 'stage', 'Off means everything arrives as New. Stages the tracker used that this tool does not have are parked at New with a note.'),
+    cb('Also create pipeline deals for anything at Demo booked or Won', 'deals',
+      'Off by default. Leave it off for the first run — you can move a lead to Demo booked here at any time and the deal is made then.')
+  ]));
+  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = 'map'; migPaint(); } }));
+  foot.push(el('div', { style: 'flex:1' }));
+  foot.push(el('button', { class: 'btn primary', id: 'miggo', text: 'Bring across', onclick: migCommit }));
+  MIG._after = count;
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
@@ -11661,6 +12292,9 @@ function viewSettings(root) {
   bts.appendChild(el('button', { class: 'btn', html: ico('dl',14) + ' Download full backup',
     onclick: () => { download('corev-crm-backup-' + TODAY() + '.json', JSON.stringify(exportAll(), null, 1)); toast('Backup downloaded', 'ok'); } }));
   bts.appendChild(el('button', { class: 'btn', html: ico('clip',14) + ' Import data', onclick: importDialog }));
+  bts.appendChild(el('button', { class: 'btn', html: ico('link',14) + ' Back up / read the Sales Tracker',
+    title: 'Download a backup of another tool’s OneDrive folder, and bring its marketing leads across',
+    onclick: migOpen }));
   bts.appendChild(el('button', { class: 'btn danger', text: 'Reset local cache',
     onclick: () => confirmDo('Reset local cache',
       SYNC.mode === 'onedrive'
