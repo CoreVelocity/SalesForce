@@ -909,8 +909,8 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.10.2';
-const RELEASED = '2026-09-28';
+const VERSION = '1.10.3';
+const RELEASED = '2026-09-29';
 
 const CFG = {
   version  : VERSION,
@@ -8089,8 +8089,7 @@ function exportRequests(rows) {
    anything the convention missed is shown as a warning rather than
    quietly guessed. Nothing is written until the list is confirmed.
    ================================================================ */
-const OUTLOOK_LOOKBACK = 14;
-let OUTLOOK = { candidates: [], busy: false };
+let OUTLOOK = { candidates: [], busy: false, kind: 'period', custom: null, read: null };
 
 async function calendarToken() {
   if (!AUTH.msal || !AUTH.user) throw new Error('Sign in with your Microsoft account first.');
@@ -8103,6 +8102,45 @@ const repByEmail = mail => {
   if (!m) return null;
   return DB.owners.find(o => (o.email || '').toLowerCase() === m) || null;
 };
+/* Matching a calendar person to a rep by email alone does not work here: every
+   owner record came out of HubSpot without an email address, so an email-only
+   match failed on EVERY event and left all 17 rows saying "still need a rep"
+   with the Import button disabled. The tracker matched people by name, so this
+   does the same — email first, because it is the only exact answer, then the
+   display name, then the first name, and only ever when exactly one person
+   fits. An ambiguous name is left for you to pick rather than guessed at. */
+const norm = s => String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+function repByPerson(ea) {
+  if (!ea) return null;
+  const hit = repByEmail(ea.address);
+  if (hit) return hit;
+  const people = DB.owners.filter(o => !o._del && o.active !== false);
+  const name = norm(ea.name);
+  if (!name) {
+    /* Nothing but an address: firstname.lastname@ and firstname@ are the two
+       shapes this tenant uses. */
+    const local = norm(String(ea.address || '').split('@')[0].replace(/[._-]+/g, ' '));
+    if (!local || !/@core-velocity\.com$/i.test(String(ea.address || ''))) return null;
+    return uniqueByName(people, local);
+  }
+  return uniqueByName(people, name);
+}
+function uniqueByName(people, name) {
+  const words = name.split(' ').filter(Boolean);
+  const first = words[0];
+  const tries = [
+    o => norm(o.name) === name,                                   // full name
+    o => first && norm(o.name).split(' ')[0] === first
+             && words.length > 1 && norm(o.name).includes(words[words.length - 1]),  // first + last
+    o => first && norm(o.name).split(' ')[0] === first            // first name alone
+  ];
+  for (const t of tries) {
+    const hits = people.filter(t);
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) return null;      // two Fatimas — ask, never guess
+  }
+  return null;
+}
 function outlookGuessType(loc) {
   const s = String(loc || '').toLowerCase();
   if (/teams|zoom|meet|virtual|online|webex/.test(s)) return 'Virtual';
@@ -8130,15 +8168,16 @@ function outlookParseSubject(subject) {
 function outlookMap(ev) {
   const startRaw = ev.start && ev.start.dateTime;
   const date = startRaw ? String(startRaw).slice(0, 10) : TODAY();
-  let primary = repByEmail(ev.organizer && ev.organizer.emailAddress && ev.organizer.emailAddress.address);
+  let primary = repByPerson(ev.organizer && ev.organizer.emailAddress);
   const support = [], external = [];
   (ev.attendees || []).forEach(a => {
-    const em = a && a.emailAddress && a.emailAddress.address;
-    if (!em) return;
-    if (em.toLowerCase() === CFG.demoCalendar.toLowerCase()) return;
-    const rep = repByEmail(em);
-    if (rep) { if (!primary) primary = rep; else if (rep.id !== primary.id) support.push(rep.id); }
-    else if (!/@core-velocity\.com$/i.test(em)) external.push(a.emailAddress);
+    const ea = a && a.emailAddress;
+    const em = ea && ea.address;
+    if (!ea) return;
+    if (em && em.toLowerCase() === CFG.demoCalendar.toLowerCase()) return;
+    const rep = repByPerson(ea);
+    if (rep) { if (!primary) primary = rep; else if (rep.id !== primary.id && !support.includes(rep.id)) support.push(rep.id); }
+    else if (em && !/@core-velocity\.com$/i.test(em)) external.push(ea);
   });
   const parsed = outlookParseSubject(ev.subject || '');
   let client = parsed.client;
@@ -8148,50 +8187,113 @@ function outlookMap(ev) {
     (c.name || '').toLowerCase() === client.toLowerCase()) : null;
 
   const warn = [];
-  if (!primary) warn.push('The organiser is not a rep on the team list — pick one.');
+  if (!primary) warn.push('Could not tell which rep ran this one — nobody on the invite matched the team list by email or by name. Pick one.');
   if (!client) warn.push('No client name in the subject. The convention is “Client — Product”.');
   if (!parsed.product) warn.push('No product in the subject.');
-  const dupe = live('demos').find(d => d.calendarId === ev.id) ||
-    live('demos').find(d => d.date === date && demoClient(d).toLowerCase() === String(client || '').toLowerCase());
+  /* The name match used to run even when BOTH names were blank, so every event
+     whose subject did not parse collided with the first nameless demo on the
+     same day and was quietly dropped as a duplicate. A blank never matches
+     anything now. */
+  const key = String(client || '').trim().toLowerCase();
+  const dupe = live('demos').find(d => d.calendarId && d.calendarId === ev.id) ||
+    (key ? live('demos').find(d => d.date === date &&
+      String(demoClient(d) || '').trim().toLowerCase() === key) : null);
   return { ev, id: ev.id, date, ownerId: primary ? primary.id : '', supportIds: support,
     client: client || '', companyId: co ? co.id : null, product: parsed.product,
     type: outlookGuessType(location), location, subject: ev.subject || '',
     warn, dupe: dupe || null, take: !dupe };
 }
-async function outlookFetch(days) {
-  const tok = await calendarToken();
-  const end = new Date(), start = new Date();
-  start.setDate(start.getDate() - Math.max(1, Math.min(90, days || OUTLOOK_LOOKBACK)));
-  const params = new URLSearchParams({
-    startDateTime: start.toISOString(), endDateTime: end.toISOString(), '$top': '100',
-    '$select': 'id,subject,bodyPreview,start,end,location,organizer,attendees,isCancelled',
-    '$orderby': 'start/dateTime desc'
-  });
-  let url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(CFG.demoCalendar)}/calendarView?${params}`;
-  const out = [];
-  while (url && out.length < 400) {
-    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + tok, Prefer: 'outlook.timezone="UTC"' } });
-    if (!res.ok) {
-      if (res.status === 403) throw new Error(
-        `No access to the ${CFG.demoCalendar} calendar. It has to be shared with you at Reviewer level or better, and the app needs the Calendars.Read.Shared permission consented.`);
-      if (res.status === 404) throw new Error(`No mailbox called ${CFG.demoCalendar}. Check the address in the code.`);
-      throw new Error(`Microsoft Graph returned ${res.status}.`);
-    }
-    const j = await res.json();
-    (j.value || []).forEach(e => { if (!e.isCancelled) out.push(e); });
-    url = j['@odata.nextLink'] || null;
+/* The import used to read a fixed window: the last 14 days, ending at the
+   moment you clicked. On the 29th of a month that is half the month gone and
+   every booking later today or tomorrow missed — which is exactly why this
+   reported 10 demos for September where the tracker reported 17. It now reads
+   whatever range you ask for, whole days, past AND future, with no cap. */
+const OUTLOOK_RANGES = [
+  { id: 'period', label: 'The period I am looking at' },
+  { id: 'm3',     label: 'Last 3 months' },
+  { id: 'm6',     label: 'Last 6 months' },
+  { id: 'm12',    label: 'Last 12 months' },
+  { id: 'ytd',    label: 'This year' },
+  { id: 'all',    label: 'Everything on the calendar' },
+  { id: 'custom', label: 'Pick the dates myself' }
+];
+/* Whole days, past AND future, so a booking at 16:00 today — or on the 30th
+   when you are importing on the 29th — is not silently outside the window. */
+function outlookBounds(kind, custom) {
+  const t = TODAY();
+  let from, to;
+  if (kind === 'custom' && custom && custom.from && custom.to) { from = custom.from; to = custom.to; }
+  else if (kind === 'm3')  { from = addDays(t, -92);  to = addDays(t, 120); }
+  else if (kind === 'm6')  { from = addDays(t, -184); to = addDays(t, 120); }
+  else if (kind === 'm12') { from = addDays(t, -366); to = addDays(t, 120); }
+  else if (kind === 'ytd') { from = t.slice(0, 4) + '-01-01'; to = t.slice(0, 4) + '-12-31'; }
+  else if (kind === 'all') { from = '2020-01-01'; to = addDays(t, 365); }
+  else {
+    /* whatever the Demo Tracker's own period filter is set to — so "This
+       month" on screen reads the whole of this month, not the last fortnight */
+    const b = periodBounds(VIEW.demoPeriod);
+    from = b.grain === 'all' ? '2020-01-01' : b.from;
+    to   = b.grain === 'all' ? addDays(t, 365) : b.to;
   }
-  return out;
+  if (from > to) { const x = from; from = to; to = x; }
+  return { from, to };
+}
+async function outlookFetch(bounds) {
+  const tok = await calendarToken();
+  const b = bounds || outlookBounds('period');
+  const out = [];
+  let dropped = 0;
+  /* Graph is happiest with bounded windows, so a long backfill is walked in
+     one-year slices rather than asked for in a single call. */
+  const SLICE = 365;
+  let cursor = b.from;
+  while (cursor <= b.to) {
+    const sliceEnd = addDays(cursor, SLICE) < b.to ? addDays(cursor, SLICE) : b.to;
+    const params = new URLSearchParams({
+      startDateTime: cursor + 'T00:00:00Z',
+      endDateTime: sliceEnd + 'T23:59:59Z',
+      '$top': '200',
+      '$select': 'id,subject,bodyPreview,start,end,location,organizer,attendees,isCancelled,seriesMasterId,type'
+    });
+    let url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(CFG.demoCalendar)}/calendarView?${params}`;
+    let pages = 0;
+    while (url && pages < 40) {
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + tok, Prefer: 'outlook.timezone="UTC"' } });
+      if (!res.ok) {
+        if (res.status === 403) throw new Error(
+          `No access to the ${CFG.demoCalendar} calendar. It has to be shared with you at Reviewer level or better, and the app needs the Calendars.Read.Shared permission consented.`);
+        if (res.status === 404) throw new Error(`No mailbox called ${CFG.demoCalendar}. Check the address in the code.`);
+        throw new Error(`Microsoft Graph returned ${res.status}.`);
+      }
+      const j = await res.json();
+      (j.value || []).forEach(e => { if (e.isCancelled) dropped++; else out.push(e); });
+      url = j['@odata.nextLink'] || null;
+      pages++;
+    }
+    if (sliceEnd === b.to) break;
+    cursor = addDays(sliceEnd, 1);
+  }
+  /* calendarView expands a recurring series into one event per occurrence and
+     each occurrence carries its own id, so a weekly slot is many demos — which
+     is right. Identical ids can still arrive twice across slice boundaries. */
+  const seen = new Set(), uniq = [];
+  out.forEach(e => { if (e.id && seen.has(e.id)) return; if (e.id) seen.add(e.id); uniq.push(e); });
+  uniq.sort((a, b2) => String((b2.start || {}).dateTime || '').localeCompare(String((a.start || {}).dateTime || '')));
+  OUTLOOK.read = { events: uniq.length, cancelled: dropped, from: b.from, to: b.to };
+  return uniq;
 }
 
-async function outlookImport() {
+async function outlookImport(kind, custom) {
   if (!canManageDemos()) return toast('Only the office or an admin can import demos', 'err');
   if (OUTLOOK.busy) return;
   if (!AUTH.user) return toast('Sign in with Microsoft first — the calendar is read over your account', 'err');
   OUTLOOK.busy = true;
-  toast('Reading the demo calendar…');
+  OUTLOOK.kind = kind || OUTLOOK.kind || 'month';
+  if (custom) OUTLOOK.custom = custom;
+  const b = outlookBounds(OUTLOOK.kind, OUTLOOK.custom);
+  toast(`Reading the demo calendar, ${fdate(b.from)} to ${fdate(b.to)}…`);
   try {
-    const events = await outlookFetch(OUTLOOK_LOOKBACK);
+    const events = await outlookFetch(b);
     OUTLOOK.candidates = events.map(outlookMap);
     outlookPicker();
   } catch (e) {
@@ -8209,10 +8311,11 @@ function outlookPicker() {
   const list = el('div', { class: 'picklist', style: 'max-height:52vh' });
   const bar = el('div', { class: 'picksum' });
   const cands = OUTLOOK.candidates;
+  const read = OUTLOOK.read || { events: cands.length, cancelled: 0, from: '', to: '' };
   function paint() {
     list.innerHTML = '';
     if (!cands.length) list.appendChild(el('div', { class: 'sub', style: 'padding:18px;text-align:center',
-      text: `Nothing on ${CFG.demoCalendar} in the last ${OUTLOOK_LOOKBACK} days.` }));
+      text: `No events on ${CFG.demoCalendar} between ${fdate(read.from)} and ${fdate(read.to)}.` }));
     cands.forEach(c => {
       const row = el('label', { class: 'pick' + (c.take ? ' on' : '') + (c.dupe ? ' taken' : '') });
       row.appendChild(el('input', { type: 'checkbox', checked: c.take || null,
@@ -8241,18 +8344,48 @@ function outlookPicker() {
   function updateSum() {
     const n = cands.filter(c => c.take).length;
     const blocked = cands.filter(c => c.take && !c.ownerId).length;
-    bar.innerHTML = `<b>${n}</b> of ${cands.length} selected` +
+    const already = cands.filter(c => c.dupe).length;
+    /* Every event read is accounted for, so a number that looks low can be
+       explained instead of guessed at. */
+    bar.innerHTML =
+      `<b>${read.events}</b> event${read.events === 1 ? '' : 's'} read` +
+      (read.cancelled ? ` · ${read.cancelled} cancelled, skipped` : '') +
+      (already ? ` · ${already} already in the log` : '') +
+      ` · <b>${n}</b> ticked` +
       (blocked ? ` · <span style="color:var(--warning)">${blocked} still need a rep</span>` : '');
     const go = $('#olgo');
     if (go) { go.disabled = !n || !!blocked; go.textContent = n ? `Import ${n}` : 'Import'; }
   }
+  /* ---- the range picker: this is what makes a backfill possible ---- */
+  const ctl = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rsel = el('select', { class: 'inp', style: 'width:auto',
+    html: OUTLOOK_RANGES.map(r => `<option value="${r.id}"${OUTLOOK.kind === r.id ? ' selected' : ''}>${esc(r.label)}</option>`).join('') });
+  const cf = el('input', { class: 'inp', type: 'date', style: 'width:auto',
+    value: (OUTLOOK.custom && OUTLOOK.custom.from) || (OUTLOOK.read && OUTLOOK.read.from) || outlookBounds('period').from });
+  const ct = el('input', { class: 'inp', type: 'date', style: 'width:auto',
+    value: (OUTLOOK.custom && OUTLOOK.custom.to) || (OUTLOOK.read && OUTLOOK.read.to) || outlookBounds('period').to });
+  const dash = el('span', { class: 'sub', text: 'to' });
+  const showCustom = () => [cf, dash, ct].forEach(n =>
+    n.style.display = rsel.value === 'custom' ? '' : 'none');
+  rsel.onchange = showCustom;
+  ctl.appendChild(el('span', { class: 'sub', text: 'Read' }));
+  ctl.appendChild(rsel); ctl.appendChild(cf); ctl.appendChild(dash); ctl.appendChild(ct);
+  ctl.appendChild(el('button', { class: 'btn sm primary', html: ico('sync',13) + ' Read again',
+    onclick: () => { closeAll(); outlookImport(rsel.value, { from: cf.value, to: ct.value }); } }));
+  ctl.appendChild(el('div', { style: 'flex:1' }));
+  ctl.appendChild(el('button', { class: 'btn sm', text: 'Tick all new',
+    onclick: () => { cands.forEach(c => { c.take = !c.dupe; }); paint(); } }));
+  ctl.appendChild(el('button', { class: 'btn sm ghost', text: 'Tick none',
+    onclick: () => { cands.forEach(c => { c.take = false; }); paint(); } }));
+  showCustom();
   paint();
   modal(`Demos on ${CFG.demoCalendar}`, el('div', {}, [
-    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
-      `The last ${OUTLOOK_LOOKBACK} days. Every event on this calendar is treated as a demo — that is the booking ` +
-      'convention, so nothing is filtered by keyword. The organiser becomes the rep who ran it and internal ' +
-      'attendees are credited as supporting. Nothing is written until you import.' }),
-    bar, list
+    el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6', html:
+      `<b>${esc(fdate(read.from))} to ${esc(fdate(read.to))}</b>, whole days, past and future. Every event on this ` +
+      'calendar is treated as a demo — that is the booking convention, so nothing is filtered by keyword. The ' +
+      'organiser becomes the rep who ran it and internal attendees are credited as supporting. Nothing is ' +
+      'written until you import.' }),
+    ctl, bar, list
   ]), [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
     el('button', { class: 'btn primary', id: 'olgo', disabled: true, text: 'Import', onclick: () => {
