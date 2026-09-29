@@ -1067,7 +1067,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.15.0';
+const VERSION = '1.16.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -2210,7 +2210,12 @@ async function syncNow(opt) {
     CFGEDIT.clear();
     SYNC.dirty.delete('config');
     reindex(); rebuildStages();
-    SYNC.status = 'idle'; SYNC.last = now(); SYNC.loaded = true; saveLocal();
+    SYNC.status = 'idle'; SYNC.last = now(); SYNC.loaded = true;
+    /* Keep a copy of a good team + stage list in this browser, so the next
+       time the shared config goes wrong there is something local to put back
+       that still carries the addresses, regions and targets. */
+    if (typeof keepConfigBackup === 'function') keepConfigBackup();
+    saveLocal();
     if (o.loud) toast('Synced with OneDrive', 'ok');
     if (!o.quiet) render();
   } catch (e) {
@@ -10116,6 +10121,52 @@ function viewSettings(root) {
       () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
   g.appendChild(cT.node);
 
+  /* ---- recovery ---- */
+  const cRec = card('If the team or the stages go missing', 'What the tool can put back, and where the freshest copy lives');
+  const bak = configBackup();
+  const orphanOwners = (() => { const have = new Set(activeOwners().concat(DB.owners).map(o => String(o.id)));
+    return Array.from(referencedOwnerIds()).filter(id => !have.has(id)).length; })();
+  const orphanDeals = live('deals').filter(d => d.stageId &&
+    !DB.stages.some(s => String(s.id) === String(d.stageId))).length;
+  const rst = el('dl', { class: 'kvs' });
+  const rrow = (k, v) => { rst.appendChild(el('dt', { text: k })); rst.appendChild(el('dd', { html: v })); };
+  rrow('People on the team list', `${DB.owners.filter(o => !o._del).length}` +
+    (orphanOwners ? ` · <b style="color:var(--critical-ink)">${orphanOwners} referenced by records but missing</b>` : ' · nothing missing'));
+  rrow('Sales stages', `${DB.stages.length}` +
+    (orphanDeals ? ` · <b style="color:var(--critical-ink)">${orphanDeals} deals on a stage that is gone</b>` : ' · every deal has one'));
+  rrow('Backup in this browser', bak
+    ? `${(bak.owners || []).length} people and ${(bak.stages || []).length} stages, kept ${esc(fdate(String(bak.at && new Date(bak.at).toISOString().slice(0,10))))}`
+    : 'none yet — it is written the first time a good team list syncs down');
+  cRec.body.appendChild(rst);
+  cRec.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
+    el('button', { class: 'btn', text: 'Put back anyone missing', onclick: () => {
+      const r = repairOwners();
+      if (!r.fixed) toast('Nobody is missing — every record’s owner is on the list', 'ok');
+      render();
+    } }),
+    el('button', { class: 'btn', text: 'Put back missing stages', onclick: () => {
+      const r = repairStages();
+      if (!r.fixed) toast('Every deal is on a stage that exists', 'ok');
+      render();
+    } }),
+    bak ? el('button', { class: 'btn', text: 'Restore the whole team from the backup',
+      onclick: () => confirmDo('Restore the team list',
+        `The ${(bak.owners || []).length} people in this browser’s backup replace the ${DB.owners.filter(o => !o._del).length} on the list now, ` +
+        'along with their addresses, roles and regions. Records are not touched.', 'Restore',
+        () => { sysWrite(() => { DB.owners = (bak.owners || []).map(o => Object.assign({}, o));
+          if (bak.targets) DB.config.targets = Object.assign({}, bak.targets, DB.config.targets || {});
+          if (bak.salesRegions) DB.config.salesRegions = bak.salesRegions;
+          DB.config._v = now(); touch('config', 'owners'); });
+          render(); toast('Team list restored', 'ok'); }) }) : null
+  ]));
+  cRec.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
+    'The tool ships with the team and the pipeline as they came out of HubSpot, so names and stages can always be ' +
+    'put back from records that still point at them. What it cannot invent is anything set <b>since</b> the migration — ' +
+    'Microsoft addresses, roles, regions, targets, join dates. For those the best copy is OneDrive’s own version ' +
+    `history on <b>${esc(driveRoot())}/config.json</b> in ${esc(driveOwner() || 'the shared account')}: open the file, ` +
+    'Version history, and restore the last good one.' }));
+  g.appendChild(cRec.node);
+
   /* ---- the minimums on the performance report's 30-day plan ---- */
   const cP = card('30-day minimums', 'The pace a rep is held to on the improvement plan at the end of their performance report');
   const pt = pipTargets();
@@ -11079,6 +11130,8 @@ async function boot() {
   reindex(); rebuildStages();
   runMigrations();
   repairStages();
+  repairOwners();
+  keepConfigBackup();
   applyRoute();          // honours #requests?r=<id> from an approval email
   if (SYNC.mode === 'onedrive' && SYNC.dirty.size) scheduleSync();
 }
@@ -11172,6 +11225,97 @@ function migrateRoles() {
   if (changed) touch('config', 'owners');
   return { changed, admin: keep ? keep.name : null };
 }
+/* The team as it came out of HubSpot, which is what every deal, contact,
+   task, commitment and demo points at. Kept here for the same reason as the
+   stages below: when the shared config was overwritten the stage list had a
+   recovery source and the team list did not, so the stages came back and the
+   reps did not. Names and ids only — no addresses, no roles, no targets;
+   whatever was set after the migration comes from the local backup or from
+   OneDrive's own version history. */
+const COREV_TEAM = [
+  { id: '80325252', name: 'Ahmed Abuhakmeh',      active: true,  role: 'admin', salesRegion: 'Management', order: 0 },
+  { id: '29418820', name: 'Fatima Wardani',       active: true,  role: 'write', salesRegion: 'Dubai',      order: 0 },
+  { id: '34314000', name: 'Milena Klykova',       active: true,  role: 'write', salesRegion: 'Dubai',      order: 1 },
+  { id: '29418971', name: 'Wafiq Yahia',          active: true,  role: 'write', salesRegion: 'Abu Dhabi',  order: 0 },
+  { id: '29418969', name: 'Jawdat Shanableh',     active: true,  role: 'write', salesRegion: 'Abu Dhabi',  order: 1 },
+  { id: '29418973', name: 'Kamal Shanableh',      active: true,  role: 'write', salesRegion: 'Management', order: 1 },
+  { id: '29405855', name: 'Sami Idbies',          active: true,  role: 'write', salesRegion: 'Management', order: 2 },
+  { id: '29436883', name: 'Gladys Simacon',       active: true,  role: 'office' },
+  { id: '29418963', name: 'Mihai Sarbu',          active: false, role: 'write' },
+  { id: '29418966', name: 'Carlos Seco',          active: false, role: 'write' },
+  { id: '29986738', name: 'Trevor Towns',         active: false, role: 'write' },
+  { id: '32032511', name: 'Connor Greet',         active: false, role: 'write' },
+  { id: '32032515', name: 'Marios Stylianou',     active: false, role: 'write' },
+  { id: '33162149', name: 'Hasan AlSadeq',        active: false, role: 'write' },
+  { id: '34314001', name: 'Katsiaryna Talkachova',active: false, role: 'write' },
+  { id: '34422726', name: 'Hussean Melouk',       active: false, role: 'write' }
+];
+
+/* Every record that belongs to somebody carries their id, so a missing team
+   list can always be rebuilt from the work itself. Restored in this order:
+   the local backup first, because it carries the addresses, regions and roles
+   set since the migration; then the roster above; then, for an id neither
+   knows, a placeholder so no record is ever left orphaned. */
+const OWNER_SHARDS = ['deals', 'contacts', 'companies', 'tasks', 'commitments', 'reviews', 'demos', 'demoRequests'];
+function referencedOwnerIds() {
+  const ids = new Set();
+  OWNER_SHARDS.forEach(k => live(k).forEach(r => {
+    if (r.ownerId) ids.add(String(r.ownerId));
+    (r.collaboratorIds || []).forEach(c => c && ids.add(String(c)));
+    (r.supportIds || []).forEach(c => c && ids.add(String(c)));
+  }));
+  DB.activities.forEach(a => { if (!a._del && a.ownerId) ids.add(String(a.ownerId)); });
+  return ids;
+}
+function repairOwners() {
+  const want = referencedOwnerIds();
+  if (!want.size) return { fixed: 0 };
+  const have = new Set(DB.owners.filter(o => !o._del).map(o => String(o.id)));
+  const missing = Array.from(want).filter(id => !have.has(id));
+  if (!missing.length) return { fixed: 0 };
+
+  const backup = configBackup();
+  const fromBackup = new Map((backup && backup.owners || []).map(o => [String(o.id), o]));
+  const fromRoster = new Map(COREV_TEAM.map(o => [String(o.id), o]));
+  let restored = 0, invented = 0;
+  sysWrite(() => {
+    missing.forEach(id => {
+      const src = fromBackup.get(id) || fromRoster.get(id);
+      if (src) { DB.owners.push(Object.assign({}, src)); restored++; }
+      else {
+        DB.owners.push({ id, name: 'Unnamed (' + id + ')', active: true, role: 'write',
+          initials: '??', _recovered: true });
+        invented++;
+      }
+    });
+    DB.owners.forEach(o => { if (!o.initials) o.initials = initials(o.name); });
+    touch('config', 'owners');
+  });
+  const where = backup ? 'the local backup and the built-in roster' : 'the built-in roster';
+  console.log(`Restored ${restored} people from ${where}` + (invented ? `, ${invented} as placeholders` : ''));
+  toast(`${restored + invented} sales ${restored + invented === 1 ? 'rep was' : 'reps were'} missing from the team list and ${restored + invented === 1 ? 'has' : 'have'} been put back` +
+    (invented ? ` — ${invented} need a name in Settings` : ''), invented ? '' : 'ok');
+  return { fixed: restored + invented, restored, invented, from: where };
+}
+
+/* A copy of the last config that came down with a real team on it, kept in
+   this browser. Small — people and stages, not records — and it is the only
+   thing that knows the addresses, regions, roles and targets set since the
+   migration, so it is what a repair reaches for first. */
+const CFGBAK_KEY = () => CFG.cacheKey + '.cfgbak';
+function keepConfigBackup() {
+  if (!DB.owners.length || !DB.stages.length) return;
+  try {
+    localStorage.setItem(CFGBAK_KEY(), JSON.stringify({ at: now(),
+      owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons,
+      targets: (DB.config || {}).targets || {}, salesRegions: (DB.config || {}).salesRegions || null }));
+  } catch (e) { /* quota — the roster in the build is still there */ }
+}
+function configBackup() {
+  try { const r = localStorage.getItem(CFGBAK_KEY()); return r ? JSON.parse(r) : null; }
+  catch (e) { return null; }
+}
+
 /* The pipeline as it came out of HubSpot, which is what the 1,239 migrated
    deals actually point at. Kept here as the recovery source: if the stage
    list is ever replaced with something the deals do not reference — which is
