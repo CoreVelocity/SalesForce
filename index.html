@@ -1067,7 +1067,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.14.0';
+const VERSION = '1.15.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1515,18 +1515,6 @@ function meOwner() {
 const reachableAdmin = () => DB.owners.some(o => (ROLE_MAP[o.role] || '') === 'admin' &&
   o.active !== false && String(o.email || '').includes('@'));
 const rolesArmed = () => !!AUTH.user && reachableAdmin();
-function myRole() {
-  if (!DB.owners.length) return 'admin';              // first run — someone has to add the team
-  if (!AUTH.user) return 'admin';                     // demo / local mode on this machine only
-  const me = meOwner();
-  if (me) return me.active === false ? 'read' : (ROLE_MAP[me.role] || 'write');
-  return reachableAdmin() ? 'read' : 'admin';         // signed in but matched to nobody
-}
-const isAdmin = () => myRole() === 'admin';
-const isReadOnly = () => myRole() === 'read';
-/* Who owns the demo schedule. In the tracker this was Gladys and Ahmed; here
-   it is whoever holds Admin or Office. A rep still fills in the outcome on a
-   demo they ran — that is demoCanEdit() below, not this. */
 /* The approver is whoever the approval emails are addressed to. They have to
    be able to open and decide anything they were emailed about, even if their
    owner record never got a role — otherwise the link in the mail lands on a
@@ -1536,6 +1524,29 @@ const isApprover = () => {
   const who = String((DB.config && DB.config.approver) || CFG.approver || '').toLowerCase();
   return !!me && !!who && me === who;
 };
+function myRole() {
+  if (!DB.owners.length) return 'admin';              // first run — someone has to add the team
+  if (!AUTH.user) return 'admin';                     // demo / local mode on this machine only
+  /* The address the approval emails go to is the person who owns this tool.
+     They are admin whatever the team list happens to say, because the team
+     list is the thing most likely to be wrong — and when it is wrong, the
+     only way back in is through Settings, which needs admin. Without this
+     there is no way out of a bad owner record. */
+  if (isApprover()) return 'admin';
+  const me = meOwner();
+  if (me) return me.active === false ? 'read' : (ROLE_MAP[me.role] || 'write');
+  /* Signed in and matched to nobody. Read-only rather than locked out, but
+     this is a broken state, not a decision about this person — unmatchedBanner()
+     says so and offers to link them to their record. */
+  return reachableAdmin() ? 'read' : 'admin';
+}
+/* Did the signed-in person fail to match any record on the team list? */
+const unmatched = () => !!AUTH.user && DB.owners.length > 0 && !meOwner();
+const isAdmin = () => myRole() === 'admin';
+const isReadOnly = () => myRole() === 'read';
+/* Who owns the demo schedule. In the tracker this was Gladys and Ahmed; here
+   it is whoever holds Admin or Office. A rep still fills in the outcome on a
+   demo they ran — that is demoCanEdit() below, not this. */
 const canManageDemos = () => myRole() === 'admin' || myRole() === 'office' || isApprover();
 /* Exporting the customer book is an admin decision, not a rep one: the deal
    and contact exports carry every customer's name, email and phone, and a CSV
@@ -1683,8 +1694,14 @@ function stamp(rec) { rec._v = now(); rec._by = (AUTH.user && AUTH.user.username
    hundred rows and the tab locks up. batch() marks shards dirty as it goes and
    saves once at the end. */
 let BATCH = 0;
-function touch(shard) {
+/* Which parts of the config THIS session deliberately changed. Anything not
+   in here is taken from the shared folder rather than pushed over it — see
+   the config merge in syncNow(). `touch('config')` on its own means settings;
+   a caller that edited the team or the stages says so. */
+const CFGEDIT = new Set();
+function touch(shard, part) {
   SYNC.dirty.add(shard);
+  if (shard === 'config') CFGEDIT.add(part || 'settings');
   if (BATCH) return;
   saveLocal(); renderSyncBadge(); scheduleSync();
 }
@@ -2140,22 +2157,57 @@ async function syncNow(opt) {
       SYNC.dirty.delete(s);
     }
     // config: whole-document last-write-wins
+    /* ---- config: merged part by part, NOT whole-document last-write-wins ----
+
+       The old rule was: if this session has any unsaved config change, skip
+       reading the remote entirely and push the whole document. One dirty flag
+       — set by anything, including a migration — therefore stopped the team
+       list and the stage list from EVER being read back, and then overwrote
+       them. A session that started with an empty stage list, filled it with
+       the built-in defaults and pushed, replaced the real CoreV stages for
+       everybody; 1,239 deals still pointing at the old stage ids then matched
+       no column on the board, and whoever was left out of the overwritten
+       team list was demoted to read-only with no way back in.
+
+       So each part is now merged on its own, and a part is only written when
+       this session actually edited it. */
     const rc = await readShard('config');
-    if (rc && (rc._v || 0) > (DB.config._v || 0) && !SYNC.dirty.has('config')) {
-      DB.config = Object.assign(DB.config, rc);
-    } else if (SYNC.dirty.has('config') || (!rc && (SYNC.loaded || DB.owners.length))) {
-      /* Same rule as the record shards: a session that has never read the
-         folder must not push its idea of the team, the stages or the loss
-         reasons over what is there. An absent config file plus no owners is a
-         cold start, not a decision. */
+    const parts = ['owners', 'stages', 'lossReasons'];
+    if (rc) {
+      /* plain settings (targets, thresholds, regions, approver…) stay
+         whole-document, but never clobber a newer remote */
+      if ((rc._v || 0) > (DB.config._v || 0) && !CFGEDIT.has('settings')) {
+        const keep = {};
+        CFGEDIT.forEach(k => { if (DB.config[k] !== undefined) keep[k] = DB.config[k]; });
+        DB.config = Object.assign(DB.config, rc, keep);
+      }
+      parts.forEach(k => {
+        const theirs = rc[k];
+        if (!Array.isArray(theirs) || !theirs.length) return;   // nothing to take
+        const mineHasRows = Array.isArray(DB[k]) && DB[k].length;
+        /* We changed it on purpose — unless what we have is empty, which is
+           never a deliberate "delete the whole team". */
+        if (CFGEDIT.has(k) && mineHasRows) return;
+        DB[k] = theirs;
+      });
+    }
+    /* Write only what we meant to change, and never an empty list over a
+       full one. A cold start has nothing to say about the team. */
+    const iChanged = parts.filter(k => CFGEDIT.has(k) && Array.isArray(DB[k]) && DB[k].length);
+    const settingsChanged = CFGEDIT.has('settings');
+    const firstEver = !rc && (SYNC.loaded || DB.owners.length);
+    if (iChanged.length || settingsChanged || firstEver) {
       DB.config._v = now();
-      await writeShard('config', Object.assign({ shard: 'config' }, DB.config,
-        { owners: DB.owners, stages: DB.stages, lossReasons: DB.lossReasons, meta: DB.meta }));
+      const doc = Object.assign({ shard: 'config' }, DB.config, { meta: DB.meta });
+      parts.forEach(k => {
+        /* keep whatever is up there for a part we did not touch */
+        const mine = Array.isArray(DB[k]) && DB[k].length ? DB[k] : null;
+        const theirs = rc && Array.isArray(rc[k]) && rc[k].length ? rc[k] : null;
+        doc[k] = (CFGEDIT.has(k) && mine) ? mine : (theirs || mine || []);
+      });
+      await writeShard('config', doc);
     }
-    if (rc && rc.owners && rc.owners.length && !SYNC.dirty.has('config')) {
-      DB.owners = rc.owners; DB.stages = rc.stages || DB.stages;
-      DB.lossReasons = rc.lossReasons || DB.lossReasons;
-    }
+    CFGEDIT.clear();
     SYNC.dirty.delete('config');
     reindex(); rebuildStages();
     SYNC.status = 'idle'; SYNC.last = now(); SYNC.loaded = true; saveLocal();
@@ -3547,6 +3599,68 @@ function dataBanner() {
 
 /* Roles cannot be enforced until an admin is reachable by email, and that is
    worth saying out loud rather than leaving everyone quietly at full access. */
+/* Signed in, but no record on the team list matches. That is a broken team
+   list, not a decision about this person — so it says so on every page and
+   offers the one fix, which must work WITHOUT admin because being unmatched
+   is exactly what takes admin away. */
+function unmatchedBanner() {
+  if (!unmatched()) return null;
+  const mail = AUTH.user.username, nm = AUTH.user.name || mail;
+  const n = el('div', { class: 'alert', style: 'border-color:var(--warning)' });
+  n.appendChild(el('span', { class: 'ic', html: ico('warn', 18), style: 'color:var(--warning)' }));
+  n.appendChild(el('div', { style: 'flex:1;min-width:0;line-height:1.55', html:
+    `<b>You are not on the team list</b><div class="sub">Nobody on it has the address <b>${esc(mail)}</b> ` +
+    `or the name <b>${esc(nm)}</b>, so the tool cannot tell which rep you are and has put you in read-only. ` +
+    `Pick yourself below and it will remember — that is all it takes.</div>` }));
+  n.appendChild(el('button', { class: 'btn sm primary', text: 'This is me', onclick: claimOwner }));
+  return n;
+}
+function claimOwner() {
+  const mail = AUTH.user.username, nm = AUTH.user.name || mail;
+  if (!DB.owners.some(o => !o._del && !String(o.email || '').trim()))
+    return modal('Nobody left to claim', el('p', { style: 'margin:0;line-height:1.65;color:var(--ink-2)',
+      text: `Every person on the team list already has a Microsoft address on them, and none of them is ` +
+        `${mail}. An admin needs to add you in Settings, or correct the address on your record.` }),
+      [ el('button', { class: 'btn primary', text: 'Close', onclick: closeAll }) ]);
+  const sel = el('select', { class: 'inp' });
+  sel.appendChild(el('option', { value: '', text: 'Pick your name…' }));
+  const free = DB.owners.filter(o => !o._del && !String(o.email || '').trim());
+  free.sort(byTeamOrder).forEach(o => sel.appendChild(el('option', {
+    value: o.id, text: o.name + (o.active === false ? ' (inactive)' : '') })));
+  const taken = DB.owners.filter(o => !o._del && String(o.email || '').trim());
+  modal('Which of these is you?', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.65;color:var(--ink-2)', html:
+      `You are signed in as <b>${esc(mail)}</b>. Every record came out of HubSpot without an email address, ` +
+      `so a sign-in can only be matched once somebody puts one on. Picking your name writes ` +
+      `<b>${esc(mail)}</b> onto that record, and from then on the tool knows you.` }),
+    fld('Your record', sel),
+    el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55', html:
+      'It does not change what you are allowed to do — the role already on that record is what takes effect. ' +
+      (taken.length ? `${taken.length} ${taken.length === 1 ? 'person is' : 'people are'} not listed because ` +
+        'someone already signs in as them. ' : '') +
+      'If your name is not here, ask an admin to add you in Settings.' })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'That is me', onclick: () => {
+      const o = DB.owners.find(x => x.id === sel.value);
+      if (!o) return toast('Pick your name first', 'err');
+      /* A record that already carries an address belongs to whoever signs in
+         with it. Claiming it would hand this session their role, so the only
+         records on offer are the ones nobody has claimed. */
+      const has = String(o.email || '').trim();
+      if (has && has.toLowerCase() !== mail.toLowerCase())
+        return toast(`${o.name} is already signed in as ${has} — ask an admin if that is wrong`, 'err');
+      const clash = DB.owners.find(x => x.id !== o.id && (x.email || '').toLowerCase() === mail.toLowerCase());
+      if (clash) return toast(`${clash.name} already has that address`, 'err');
+      /* sysWrite because a read-only session is precisely the one that needs
+         to make this write — it is the way out of being read-only. */
+      sysWrite(() => { o.email = mail; DB.config._v = now(); touch('config', 'owners'); });
+      closeAll(); render();
+      toast(`Signed in as ${o.name} — ${roleLabel(ROLE_MAP[o.role] || 'write')}`, 'ok');
+    } })
+  ]);
+}
+
 function rolesBanner() {
   if (!AUTH.user || reachableAdmin() || !DB.owners.length) return null;
   const noMail = DB.owners.filter(o => o.active !== false && !String(o.email || '').includes('@')).length;
@@ -10063,7 +10177,7 @@ function viewSettings(root) {
       value: Math.round(s.probability * 100), style: 'width:72px;text-align:right', 'aria-label': 'Probability %',
       disabled: s.kind !== 'open' || null,
       onchange: e => { s.probability = Math.max(0, Math.min(100, Number(e.target.value))) / 100;
-        DB.config._v = now(); touch('config'); toast('Probability updated', 'ok'); render(); } });
+        DB.config._v = now(); touch('config', 'stages'); toast('Probability updated', 'ok'); render(); } });
     row.appendChild(pIn);
     row.appendChild(el('span', { style: 'color:var(--ink-3);font-size:var(--fs-sm)', text: '%' }));
     row.appendChild(el('span', { class: 'mono', style: 'color:var(--ink-3);font-size:var(--fs-sm);min-width:56px;text-align:right',
@@ -10112,7 +10226,7 @@ function viewSettings(root) {
     el('span', { text: r }),
     el('button', { style: 'background:none;border:0;color:var(--ink-3);cursor:pointer;padding:0 0 0 4px',
       html: ico('x',11), 'aria-label': 'Remove ' + r,
-      onclick: () => { DB.lossReasons.splice(i, 1); DB.config._v = now(); touch('config'); render(); } })
+      onclick: () => { DB.lossReasons.splice(i, 1); DB.config._v = now(); touch('config', 'lossReasons'); render(); } })
   ])));
   c3.body.appendChild(lr);
   const nr = el('input', { class: 'inp', placeholder: 'Add a reason and press Enter' });
@@ -10120,7 +10234,7 @@ function viewSettings(root) {
     if (e.key !== 'Enter') return;
     const v = nr.value.trim(); if (!v) return;
     DB.lossReasons = (DB.lossReasons || []).concat([v]);
-    DB.config._v = now(); touch('config'); render();
+    DB.config._v = now(); touch('config', 'lossReasons'); render();
   });
   c3.body.appendChild(nr);
   g.appendChild(c3.node);
@@ -10354,7 +10468,7 @@ function editOwner(o) {
       DB.config.targets[o.id] = DB.config.targets[o.id] || {};
       if (tg.value === '') delete DB.config.targets[o.id][b.label];
       else DB.config.targets[o.id][b.label] = Number(tg.value);
-      DB.config._v = now(); touch('config');
+      DB.config._v = now(); touch('config', 'owners');
       closeAll(); render(); toast(isNew ? 'Person added' : 'Saved', 'ok');
     } })
   ].filter(Boolean));
@@ -10415,7 +10529,7 @@ function removePerson(o) {
       const n = (total || h.collabs.length) ? reassignFrom([o.id], to) : 0;
       DB.owners = DB.owners.filter(x => x.id !== o.id);
       if (DB.config.targets) delete DB.config.targets[o.id];
-      DB.config._v = now(); touch('config');
+      DB.config._v = now(); touch('config', 'owners');
       if (VIEW.rep === o.id) VIEW.rep = 'all';
       closeAll(); render();
       toast(n ? `${o.name} removed — ${n} records reassigned` : `${o.name} removed`, 'ok');
@@ -10454,7 +10568,7 @@ function removeInactive() {
       const n = reassignFrom(ids, to);
       DB.owners = DB.owners.filter(o => o.active);
       ids.forEach(id => { if (DB.config.targets) delete DB.config.targets[id]; });
-      DB.config._v = now(); touch('config');
+      DB.config._v = now(); touch('config', 'owners');
       if (ids.includes(VIEW.rep)) VIEW.rep = 'all';
       closeAll(); render();
       toast(`${list.length} people removed — ${n} records reassigned`, 'ok');
@@ -10773,7 +10887,7 @@ function moveRep(region, id, dir) {
   if (i < 0 || j < 0 || j >= people.length) return;
   people.splice(j, 0, people.splice(i, 1)[0]);
   batch(() => { people.forEach((o, n) => { o.order = n; }); });
-  DB.config._v = now(); touch('config');
+  DB.config._v = now(); touch('config', 'owners');
   render();
 }
 
@@ -10884,6 +10998,10 @@ function render() {
     root.innerHTML = '';
     renderNav();
     renderTopControls();
+    /* Being unmatched costs you write access, so it is said on every page,
+       not only on the dashboard somebody in read-only may never open. */
+    const ub = unmatchedBanner();
+    if (ub) root.appendChild(ub);
     const db = dataBanner();
     if (db) root.appendChild(db);
     try { VIEWS[name](root); }
@@ -10945,15 +11063,22 @@ async function boot() {
     const ok = await trySeedFile();
     if (!ok) firstRun();
   }
-  if (!DB.stages.length) { DB.stages = DEFAULT_STAGES.slice(); rebuildStages(); }
-  if (!DB.lossReasons || !DB.lossReasons.length) DB.lossReasons = DEFAULT_LOSS.slice();
-  if (!DB.owners.length && AUTH.user) {
+  /* These fill in a blank tool. On a shared folder they must only fire when
+     we KNOW it is blank — a session that could not read the config has an
+     empty stage list because the read failed, not because there are no
+     stages, and filling it with the built-in defaults and pushing is how
+     1,239 deals ended up pointing at stages that no longer existed. */
+  const blankIsReal = SYNC.mode !== 'onedrive' || SYNC.loaded;
+  if (!DB.stages.length && blankIsReal) { DB.stages = DEFAULT_STAGES.slice(); touch('config', 'stages'); }
+  if ((!DB.lossReasons || !DB.lossReasons.length) && blankIsReal) DB.lossReasons = DEFAULT_LOSS.slice();
+  if (!DB.owners.length && AUTH.user && blankIsReal) {
     DB.owners = [{ id: uid('O'), name: AUTH.user.name || AUTH.user.username, email: AUTH.user.username,
       active: true, role: 'admin', initials: initials(AUTH.user.name || AUTH.user.username) }];
-    touch('config');
+    touch('config', 'owners');
   }
   reindex(); rebuildStages();
   runMigrations();
+  repairStages();
   applyRoute();          // honours #requests?r=<id> from an approval email
   if (SYNC.mode === 'onedrive' && SYNC.dirty.size) scheduleSync();
 }
@@ -11015,7 +11140,7 @@ function migrateTeamOrder() {
   if (changed) {
     DB.config.salesRegions = TEAM_LAYOUT.map(t => t[0]);
     DB.config._v = now();
-    SYNC.dirty.add('config');
+    touch('config', 'owners');
   }
   return { changed };
 }
@@ -11044,9 +11169,57 @@ function migrateRoles() {
            people.find(o => o.active !== false) || people[0];
     if (keep) { keep.role = 'admin'; changed++; }
   } else keep = admins[0];
-  if (changed) SYNC.dirty.add('config');
+  if (changed) touch('config', 'owners');
   return { changed, admin: keep ? keep.name : null };
 }
+/* The pipeline as it came out of HubSpot, which is what the 1,239 migrated
+   deals actually point at. Kept here as the recovery source: if the stage
+   list is ever replaced with something the deals do not reference — which is
+   how the board ended up showing nine empty columns — these come back. */
+const COREV_STAGES = [
+  { id: '2366633176',           label: 'Business Development',       probability: .10, kind: 'open', order: 1 },
+  { id: '2377533661',           label: 'B2C - Cold Lead',            probability: .05, kind: 'open', order: 2 },
+  { id: '3031480507',           label: 'Channels & Referrals',       probability: .05, kind: 'open', order: 3 },
+  { id: '2354741451',           label: 'Discovery & Identify',       probability: .20, kind: 'open', order: 4 },
+  { id: 'appointmentscheduled', label: 'Qualified & Demo Completed', probability: .40, kind: 'open', order: 5 },
+  { id: 'presentationscheduled',label: 'Proposal Submitted',         probability: .60, kind: 'open', order: 6 },
+  { id: 'decisionmakerboughtin',label: 'Committed',                  probability: .90, kind: 'open', order: 7 },
+  { id: 'closedwon',            label: 'Closed Won',                 probability: 1,   kind: 'won',  order: 8 },
+  { id: 'closedlost',           label: 'Closed Lost',                probability: 0,   kind: 'lost', order: 9 }
+];
+
+/* A deal whose stage no longer exists is invisible: it is not on the board,
+   it has no probability so it is worth nothing to the forecast, and it counts
+   as open because that is what the fallback says. Nine empty columns over a
+   40-million-dirham pipeline is not a thing to leave for somebody to notice,
+   so it is detected and repaired on every load. */
+function repairStages() {
+  const deals = live('deals');
+  if (!deals.length) return { fixed: 0 };
+  const have = new Set(DB.stages.map(s => String(s.id)));
+  const orphaned = deals.filter(d => d.stageId && !have.has(String(d.stageId)));
+  if (orphaned.length < Math.max(5, deals.length * 0.2)) return { fixed: 0 };
+
+  const want = new Set(orphaned.map(d => String(d.stageId)));
+  const restore = COREV_STAGES.filter(s => want.has(s.id));
+  if (!restore.length) return { fixed: 0, unknown: want.size };
+
+  /* Put back only what is missing, keep anything the team added, and keep
+     the order the pipeline is meant to run in. */
+  sysWrite(() => {
+    restore.forEach(s => { if (!have.has(s.id)) DB.stages.push(Object.assign({}, s)); });
+    DB.stages.sort((a, z) => (a.order || 99) - (z.order || 99));
+    rebuildStages();
+    touch('config', 'stages');
+  });
+  const still = deals.filter(d => d.stageId && !DB.stages.some(s => String(s.id) === String(d.stageId))).length;
+  console.log(`Restored ${restore.length} sales stages; ${orphaned.length - still} deals back on the board` +
+    (still ? `; ${still} still point at a stage nobody recognises` : ''));
+  toast(`${orphaned.length - still} deals were pointing at stages that had gone missing — the pipeline is back` +
+    (still ? `. ${still} are still on an unknown stage; an admin can add it in Settings.` : ''), still ? '' : 'ok');
+  return { fixed: restore.length, recovered: orphaned.length - still, still };
+}
+
 const DEFAULT_STAGES = [
   { id: 'bd',       label: 'Business Development',       probability: .10, kind: 'open', order: 1 },
   { id: 'cold',     label: 'Cold Lead',                  probability: .05, kind: 'open', order: 2 },
