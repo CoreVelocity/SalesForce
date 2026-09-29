@@ -500,6 +500,41 @@ table.dt th.sorted{color:var(--accent)}
 .standing .mt b{display:block;font-size:var(--fs-lg);font-weight:700;font-variant-numeric:tabular-nums}
 .standing .mt b.good{color:var(--good-ink)}.standing .mt b.warn{color:var(--warning)}
 .standing .mt b.bad{color:var(--critical-ink)}
+
+/* ======================= marketing leads ======================= */
+.leadlist{display:flex;flex-direction:column;gap:6px}
+.leadrow{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;cursor:pointer;
+  padding:9px 11px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2);
+  color:var(--ink-1)}
+.leadrow:hover{border-color:var(--accent);background:var(--surface-3)}
+.leadrow .av{flex:none;width:30px;height:30px;border-radius:99px;display:grid;place-items:center;
+  color:#fff;font-weight:700;font-size:12px;background:var(--ink-3)}
+.leadrow .av.lg,.av.lg{width:44px;height:44px;font-size:17px;border-radius:99px;display:grid;
+  place-items:center;color:#fff;font-weight:700;flex:none}
+.leadrow .mid{flex:1;min-width:0}
+.leadrow .nm{font-weight:650;display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.3}
+.leadrow .nm .star{color:var(--gold,#c9a227)}
+.leadrow .nm .tag{font-size:9px;padding:0 6px}
+.leadrow .nm .co{font-weight:500;color:var(--ink-3);font-size:var(--fs-sm)}
+.leadrow .sub{font-size:var(--fs-xs);color:var(--ink-3);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;margin-top:2px}
+.leadrow .steps{flex:none;font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums;
+  background:var(--surface-3);padding:2px 7px;border-radius:99px}
+@media (max-width:620px){.leadrow .steps{display:none}}
+
+.cadence{display:flex;flex-direction:column;gap:var(--sp-3)}
+.cstep{border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r-md);
+  padding:var(--sp-3);background:var(--surface-2)}
+.cstep.done{border-left-color:var(--good)}
+.cstep .ch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.cstep .ch .d{font-weight:700;font-size:var(--fs-sm)}
+.cstep .ch .w{font-size:var(--fs-xs);color:var(--ink-3)}
+.cstep .ch .tag{font-size:9px;padding:0 6px}
+.cstep .p{font-size:var(--fs-xs);color:var(--ink-3);margin-bottom:7px;line-height:1.45}
+.cstep textarea,.cstep input{margin-bottom:7px}
+.cstep .ca{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.cstep .ca .wa{color:#25d366;border-color:#25d366}
+.cstep .ca .wa:hover{background:rgba(37,211,102,.12)}
 .tile .val .cur{font-size:var(--fs-md);color:var(--ink-3);font-weight:600;margin-right:3px}
 .tile .foot{margin-top:7px;font-size:var(--fs-sm);color:var(--ink-3);display:flex;align-items:center;gap:6px}
 .tile .delta{font-weight:650;display:inline-flex;align-items:center;gap:3px}
@@ -1067,7 +1102,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.16.0';
+const VERSION = '1.17.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1095,7 +1130,7 @@ const CFG = {
   /* The one account every copy of the tool reads and writes. Blank means
      "the signed-in person's own OneDrive", which is single-user only. */
   driveOwner: 'demo@core-velocity.com',
-  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','config'],
+  shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads','config'],
   attachDir: 'attachments',
   cacheKey : 'corevcrm.v1',
   autoSyncMs: 120000,
@@ -1371,6 +1406,7 @@ const I = {
   clip:  '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>',
   flag:  '<path d="M5 21V4h10l-1 3h6l-2 5 2 5h-9l-1-3H5"/>',
   target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  chat:  '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z"/>',
   note:  '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/>'
 };
 const ico = (k, sz, sw) =>
@@ -1438,7 +1474,7 @@ document.addEventListener('keydown', e => {
 const DB = {
   companies: [], contacts: [], deals: [], tasks: [],
   commitments: [], reviews: [], activities: [], attachments: [], products: [],
-  demos: [], demoRequests: [],
+  demos: [], demoRequests: [], leads: [],
   owners: [], stages: [], lossReasons: [],
   config: { widgets: null, targets: {}, theme: 'dark' },
   meta: { exportedAt: null, homeCurrency: CFG.currency }
@@ -2133,7 +2169,7 @@ function mergeRecords(mine, theirs) {
   });
   return Array.from(out.values());
 }
-const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests'];
+const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads'];
 
 async function syncNow(opt) {
   const o = opt || {};
@@ -2979,6 +3015,8 @@ const NAV = [
     count: () => live('demos').filter(demoNeedsOutcome).length, alert: true },
   { id: 'requests',  label: 'Demo Requests', icon: 'clip',
     count: () => live('demoRequests').filter(r => reqVisible(r) && reqStatus(r) === 'Pending').length, alert: true },
+  { id: 'leads',     label: 'Marketing Leads', icon: 'chat',
+    count: () => leadScope().filter(l => l.stage === 'New' || !l.assignee).length, alert: true },
   { g: 'Accounts' },
   { id: 'companies', label: 'Companies', icon: 'bldg',  count: () => live('companies').length },
   { id: 'contacts',  label: 'Contacts',  icon: 'user',  count: () => live('contacts').length },
@@ -9948,6 +9986,932 @@ function printDoc(html) {
   toast('Choose “Save as PDF” in the print dialog', 'ok');
 }
 /* ================================================================
+   MARKETING LEADS   (migrated from the tracker's Follow-up Engine)
+
+   A lead arrives — typed, pasted, or pulled from the agency's Google
+   Sheet — is routed to a rep by where it is, and gets a seven-step
+   twelve-day cadence written for it. The rep tunes any step with
+   Claude, sends it from their own WhatsApp, and moves the lead along
+   New → Contacted → Engaged → Demo booked → Won / Lost.
+
+   What is different here, deliberately:
+     · every lead becomes a CRM contact the moment it lands, so nothing
+       is ever only in this list;
+     · it becomes a deal when it reaches Demo booked or Won, so the
+       pipeline and the forecast do not fill with untouched leads;
+     · no media library — images in a synced file is what put this
+       tool over the browser storage limit once already.
+   ================================================================ */
+
+const MLEAD_STAGES = ['New', 'Contacted', 'Engaged', 'Demo booked', 'Won', 'Lost', 'Referral'];
+const MLEAD_LOST   = ['Above budget', 'Went with a competitor', 'No show', 'Not interested', 'Asked to drop it'];
+const LEAD_DEAL_AT = ['Demo booked', 'Won'];      // when a lead earns a place in the pipeline
+
+/* CoreV's own cadence copy, carried across word for word. {name} and
+   {company} are filled per lead. */
+const LEAD_CADENCE = [
+  { key:'t1', day:'Day 0',  when:'Within 5 minutes', channel:'WhatsApp', offsetMin:0,
+    purpose:'Instant reply and a quick qualify — home or business',
+    b2c:"Hi {name}, thanks for your interest in OxeFit! Quick question so I can help you best — is this for your home, or for a gym/business?",
+    b2b:"Hi {name}, thanks for reaching out to OxeFit! Quick one so I point you the right way — is this for your home, or for {company}?" },
+  { key:'t2', day:'Day 0',  when:'+2 hours', channel:'WhatsApp', offsetMin:120,
+    purpose:'A personal note from the rep with a soft demo offer',
+    b2c:"Hi {name}, this is your OxeFit specialist. Most people are surprised how much one system replaces — strength, cardio, recovery and AI coaching in one. I'd love to show how it fits your space. Want me to send a quick 60-second clip?",
+    b2b:"Hi {name}, this is your OxeFit specialist. For {company}, OxeFit can lift member retention and add a premium draw without extra staff. Can I send a short overview built for facilities like yours?" },
+  { key:'t3', day:'Day 1',  when:'Next day', channel:'WhatsApp', offsetMin:1440,
+    purpose:'One short matched video',
+    b2c:"Here's a quick look at OxeFit in a real home setup: [video link]. Watch how the resistance adjusts automatically as you move — that's the part people love.",
+    b2b:"Sharing how a studio worked OxeFit into their floor: [video link]. Members book it out — it's become a real differentiator for them." },
+  { key:'t4', day:'Day 3',  when:'3 days in', channel:'WhatsApp', offsetMin:4320,
+    purpose:'Social proof, handle the top objection, drop the booking link',
+    b2c:"{name}, a customer here had the same thought about space — turned out it fit a corner they weren't using. Easiest way to judge is to feel it: 15 minutes, in person or over video. Here's my calendar: [booking link]. No pressure.",
+    b2b:"{name}, a gym we work with had members signing up specifically for the OxeFit sessions. Worth a 15-minute walkthrough to see if it fits {company}? Here's my calendar: [booking link]." },
+  { key:'t5', day:'Day 5',  when:'5 days in', channel:'Email', offsetMin:7200,
+    purpose:'Lower the money objection — financing for a home, ROI for a business',
+    subjectB2c:'Making OxeFit easy on the budget', subjectB2b:'The numbers behind OxeFit for {company}',
+    b2c:"Hi {name},\n\nWanted to make the investment side simple. OxeFit comes with flexible payment plans and a full warranty, and over a year it usually costs less than a trainer or premium gym membership — while living in your home.\n\nHappy to walk through the options whenever suits. Want me to hold a demo slot this week?\n\nBest,\nYour OxeFit team",
+    b2b:"Hi {name},\n\nSharing a short ROI snapshot for {company}: how OxeFit tends to lift retention, add a premium tier you can charge for, and pay back over the first year. Multi-unit pricing is available.\n\nHappy to tailor the numbers to your floor. Shall I set up a 15-minute call?\n\nBest,\nYour OxeFit team" },
+  { key:'t6', day:'Day 8',  when:'8 days in', channel:'WhatsApp', offsetMin:11520,
+    purpose:'Re-engage a quiet lead with a low-commitment option',
+    b2c:"Totally understand it's a big decision, {name}. I've got a couple of demo slots this week — want me to hold one, or would a quick video tour be easier?",
+    b2b:"Totally understand these things take time, {name}. I can hold a walkthrough slot this week, or send a tailored video tour for {company} — whichever's easier?" },
+  { key:'t7', day:'Day 12', when:'12 days in', channel:'WhatsApp', offsetMin:17280,
+    purpose:'A soft break-up, which often re-opens the conversation',
+    b2c:"{name}, I don't want to keep nudging if the timing's off — should I close your file for now, or keep your spot open? Either answer is completely fine.",
+    b2b:"{name}, I don't want to keep chasing if now isn't right — should I close this off, or keep {company} on the list for later? Either's completely fine." }
+];
+
+const leadFirst = n => String(n || '').trim().split(/\s+/)[0] || 'there';
+function leadFill(tpl, l) {
+  return String(tpl || '')
+    .replace(/\{name\}/g, leadFirst(l.name))
+    .replace(/\{company\}/g, l.company || 'your business');
+}
+function leadTouches(l) {
+  return LEAD_CADENCE.map(c => {
+    const b2b = l.type === 'B2B';
+    const t = { key: c.key, day: c.day, when: c.when, channel: c.channel, purpose: c.purpose,
+      status: 'pending', message: leadFill(b2b ? c.b2b : c.b2c, l) };
+    if (c.channel === 'Email') t.subject = leadFill(b2b ? c.subjectB2b : c.subjectB2c, l);
+    return t;
+  });
+}
+
+/* ---------------------------------------------------- routing */
+const EMIRATE_RULES = [
+  ['Abu Dhabi', /\b(abu\s*dhabi|abudhabi|auh|al\s*ain|yas|saadiyat|mussafah|musaffah|khalifa city|reem island|mbz|mohammed bin zayed|al raha|shakhbout|bani yas|al shamkha|madinat zayed|ruwais|liwa)\b/],
+  ['Dubai',     /\b(dubai|dxb|jumeirah|marina|deira|bur dubai|business bay|jbr|downtown|al barsha|tecom|jvc|jlt|silicon oasis|mirdif|karama|satwa|al quoz|dubai hills|palm jumeirah|international city|discovery gardens|motor city|arabian ranches|damac|emaar)\b/]
+];
+function leadRegionOf(text) {
+  const t = ' ' + String(text || '').toLowerCase() + ' ';
+  const hit = EMIRATE_RULES.find(([, re]) => re.test(t));
+  return hit ? hit[0] : '';
+}
+/* Round-robin inside the region, so a batch of thirty does not all land
+   on one person. The counter lives in config so it carries across reps. */
+function leadNextRep(region) {
+  const people = activeOwners().filter(o => ownerRegion(o.id) === region);
+  if (!people.length) return '';
+  DB.config.leadRot = DB.config.leadRot || {};
+  const n = Number(DB.config.leadRot[region] || 0);
+  DB.config.leadRot[region] = (n + 1) % people.length;
+  return people[n % people.length].id;
+}
+function leadAutoAssign(l) {
+  const region = l.region || leadRegionOf([l.emirate, l.address, l.note, l.company].filter(Boolean).join(' '));
+  l.region = region || '';
+  if (!region) { l.routeNeeded = true; return ''; }
+  const rep = leadNextRep(region);
+  if (!rep) { l.routeNeeded = true; return ''; }
+  l.assignee = rep; l.autoAssigned = true; l.routeNeeded = false;
+  l.assignedAt = new Date().toISOString();
+  return rep;
+}
+
+/* ---------------------------------------------------- identity & dedupe */
+const leadDigits = s => String(s || '').replace(/\D/g, '');
+function leadKey(l) {
+  const e = String(l.email || '').trim().toLowerCase();
+  if (e) return 'e:' + e;
+  const p = leadDigits(l.phone);
+  if (p.length >= 7) return 'p:' + p.slice(-9);
+  return 'n:' + String(l.name || '').trim().toLowerCase() + '|' + String(l.company || '').trim().toLowerCase();
+}
+const leadIndex = () => { const m = new Map(); live('leads').forEach(l => m.set(leadKey(l), l)); return m; };
+
+/* ---------------------------------------------------- the CRM link
+   Every lead becomes a contact straight away, tagged so the contact book
+   can still be read as the worked book. It becomes a deal only once it
+   reaches Demo booked or Won, so the pipeline is not filled with leads
+   nobody has spoken to. */
+function leadToContact(l) {
+  if (l.contactId && getCt(l.contactId)) return getCt(l.contactId);
+  const mail = String(l.email || '').trim().toLowerCase();
+  const ph = leadDigits(l.phone).slice(-9);
+  let c = mail ? live('contacts').find(x => String(x.email || '').toLowerCase() === mail) : null;
+  if (!c && ph) c = live('contacts').find(x => leadDigits(x.phone).slice(-9) === ph && ph.length >= 7);
+  let co = null;
+  if (l.type === 'B2B' && l.company) {
+    co = live('companies').find(x => String(x.name || '').toLowerCase() === String(l.company).toLowerCase());
+    if (!co) co = upsert('companies', { name: l.company, createdAt: TODAY(),
+      ownerId: l.assignee || currentOwnerId(), source: 'Marketing lead' });
+  }
+  const parts = String(l.name || '').trim().split(/\s+/);
+  const rec = Object.assign({}, c || {}, {
+    firstName: (c && c.firstName) || parts[0] || l.name || '',
+    lastName:  (c && c.lastName)  || parts.slice(1).join(' '),
+    email: l.email || (c && c.email) || null,
+    phone: l.phone || (c && c.phone) || null,
+    companyId: co ? co.id : (c && c.companyId) || null,
+    ownerId: l.assignee || (c && c.ownerId) || currentOwnerId(),
+    createdAt: (c && c.createdAt) || TODAY(),
+    isLead: true, leadSource: l.source || 'Marketing lead'
+  });
+  const saved = upsert('contacts', rec);
+  l.contactId = saved.id;
+  if (co) l.companyId = co.id;
+  return saved;
+}
+function leadToDeal(l) {
+  if (l.dealId && getDl(l.dealId)) return getDl(l.dealId);
+  const c = leadToContact(l);
+  const openFirst = openStages()[0] || stage();
+  const d = upsert('deals', {
+    name: l.company || l.name || 'Marketing lead',
+    companyId: l.companyId || (c && c.companyId) || null,
+    contactIds: c ? [c.id] : [],
+    stageId: openFirst.id, amount: null, currency: CFG.currency,
+    closeDate: addDays(TODAY(), 30), createdAt: TODAY(),
+    ownerId: l.assignee || currentOwnerId(),
+    dealType: l.type === 'B2B' ? 'Commercial' : 'Consumer',
+    source: l.source || 'Marketing lead',
+    nextStep: 'From marketing lead — ' + (l.stage || 'Demo booked')
+  });
+  l.dealId = d.id;
+  logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'open',
+    html: `Created from the marketing lead <b>${esc(l.name || '')}</b>` });
+  return d;
+}
+
+/* ---------------------------------------------------- create / save */
+function leadSave(l) { l.updatedAt = new Date().toISOString(); return upsert('leads', l); }
+const getLead = id => live('leads').find(l => l.id === String(id));
+
+function leadCreate(p, opt) {
+  const o = opt || {};
+  const l = {
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    stage: 'New', owner: currentOwnerId(),
+    name: p.name || '', company: p.company || '', type: p.type === 'B2B' ? 'B2B' : 'B2C',
+    language: p.language === 'Arabic' ? 'Arabic' : 'English',
+    phone: p.phone || '', email: p.email || '', address: p.address || '',
+    emirate: p.emirate || '', region: p.region || '',
+    source: p.source || 'Manual', note: p.note || '', assignee: p.assignee || '',
+    updates: []
+  };
+  if (!l.assignee) leadAutoAssign(l); else { l.region = l.region || leadRegionOf(l.address || l.note); l.routeNeeded = false; }
+  l.touches = leadTouches(l);
+  const saved = leadSave(l);
+  /* every lead is a contact from the moment it lands */
+  try { leadToContact(saved); leadSave(saved); } catch (e) { console.error(e); }
+  if (!o.quiet && saved.assignee && saved.assignee !== currentOwnerId()) leadNotify(saved, 'assigned');
+  return saved;
+}
+function leadSetStage(id, stg) {
+  const l = getLead(id); if (!l) return;
+  const was = l.stage;
+  l.stage = stg;
+  if (stg === 'Lost' && !l.lostReason) { leadAskLost(l); return; }
+  if (stg !== 'Lost') l.lostReason = null;
+  if (LEAD_DEAL_AT.includes(stg)) { try { leadToDeal(l); } catch (e) { console.error(e); } }
+  if (stg === 'Engaged' && !l.engagedAt) l.engagedAt = new Date().toISOString();
+  leadSave(l); render();
+  toast(`${l.name || 'Lead'} → ${stg}` + (l.dealId && !LEAD_DEAL_AT.includes(was) && LEAD_DEAL_AT.includes(stg)
+    ? ' · a deal is now in the pipeline' : ''), 'ok');
+}
+function leadAskLost(l) {
+  const sel = el('select', { class: 'inp' });
+  MLEAD_LOST.forEach(r => sel.appendChild(el('option', { value: r, text: r })));
+  const note = el('textarea', { class: 'inp', rows: 2, placeholder: 'Anything worth knowing next time' });
+  modal('Why was it lost?', el('div', {}, [ fld('Reason', sel), fld('Note', note) ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: () => { l.stage = 'Contacted'; closeAll(); render(); } }),
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      l.lostReason = sel.value;
+      if (note.value.trim()) leadAddUpdate(l, 'Lost — ' + sel.value + ': ' + note.value.trim(), true);
+      leadSave(l); closeAll(); render(); toast('Marked lost', '');
+    } })
+  ]);
+}
+function leadAddUpdate(l, text, silent) {
+  if (!text || !String(text).trim()) return;
+  l.updates = Array.isArray(l.updates) ? l.updates : [];
+  l.updates.push({ id: uid('U'), at: new Date().toISOString(),
+    by: (AUTH.user && AUTH.user.name) || ownerName(currentOwnerId()) || 'local', text: String(text).trim() });
+  if (!silent) { leadSave(l); render(); }
+}
+function leadNotify(l, kind) {
+  /* Reuses the activity log rather than a second notification store, so a
+     rep sees it in the same place as everything else. */
+  logAct({ ownerId: l.assignee, kind: 'note',
+    html: `Marketing lead <b>${esc(l.name || '')}</b> ${kind === 'assigned' ? 'was assigned to you' : kind}` +
+      (l.region ? ` · ${esc(l.region)}` : '') });
+}
+
+/* ---------------------------------------------------- visibility */
+const leadSeeAll = () => isAdmin() || myRole() === 'office';
+function leadScope() {
+  const me = currentOwnerId();
+  let rows = live('leads');
+  if (!leadSeeAll()) rows = rows.filter(l => String(l.assignee) === me || String(l.owner) === me);
+  return rows;
+}
+
+/* ================================================================
+   CLAUDE — message tuning and smart parsing
+   The key is shared with the team, as the tracker did it. It is set by
+   an admin only, never shown back once saved, and it lives in the same
+   config document the team already shares. Be clear-eyed about what
+   that means: it is in every rep's browser, so treat it as a key that
+   can leak and rotate it when somebody leaves.
+   ================================================================ */
+const aiKey   = () => String((DB.config && DB.config.aiKey) || '').trim();
+const aiModel = () => String((DB.config && DB.config.aiModel) || '').trim() || 'claude-sonnet-4-6';
+const aiReady = () => !!aiKey();
+
+async function claudeText(prompt, maxTokens) {
+  const key = aiKey();
+  if (!key) throw new Error('No Anthropic key is set — an admin adds it in Settings.');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': key,
+      'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({ model: aiModel(), max_tokens: maxTokens || 1024,
+      messages: [{ role: 'user', content: prompt }] })
+  });
+  const data = await r.json().catch(() => ({}));
+  if (data.error) throw new Error(data.error.message || 'Anthropic returned an error');
+  if (!r.ok) throw new Error('Anthropic returned ' + r.status);
+  const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('').trim();
+  if (!text) throw new Error('Empty response');
+  return text;
+}
+
+let LEAD_AI_BUSY = null;
+async function leadTune(id, key) {
+  const l = getLead(id); if (!l) return;
+  const t = (l.touches || []).find(x => x.key === key); if (!t) return;
+  if (!aiReady()) return toast('No Anthropic key is set — an admin adds it in Settings', 'err');
+  LEAD_AI_BUSY = id + ':' + key; render();
+  const isEmail = t.channel === 'Email';
+  const prompt =
+    'You help a sales rep at OxeFit (premium connected fitness systems, sold across the GCC and Middle East, based in the UAE).\n' +
+    `Write a single ${t.channel} message for this lead. Return ONLY the message text — no preamble, no quotation marks, no notes.\n` +
+    `Write it in ${l.language}. Keep it warm, concise, human and professional.\n` +
+    (isEmail ? 'Start with one line "Subject: ..." then a blank line then the body.' : 'No subject line — this is a chat message.') + '\n\n' +
+    `Lead: name=${l.name}; type=${l.type}; company=${l.company || 'n/a'}; source=${l.source || 'unknown'}; ` +
+    `notes=${l.note || 'none'}; stage=${l.stage}.\n` +
+    (l.brief ? `Rep brief on this lead — tailor the tone and angle to it, do not contradict it: ${l.brief}\n` : '') +
+    `Goal of this message: ${t.purpose}.\nCurrent draft: ${JSON.stringify(t.message)}`;
+  try {
+    let text = await claudeText(prompt, 1024);
+    if (isEmail && /^subject:/i.test(text)) {
+      const nl = text.indexOf('\n');
+      t.subject = text.slice(0, nl < 0 ? undefined : nl).replace(/^subject:\s*/i, '').trim();
+      text = nl < 0 ? '' : text.slice(nl + 1).trim();
+    }
+    t.message = text; t.tunedAt = new Date().toISOString();
+    leadSave(l);
+  } catch (e) { toast('Claude: ' + String(e.message || e).slice(0, 110), 'err'); }
+  finally { LEAD_AI_BUSY = null; render(); }
+}
+
+async function leadParseSmart(raw) {
+  const prompt = 'You are parsing a sales lead list for OxeFit. Extract EVERY lead. Return ONLY a JSON array — no prose, no markdown, no code fences.\n' +
+    'Each item: {"name":string,"type":"B2C" or "B2B","company":string,"phone":string,"email":string,"address":string,"source":string,"note":string,"language":"English" or "Arabic"}.\n' +
+    'Rules: individuals and home buyers are B2C. Gyms, hotels, studios, clinics, companies, corporate wellness and resellers are B2B — put the business in company. ' +
+    'A missing field is an empty string. If unsure, B2C. Default the language to English unless the text is clearly Arabic. Keep notes short.\n\nLIST:\n' + raw;
+  let text = await claudeText(prompt, 8192);
+  text = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+  const arr = JSON.parse(text);
+  if (!Array.isArray(arr)) throw new Error('Unexpected response');
+  return arr.map(leadNormalise).filter(l => l.name);
+}
+
+/* The parser that needs no key: columns, or one lead per line. */
+function leadParsePlain(raw) {
+  const out = [];
+  String(raw || '').split(/\n\s*\n/).forEach(block => {
+    const lines = block.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!lines.length) return;
+    const delim = lines[0].indexOf('\t') >= 0 ? '\t' : ',';
+    let head = null, start = 0;
+    if (/name/i.test(lines[0]) && lines[0].split(delim).length > 1) {
+      head = lines[0].split(delim).map(h => h.trim().toLowerCase()); start = 1;
+    }
+    for (let i = start; i < lines.length; i++) {
+      const cells = splitCsvLine(lines[i], delim);
+      let o;
+      if (head) { o = {}; head.forEach((h, n) => { o[h] = cells[n] || ''; });
+        o = { name: o.name || o['full name'] || o['lead name'], type: o.type, company: o.company || o.business,
+          phone: o.phone || o.mobile || o['phone number'], email: o.email || o['e-mail'],
+          address: o.address || o.location || o.area || o.city, source: o.source || o.channel,
+          note: o.note || o.notes || o.message || o.comments, language: o.language }; }
+      else o = { name: cells[0], type: cells[1], phone: cells[2], email: cells[3],
+        company: cells[4], source: cells[5], note: cells.slice(6).join(' ') };
+      if (o && o.name) out.push(leadNormalise(o));
+    }
+  });
+  return out;
+}
+/* A CSV cell can hold a quoted comma — a plain split loses the rest of the row. */
+function splitCsvLine(line, delim) {
+  if (delim === '\t') return line.split('\t').map(c => c.trim());
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+             else if (ch === '"') q = false; else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { out.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+/* Long phone numbers come out of spreadsheets as 9.71501E+11. */
+function expandSci(s) {
+  const m = String(s || '').trim().match(/^([+-]?)(\d+)(?:\.(\d+))?[eE]\+?(\d+)$/);
+  if (!m) return String(s || '');
+  const digits = m[2] + (m[3] || ''), point = m[2].length + parseInt(m[4], 10);
+  return (m[1] === '-' ? '-' : '') +
+    (point >= digits.length ? digits + '0'.repeat(point - digits.length) : digits.slice(0, point));
+}
+function leadNormalise(o) {
+  o = o || {};
+  const blob = [o.note, o.phone, o.email, o.address, o.source, o.company].filter(Boolean).join('\n');
+  let type = String(o.type || '').toUpperCase();
+  if (type !== 'B2B' && type !== 'B2C') {
+    const t = ((o.type || '') + ' ' + (o.company || '') + ' ' + (o.note || '') + ' ' + (o.name || '')).toLowerCase();
+    type = /b2b|business|gym|hotel|studio|clinic|company|corporate|reseller|wellness|fitness cent/.test(t) ? 'B2B' : 'B2C';
+  }
+  const mail = (String(o.email || '') + ' ' + blob).match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/);
+  const rawPhone = expandSci(o.phone || '');
+  let phone = leadDigits(rawPhone);
+  if (!phone || phone.length < 7) { const m = blob.match(/\+?\d[\d\s()-]{6,}/); if (m) phone = leadDigits(expandSci(m[0])); }
+  if (phone && phone.length >= 9 && !phone.startsWith('971') && phone.startsWith('0')) phone = '971' + phone.slice(1);
+  const address = String(o.address || '').trim();
+  return { name: String(o.name || '').trim(), type, company: String(o.company || '').trim(),
+    phone: phone ? '+' + phone : '', email: mail ? mail[0].toLowerCase() : '',
+    address, emirate: '', region: leadRegionOf([address, o.note, o.company].filter(Boolean).join(' ')),
+    source: String(o.source || '').trim(), note: String(o.note || '').trim(),
+    language: /arabic|عرب/i.test(String(o.language || '')) ? 'Arabic' : 'English' };
+}
+
+/* ---------------------------------------------------- WhatsApp */
+function leadWhatsApp(id, key) {
+  const l = getLead(id); if (!l) return;
+  const num = leadDigits(l.phone);
+  if (!num) return toast('No phone number on this lead — add one in Contact details', 'err');
+  const t = (l.touches || []).find(x => x.key === key);
+  let text = t ? ((t.subject ? t.subject + '\n\n' : '') + (t.message || '')) : '';
+  const rep = ownerName(l.assignee || currentOwnerId());
+  if (rep && rep !== 'Unassigned' && text && text.toLowerCase().indexOf(rep.toLowerCase()) < 0)
+    text += '\n\n— ' + rep + ', CoreV · OxeFit';
+  if (t) {
+    t.waAt = new Date().toISOString();
+    t.waBy = (AUTH.user && AUTH.user.name) || rep;
+    t.waCount = (t.waCount || 0) + 1;
+    if (t.status === 'pending') t.status = 'sent';
+  }
+  l.lastWhatsAppAt = new Date().toISOString();
+  if (l.stage === 'New') l.stage = 'Contacted';
+  leadSave(l);
+  const url = 'whatsapp://send?phone=' + num + (text ? '&text=' + encodeURIComponent(text) : '');
+  const a = el('a', { href: url, target: '_blank', rel: 'noopener' });
+  document.body.appendChild(a); a.click(); a.remove();
+  render();
+}
+function leadCopy(id, key) {
+  const l = getLead(id); const t = l && (l.touches || []).find(x => x.key === key);
+  if (!t) return;
+  const text = (t.subject ? t.subject + '\n\n' : '') + (t.message || '');
+  navigator.clipboard.writeText(text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err'));
+}
+function leadStepStatus(id, key, status) {
+  const l = getLead(id); const t = l && (l.touches || []).find(x => x.key === key);
+  if (!t) return;
+  t.status = status; if (status === 'sent' && !t.sentAt) t.sentAt = new Date().toISOString();
+  leadSave(l); render();
+}
+
+/* ================================================================
+   GOOGLE SHEET FEED
+   The sheet is published to the web as CSV (File → Share → Publish to
+   web → CSV) and read straight over https. No Google sign-in, no OAuth
+   app, and it works the same for every rep. The trade-off is real and
+   is stated in Settings: anyone holding that URL can read the sheet,
+   so it must carry lead data and nothing else.
+   ================================================================ */
+const sheetUrl  = () => String((DB.config && DB.config.leadSheetUrl) || '').trim();
+const sheetAuto = () => !!(DB.config && DB.config.leadSheetAuto);
+const sheetLast = () => (DB.config && DB.config.leadSheetAt) || '';
+
+function sheetCsvUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) return '';
+  /* A published link already ends in output=csv. A normal /edit link can be
+     turned into one, which is what people paste by mistake. */
+  if (/output=csv/i.test(s)) return s;
+  const m = s.match(/\/spreadsheets\/d\/(?:e\/)?([\w-]+)/);
+  if (m) {
+    const gid = (s.match(/[#&?]gid=(\d+)/) || [])[1] || '0';
+    return /\/d\/e\//.test(s)
+      ? s.replace(/\/pubhtml.*$/, '/pub?output=csv&gid=' + gid).replace(/\/edit.*$/, '/pub?output=csv&gid=' + gid)
+      : `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv&gid=${gid}`;
+  }
+  return s;
+}
+let SHEET_BUSY = false;
+async function sheetSync(opt) {
+  const o = opt || {};
+  const url = sheetCsvUrl(sheetUrl());
+  if (!url) { if (!o.quiet) toast('No sheet is connected — add the published CSV link in Settings', 'err'); return { added: 0 }; }
+  if (SHEET_BUSY) return { added: 0 };
+  SHEET_BUSY = true;
+  if (!o.quiet) toast('Reading the sheet…');
+  try {
+    const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
+    if (!r.ok) throw new Error('The sheet returned ' + r.status +
+      (r.status === 404 ? ' — check the link is the published CSV, not the edit link' : ''));
+    const text = await r.text();
+    if (/<html/i.test(text.slice(0, 200))) throw new Error(
+      'That link returned a web page, not CSV. In the sheet use File → Share → Publish to web → comma-separated values.');
+    const parsed = leadParsePlain(text);
+    if (!parsed.length) throw new Error('No rows with a name in them. The first row should be the column headings.');
+    const seen = leadIndex(), fresh = [], dup = new Set();
+    parsed.forEach(p => { const k = leadKey(p); if (!k || seen.has(k) || dup.has(k)) return; dup.add(k); fresh.push(p); });
+    let added = 0, routed = 0;
+    if (fresh.length) batch(() => { fresh.forEach(p => {
+      const l = leadCreate(Object.assign({}, p, { source: p.source || 'Agency sheet' }), { quiet: true });
+      added++; if (l.assignee) routed++;
+    }); });
+    DB.config.leadSheetAt = new Date().toISOString();
+    DB.config.leadSheetCount = parsed.length;
+    touch('config');
+    if (!o.quiet || added) toast(added
+      ? `${added} new lead${added === 1 ? '' : 's'} from the sheet · ${routed} routed automatically` +
+        (added - routed ? ` · ${added - routed} need a rep` : '')
+      : `Up to date — all ${parsed.length} rows are already here`, 'ok');
+    render();
+    return { added, routed, rows: parsed.length };
+  } catch (e) {
+    DB.config.leadSheetErr = String(e.message || e);
+    if (!o.quiet) toast('Sheet: ' + String(e.message || e).slice(0, 130), 'err');
+    return { added: 0, error: String(e.message || e) };
+  } finally { SHEET_BUSY = false; }
+}
+/* Poll while the tool is open, if it is switched on. */
+setInterval(() => {
+  if (sheetAuto() && sheetUrl() && canWrite && !isReadOnly()) sheetSync({ quiet: true });
+}, 15 * 60 * 1000);
+/* ================================================================
+   MARKETING LEADS — the screens
+   ================================================================ */
+
+const LEAD_TAG = { 'New':'', 'Contacted':'info', 'Engaged':'info', 'Demo booked':'good',
+  'Won':'good', 'Lost':'bad', 'Referral':'warn' };
+
+function viewLeads(root) {
+  if (VIEW.leadOpen) { const l = getLead(VIEW.leadOpen); if (l) return leadDetail(root, l); VIEW.leadOpen = null; }
+
+  const all = leadScope();
+  root.appendChild(viewHead(null, [
+    sheetUrl() ? el('button', { class: 'btn', html: ico('sync',14) + ' Sync the sheet',
+      title: 'Read the agency sheet now', onclick: () => sheetSync() }) : null,
+    el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportLeads(all) }),
+    isReadOnly() ? null : el('button', { class: 'btn', html: ico('clip',14) + ' Import a list',
+      onclick: leadImportModal }),
+    isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus',14) + ' New lead',
+      onclick: () => leadEdit(null) })
+  ]));
+
+  /* ---- filters ---- */
+  const f = VIEW.leadFilter = VIEW.leadFilter || {};
+  const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const q = el('input', { class: 'inp', style: 'width:auto;min-width:180px', placeholder: 'Search name, company, phone…',
+    value: f.q || '' });
+  q.addEventListener('input', debounce(e => { f.q = e.target.value; render(); }, 250));
+  bar.appendChild(q);
+  bar.appendChild(selectFilter('Stage', f.stage || '',
+    [['', 'Every stage']].concat(MLEAD_STAGES.map(s => [s, s])), v => { f.stage = v || null; render(); }, 140));
+  bar.appendChild(selectFilter('Type', f.type || '',
+    [['', 'B2B and B2C'], ['B2B', 'B2B only'], ['B2C', 'B2C only']], v => { f.type = v || null; render(); }, 120));
+  if (leadSeeAll()) {
+    const rep = el('select', { class: 'inp', style: 'width:auto;min-width:150px', 'aria-label': 'Assigned rep',
+      onchange: e => { f.rep = e.target.value || null; render(); } });
+    rep.innerHTML = `<option value="">Every rep</option><option value="__none">Nobody yet</option>` +
+      activeOwners().map(o => `<option value="${esc(o.id)}"${f.rep === o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
+    bar.appendChild(rep);
+  }
+  if (f.q || f.stage || f.type || f.rep) bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear',
+    onclick: () => { VIEW.leadFilter = {}; render(); } }));
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  if (sheetLast()) bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: 'Sheet read ' + frel(String(sheetLast()).slice(0, 10)) }));
+
+  /* ---- the numbers ---- */
+  const t = el('div', { class: 'tiles' });
+  const cnt = s => all.filter(l => l.stage === s).length;
+  const needRep = all.filter(l => !l.assignee).length;
+  const won = cnt('Won'), decided = won + cnt('Lost');
+  t.appendChild(tile('Open leads', all.filter(l => !['Won','Lost'].includes(l.stage)).length, { icon: 'user',
+    foot: needRep ? `${needRep} still need a rep` : 'all routed' }));
+  t.appendChild(tile('Contacted', cnt('Contacted') + cnt('Engaged'), { icon: 'check',
+    foot: 'a message has gone out' }));
+  t.appendChild(tile('Demo booked', cnt('Demo booked'), { icon: 'cal', foot: 'in the pipeline as deals' }));
+  t.appendChild(tile('Won', won, { icon: 'bolt',
+    foot: decided ? `${Math.round(won / decided * 100)}% of ${decided} decided` : 'none decided yet' }));
+  t.appendChild(tile('Lost', cnt('Lost'), { icon: 'x', foot: 'with a reason on each' }));
+  root.appendChild(t);
+  root.appendChild(bar);
+
+  if (needRep && !isReadOnly()) {
+    const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
+    n.appendChild(el('span', { class: 'ic', html: ico('warn',18) }));
+    n.appendChild(el('div', { style: 'flex:1;line-height:1.5', html:
+      `<b>${needRep} lead${needRep === 1 ? '' : 's'} could not be routed</b><div class="sub">` +
+      'Nothing in the address or the note said which emirate, so nobody was picked. Open each one and assign it.</div>' }));
+    n.appendChild(el('button', { class: 'btn sm', text: 'Show only these',
+      onclick: () => { VIEW.leadFilter = { rep: '__none' }; render(); } }));
+    root.appendChild(n);
+  }
+
+  /* ---- the list ---- */
+  let rows = all.slice();
+  if (f.stage) rows = rows.filter(l => l.stage === f.stage);
+  if (f.type)  rows = rows.filter(l => l.type === f.type);
+  if (f.rep)   rows = rows.filter(l => f.rep === '__none' ? !l.assignee : String(l.assignee) === f.rep);
+  if (f.q) { const s = f.q.toLowerCase();
+    rows = rows.filter(l => [l.name, l.company, l.phone, l.email, l.note, l.source]
+      .some(v => String(v || '').toLowerCase().includes(s))); }
+  rows.sort((a, z) => (z.priority ? 1 : 0) - (a.priority ? 1 : 0) ||
+    String(z.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+
+  const c = card('Leads', `${rows.length} of ${all.length} · newest activity first`);
+  if (!rows.length) {
+    c.body.appendChild(el('div', { class: 'empty', html: ico('user',34) +
+      '<h4>Nothing here</h4><p>' + (all.length ? 'No lead matches those filters.'
+        : 'Connect the agency sheet in Settings, import a list, or add one by hand.') + '</p>' }));
+  } else {
+    const list = el('div', { class: 'leadlist' });
+    rows.slice(0, 300).forEach(l => list.appendChild(leadRow(l)));
+    c.body.appendChild(list);
+    if (rows.length > 300) c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
+      text: `Showing the 300 most recent of ${rows.length}. Narrow it with the filters above.` }));
+  }
+  root.appendChild(c.node);
+}
+
+function leadRow(l) {
+  const done = (l.touches || []).filter(t => t.status === 'sent').length;
+  const n = el('button', { class: 'leadrow', onclick: () => { VIEW.leadOpen = l.id; render(); } });
+  n.appendChild(el('span', { class: 'av', style: `background:${ownerColor(l.assignee || '')}`,
+    text: (l.type === 'B2B' ? 'B' : (leadFirst(l.name)[0] || '·')).toUpperCase() }));
+  n.appendChild(el('div', { class: 'mid' }, [
+    el('div', { class: 'nm', html: `${l.priority ? '<span class="star">★</span> ' : ''}${esc(l.name || 'Unnamed')}` +
+      `<span class="tag">${esc(l.type)}</span>` + (l.company ? `<span class="co">${esc(l.company)}</span>` : '') }),
+    el('div', { class: 'sub', text: [l.assignee ? ownerName(l.assignee) : 'no rep yet',
+      l.region || 'region unknown', l.source, l.phone].filter(Boolean).join(' · ') })
+  ]));
+  n.appendChild(el('span', { class: 'steps', title: `${done} of ${(l.touches || []).length} steps sent`,
+    text: `${done}/${(l.touches || []).length}` }));
+  n.appendChild(el('span', { class: 'tag ' + (LEAD_TAG[l.stage] || ''), text: l.stage }));
+  return n;
+}
+
+/* ---------------------------------------------------- one lead */
+function leadDetail(root, l) {
+  const mine = !isReadOnly() && (leadSeeAll() || String(l.assignee) === currentOwnerId() || String(l.owner) === currentOwnerId());
+  root.appendChild(viewHead(null, [
+    el('button', { class: 'btn', html: '‹ All leads', onclick: () => { VIEW.leadOpen = null; render(); } }),
+    l.contactId ? el('button', { class: 'btn', html: ico('user',14) + ' Open the contact',
+      onclick: () => openContact(l.contactId) }) : null,
+    l.dealId ? el('button', { class: 'btn', html: ico('board',14) + ' Open the deal',
+      onclick: () => openDeal(l.dealId) }) : null,
+    mine ? el('button', { class: 'btn', html: ico('cog',14) + ' Edit', onclick: () => leadEdit(l) }) : null
+  ]));
+
+  /* header */
+  const head = card(null, null);
+  const hd = el('div', { style: 'display:flex;gap:var(--sp-3);align-items:flex-start;flex-wrap:wrap' });
+  hd.appendChild(el('span', { class: 'av lg', style: `background:${ownerColor(l.assignee || '')}`,
+    text: (l.type === 'B2B' ? 'B' : (leadFirst(l.name)[0] || '·')).toUpperCase() }));
+  hd.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+    el('h3', { style: 'margin:0', html: esc(l.name || 'Unnamed') +
+      ` <span class="tag">${esc(l.type)}</span> <span class="tag">${esc(l.language)}</span>` +
+      (l.company ? ` <span class="tag info">${esc(l.company)}</span>` : '') }),
+    el('div', { class: 'sub', style: 'margin-top:4px', text:
+      [l.source ? 'Source: ' + l.source : null, l.region || null,
+       'Added ' + fdate(String(l.createdAt).slice(0,10))].filter(Boolean).join(' · ') }),
+    l.note ? el('p', { style: 'margin:var(--sp-2) 0 0;line-height:1.55;color:var(--ink-2)', text: l.note }) : null
+  ]));
+  if (mine) hd.appendChild(el('button', { class: 'btn sm', title: l.priority ? 'Priority — click to clear' : 'Mark as priority',
+    text: l.priority ? '★' : '☆', onclick: () => { l.priority = !l.priority; leadSave(l); render(); } }));
+  head.body.appendChild(hd);
+
+  /* stage + rep */
+  const ctl = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--line-soft)' });
+  const st = el('select', { class: 'inp', style: 'width:auto', disabled: mine ? null : true,
+    onchange: e => leadSetStage(l.id, e.target.value) });
+  MLEAD_STAGES.forEach(s => st.appendChild(el('option', { value: s, text: s, selected: l.stage === s || null })));
+  ctl.appendChild(el('span', { class: 'sub', text: 'Stage' })); ctl.appendChild(st);
+  const rep = ownerSelect(l.assignee || '', { emptyLabel: 'Not assigned',
+    onchange: e => { l.assignee = e.target.value; l.routeNeeded = !e.target.value;
+      if (l.assignee) { l.assignedAt = new Date().toISOString();
+        if (l.contactId) { const c = getCt(l.contactId); if (c) { c.ownerId = l.assignee; upsert('contacts', c); } } }
+      leadSave(l); render(); } });
+  rep.style.width = 'auto'; rep.disabled = mine ? false : true;
+  ctl.appendChild(el('span', { class: 'sub', text: 'Rep' })); ctl.appendChild(rep);
+  if (l.lostReason) ctl.appendChild(el('span', { class: 'tag bad', text: 'Lost: ' + l.lostReason }));
+  if (l.dealId) ctl.appendChild(el('span', { class: 'tag good', text: 'In the pipeline' }));
+  head.body.appendChild(ctl);
+  root.appendChild(head.node);
+
+  /* contact details */
+  const cd = card('Contact details', l.contactId
+    ? 'Kept in step with the contact record this lead created'
+    : 'No contact record yet');
+  const grid = el('div', { class: 'field-row' });
+  const bind = (label, key, type) => {
+    const i = el('input', { class: 'inp', type: type || 'text', value: l[key] || '', disabled: mine ? null : true,
+      onchange: e => { l[key] = e.target.value.trim();
+        if (l.contactId) { const c = getCt(l.contactId);
+          if (c && (key === 'phone' || key === 'email')) { c[key] = l[key] || null; upsert('contacts', c); } }
+        if (key === 'address') { l.region = leadRegionOf(l.address) || l.region; }
+        leadSave(l); } });
+    grid.appendChild(fld(label, i));
+  };
+  bind('Phone', 'phone', 'tel'); bind('Email', 'email', 'email');
+  cd.body.appendChild(grid);
+  const g2 = el('div', { class: 'field-row' });
+  const addr = el('input', { class: 'inp', value: l.address || '', disabled: mine ? null : true,
+    onchange: e => { l.address = e.target.value.trim();
+      const r = leadRegionOf(l.address); if (r) l.region = r;
+      if (r && !l.assignee) leadAutoAssign(l);
+      leadSave(l); render(); } });
+  g2.appendChild(fld('Address', addr, 'Dubai or Abu Dhabi in here is what routes the lead to a rep.'));
+  cd.body.appendChild(g2);
+  const brief = el('textarea', { class: 'inp', rows: 2, value: l.brief || '', disabled: mine ? null : true,
+    placeholder: 'What you know about them — Claude uses this when tuning a message',
+    onchange: e => { l.brief = e.target.value.trim(); leadSave(l); } });
+  cd.body.appendChild(fld('Your brief on this lead', brief));
+  root.appendChild(cd.node);
+
+  /* the cadence */
+  const cc = card('The follow-up', 'Seven steps over twelve days, written for this lead');
+  if (!aiReady()) cc.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
+    text: 'Tuning with Claude is off until an admin adds the Anthropic key in Settings. The steps below still work — edit them by hand.' }));
+  const steps = el('div', { class: 'cadence' });
+  (l.touches || []).forEach(t => steps.appendChild(leadStep(l, t, mine)));
+  cc.body.appendChild(steps);
+  root.appendChild(cc.node);
+
+  /* updates */
+  const uc = card('Updates', 'What happened, and when — everyone on the team sees this');
+  if (mine) {
+    const ta = el('textarea', { class: 'inp', rows: 2, placeholder: 'Spoke to them, asked for pricing, call back Sunday…' });
+    uc.body.appendChild(ta);
+    uc.body.appendChild(el('button', { class: 'btn primary', style: 'margin-top:var(--sp-2)', text: 'Post the update',
+      onclick: () => { if (!ta.value.trim()) return toast('Write something first', 'err');
+        leadAddUpdate(l, ta.value); ta.value = ''; } }));
+  }
+  const ups = (l.updates || []).slice().sort((a, z) => String(z.at).localeCompare(String(a.at)));
+  if (!ups.length) uc.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0', text: 'Nothing logged yet.' }));
+  else {
+    const tl = el('div', { class: 'tl', style: 'margin-top:var(--sp-3)' });
+    ups.forEach(u => tl.appendChild(el('div', { class: 'it note', html:
+      `<div class="w">${esc(fdate(String(u.at).slice(0,10)))} · ${esc(u.by || '')}</div><div class="t">${esc(u.text)}</div>` })));
+    uc.body.appendChild(tl);
+  }
+  root.appendChild(uc.node);
+}
+
+function leadStep(l, t, mine) {
+  const busy = LEAD_AI_BUSY === l.id + ':' + t.key;
+  const n = el('div', { class: 'cstep' + (t.status === 'sent' ? ' done' : '') });
+  n.appendChild(el('div', { class: 'ch' }, [
+    el('span', { class: 'd', text: t.day }),
+    el('span', { class: 'w', text: t.when }),
+    el('span', { class: 'tag ' + (t.channel === 'Email' ? 'info' : ''), text: t.channel }),
+    el('div', { style: 'flex:1' }),
+    t.waAt ? el('span', { class: 'sub', text: `sent ${frel(String(t.waAt).slice(0,10))}` +
+      (t.waCount > 1 ? ` · ${t.waCount}×` : '') }) : null,
+    el('span', { class: 'tag ' + (t.status === 'sent' ? 'good' : t.status === 'skipped' ? '' : 'warn'),
+      text: t.status === 'sent' ? 'sent' : t.status === 'skipped' ? 'skipped' : 'to do' })
+  ]));
+  n.appendChild(el('div', { class: 'p', text: t.purpose }));
+  if (t.subject !== undefined) {
+    const si = el('input', { class: 'inp', value: t.subject || '', placeholder: 'Subject', disabled: mine ? null : true,
+      onchange: e => { t.subject = e.target.value; leadSave(l); } });
+    n.appendChild(si);
+  }
+  const ta = el('textarea', { class: 'inp', rows: Math.min(8, Math.max(3, String(t.message || '').split('\n').length + 1)),
+    value: t.message || '', disabled: mine ? null : true,
+    onchange: e => { t.message = e.target.value; leadSave(l); } });
+  n.appendChild(ta);
+  if (!mine) return n;
+  const acts = el('div', { class: 'ca' });
+  acts.appendChild(el('button', { class: 'btn sm', disabled: busy || !aiReady() ? true : null,
+    title: aiReady() ? 'Rewrite this step with Claude, using the lead and your brief'
+                     : 'An admin has to add the Anthropic key in Settings first',
+    html: busy ? '<span class="spin sm"></span> Tuning…' : '✦ Tune with Claude',
+    onclick: () => leadTune(l.id, t.key) }));
+  acts.appendChild(el('button', { class: 'btn sm', text: 'Copy', onclick: () => leadCopy(l.id, t.key) }));
+  if (t.channel !== 'Email') acts.appendChild(el('button', { class: 'btn sm wa',
+    title: 'Opens WhatsApp with this message ready — you press send',
+    html: ico('chat',13) + ' WhatsApp', onclick: () => leadWhatsApp(l.id, t.key) }));
+  acts.appendChild(el('div', { style: 'flex:1' }));
+  acts.appendChild(el('button', { class: 'btn sm ghost',
+    text: t.status === 'sent' ? 'Mark not sent' : 'Mark sent',
+    onclick: () => leadStepStatus(l.id, t.key, t.status === 'sent' ? 'pending' : 'sent') }));
+  acts.appendChild(el('button', { class: 'btn sm ghost', text: t.status === 'skipped' ? 'Unskip' : 'Skip',
+    onclick: () => leadStepStatus(l.id, t.key, t.status === 'skipped' ? 'pending' : 'skipped') }));
+  n.appendChild(acts);
+  return n;
+}
+
+/* ---------------------------------------------------- add / edit */
+function leadEdit(l) {
+  if (isReadOnly()) return toast('You have read-only access', 'err');
+  const isNew = !l;
+  l = l || { type: 'B2C', language: 'English', stage: 'New' };
+  const nm = el('input', { class: 'inp', value: l.name || '', placeholder: 'e.g. Omar Al Mansoori' });
+  const ty = el('select', { class: 'inp', onchange: () => { coF.style.display = ty.value === 'B2B' ? '' : 'none'; } });
+  [['B2C','Home (B2C)'],['B2B','Business (B2B)']].forEach(([v, t]) =>
+    ty.appendChild(el('option', { value: v, text: t, selected: l.type === v || null })));
+  const co = el('input', { class: 'inp', value: l.company || '', placeholder: 'Gym, hotel, studio, clinic…' });
+  const ph = el('input', { class: 'inp', type: 'tel', value: l.phone || '', placeholder: '+971…' });
+  const em = el('input', { class: 'inp', type: 'email', value: l.email || '', placeholder: 'name@…' });
+  const ad = el('input', { class: 'inp', value: l.address || '', placeholder: 'Area, city…' });
+  const sr = el('input', { class: 'inp', value: l.source || '', placeholder: 'Instagram, referral, walk-in…' });
+  const lg = el('select', { class: 'inp' });
+  ['English','Arabic'].forEach(v => lg.appendChild(el('option', { value: v, text: v, selected: l.language === v || null })));
+  const as = ownerSelect(l.assignee || '', { emptyLabel: 'Route it automatically' });
+  const nt = el('textarea', { class: 'inp', rows: 2, value: l.note || '',
+    placeholder: 'What they asked for, their goal, anything they said' });
+  const coF = fld('Company', co);
+  coF.style.display = (l.type === 'B2B') ? '' : 'none';
+
+  modal(isNew ? 'New lead' : 'Edit ' + (l.name || 'lead'), el('div', {}, [
+    fld('Name *', nm),
+    el('div', { class: 'field-row' }, [ fld('Buyer type', ty), fld('Language', lg) ]),
+    coF,
+    el('div', { class: 'field-row' }, [ fld('Phone', ph), fld('Email', em) ]),
+    fld('Address', ad, 'Naming the emirate here is what routes the lead to the right rep.'),
+    el('div', { class: 'field-row' }, [ fld('Source', sr), fld('Assign to', as) ]),
+    fld('Notes', nt)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: isNew ? 'Add and build the follow-up' : 'Save', onclick: () => {
+      if (!nm.value.trim()) { nm.focus(); return toast('A name is required', 'err'); }
+      const p = { name: nm.value.trim(), type: ty.value, company: co.value.trim(),
+        phone: ph.value.trim(), email: em.value.trim(), address: ad.value.trim(),
+        source: sr.value.trim(), language: lg.value, assignee: as.value, note: nt.value.trim() };
+      if (isNew) {
+        const made = leadCreate(p);
+        closeAll(); VIEW.leadOpen = made.id; render();
+        toast(made.assignee ? `Added and routed to ${ownerName(made.assignee)}` : 'Added — it needs a rep', 'ok');
+      } else {
+        Object.assign(l, p);
+        if (!l.assignee) leadAutoAssign(l);
+        try { leadToContact(l); } catch (e) {}
+        leadSave(l); closeAll(); render(); toast('Saved', 'ok');
+      }
+    } })
+  ]);
+}
+
+/* ---------------------------------------------------- import a list */
+let LEAD_IMPORT = { rows: [], busy: false, err: '' };
+function leadImportModal() {
+  LEAD_IMPORT = { rows: [], busy: false, err: '' };
+  leadImportInput();
+}
+function leadImportInput() {
+  const ta = el('textarea', { class: 'inp', rows: 9, id: 'leadraw',
+    placeholder: 'Omar Al Mansoori, +971 50 123 4567, omar@email.com — home setup, small villa gym in Jumeirah\nFitZone Gym (Dubai), Sara Khalifa, sara@fitzone.ae — 3 locations, member retention' });
+  const file = el('input', { class: 'inp', type: 'file', accept: '.csv,.tsv,.txt',
+    onchange: e => { const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader(); r.onload = () => { ta.value = String(r.result || ''); }; r.readAsText(f); } });
+  modal('Import leads', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', html:
+      aiReady()
+        ? 'Paste the list, or pick a CSV. <b>Read it with Claude</b> sorts each one into B2B or B2C and pulls the phone, email and address out of messy text. Nothing is saved until you confirm.'
+        : 'Paste the list, or pick a CSV. Columns work best — a first row of headings like <code>name, type, company, phone, email, address, source, note</code>. Nothing is saved until you confirm.' }),
+    ta,
+    fld('…or choose a file', file),
+    LEAD_IMPORT.err ? el('div', { class: 'alert', style: 'border-color:var(--critical);margin-top:var(--sp-3)' }, [
+      el('span', { class: 'ic', html: ico('warn',16) }),
+      el('div', { style: 'flex:1;line-height:1.5', text: LEAD_IMPORT.err })]) : null
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    aiReady() ? el('button', { class: 'btn', text: 'Read the columns', onclick: () => leadImportRun(false) }) : null,
+    el('button', { class: 'btn primary', text: aiReady() ? 'Read it with Claude' : 'Read the list',
+      onclick: () => leadImportRun(aiReady()) })
+  ], true);
+}
+async function leadImportRun(smart) {
+  const raw = (($('#leadraw') || {}).value || '').trim();
+  if (!raw) { LEAD_IMPORT.err = 'Paste a list or choose a file first.'; return leadImportInput(); }
+  LEAD_IMPORT.err = '';
+  let rows = [];
+  if (smart) {
+    toast('Reading the list with Claude…');
+    try { rows = await leadParseSmart(raw); }
+    catch (e) { LEAD_IMPORT.err = String(e.message || e) + ' — read as columns instead.'; rows = leadParsePlain(raw); }
+  } else rows = leadParsePlain(raw);
+  if (!rows.length) { LEAD_IMPORT.err = 'No leads found in that. A first row of column headings usually fixes it.'; return leadImportInput(); }
+  const seen = leadIndex();
+  rows.forEach(r => { r._dupe = seen.has(leadKey(r)); r._take = !r._dupe; });
+  LEAD_IMPORT.rows = rows;
+  leadImportPreview();
+}
+function leadImportPreview() {
+  const rows = LEAD_IMPORT.rows;
+  const list = el('div', { class: 'picklist', style: 'max-height:48vh' });
+  const sum = el('div', { class: 'picksum' });
+  const paint = () => {
+    list.innerHTML = '';
+    rows.forEach(r => {
+      const row = el('label', { class: 'pick' + (r._take ? ' on' : '') + (r._dupe ? ' taken' : '') });
+      row.appendChild(el('input', { type: 'checkbox', checked: r._take || null,
+        onchange: e => { r._take = e.target.checked; row.classList.toggle('on', r._take); count(); } }));
+      row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { class: 'nm', text: r.name + (r.company ? ' · ' + r.company : '') }),
+        el('div', { class: 'sub', text: [r.type, r.phone, r.email, r.region || 'no region', r.source]
+          .filter(Boolean).join(' · ') }),
+        r._dupe ? el('div', { class: 'sub', style: 'color:var(--warning)',
+          text: 'Already here — same email or phone. Left unticked.' }) : null
+      ]));
+      list.appendChild(row);
+    });
+    count();
+  };
+  const count = () => {
+    const n = rows.filter(r => r._take).length;
+    const routed = rows.filter(r => r._take && r.region).length;
+    sum.innerHTML = `<b>${rows.length}</b> read · ${rows.filter(r => r._dupe).length} already here · ` +
+      `<b>${n}</b> ticked · ${routed} will route automatically`;
+    const go = $('#leadgo'); if (go) { go.disabled = !n; go.textContent = n ? `Import ${n}` : 'Import'; }
+  };
+  paint();
+  modal('Check before importing', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6', html:
+      'Each one becomes a lead <b>and a contact</b>, routed to a rep by the emirate in its address, with the ' +
+      'seven-step follow-up built for it. Anything already here is left unticked.' }),
+    el('div', { style: 'display:flex;gap:var(--sp-2);margin-bottom:var(--sp-2)' }, [
+      el('button', { class: 'btn sm', text: 'Tick all new',
+        onclick: () => { rows.forEach(r => { r._take = !r._dupe; }); paint(); } }),
+      el('button', { class: 'btn sm ghost', text: 'Tick none',
+        onclick: () => { rows.forEach(r => { r._take = false; }); paint(); } })
+    ]),
+    sum, list
+  ]), [
+    el('button', { class: 'btn', text: 'Back', onclick: leadImportInput },),
+    el('button', { class: 'btn primary', id: 'leadgo', text: 'Import', onclick: () => {
+      const take = rows.filter(r => r._take);
+      if (!take.length) return;
+      let routed = 0;
+      batch(() => take.forEach(r => { const l = leadCreate(r, { quiet: true }); if (l.assignee) routed++; }));
+      closeAll(); render();
+      toast(`${take.length} lead${take.length === 1 ? '' : 's'} imported · ${routed} routed` +
+        (take.length - routed ? ` · ${take.length - routed} need a rep` : ''), 'ok');
+    } })
+  ], true);
+  count();
+}
+
+function exportLeads(rows) {
+  if (!rows.length) return toast('Nothing to export', 'err');
+  const cols = [
+    { h: 'Name', f: l => l.name || '' }, { h: 'Type', f: l => l.type },
+    { h: 'Company', f: l => l.company || '' }, { h: 'Phone', f: l => l.phone || '' },
+    { h: 'Email', f: l => l.email || '' }, { h: 'Address', f: l => l.address || '' },
+    { h: 'Region', f: l => l.region || '' }, { h: 'Assigned to', f: l => ownerName(l.assignee) },
+    { h: 'Stage', f: l => l.stage }, { h: 'Lost reason', f: l => l.lostReason || '' },
+    { h: 'Source', f: l => l.source || '' }, { h: 'Language', f: l => l.language },
+    { h: 'Priority', f: l => l.priority ? 'yes' : '' },
+    { h: 'Added', f: l => String(l.createdAt || '').slice(0, 10) },
+    { h: 'Last WhatsApp', f: l => String(l.lastWhatsAppAt || '').slice(0, 10) },
+    { h: 'Steps sent', f: l => (l.touches || []).filter(t => t.status === 'sent').length },
+    { h: 'In the pipeline', f: l => l.dealId ? 'yes' : '' },
+    { h: 'Updates', f: l => (l.updates || []).map(u =>
+        `[${String(u.at).slice(0,10)} ${u.by}] ${u.text}`).join('  ||  ') }
+  ];
+  download('corev-marketing-leads-' + TODAY() + '.csv', toCSV(rows, cols), 'text/csv');
+  toast(`${rows.length} leads exported`, 'ok');
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
@@ -10120,6 +11084,78 @@ function viewSettings(root) {
       'Every metric goes back to its default green and amber floors.', 'Reset',
       () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
   g.appendChild(cT.node);
+
+  /* ---- marketing leads: the agency sheet ---- */
+  const cS = card('Agency lead sheet', 'Marketing Leads reads new rows from this sheet and routes them');
+  const su = el('input', { class: 'inp', value: sheetUrl(),
+    placeholder: 'https://docs.google.com/spreadsheets/d/e/…/pub?output=csv' });
+  cS.body.appendChild(fld('Published CSV link', su,
+    'In the sheet: File → Share → Publish to web → pick the tab → Comma-separated values (.csv) → Publish. Paste that link here.'));
+  const sa = el('select', { class: 'inp' });
+  [['1','Yes — check every 15 minutes while the tool is open'],['0','No — only when somebody presses Sync']]
+    .forEach(([v, t]) => sa.appendChild(el('option', { value: v, text: t, selected: String(sheetAuto() ? 1 : 0) === v || null })));
+  cS.body.appendChild(fld('Read it automatically', sa));
+  cS.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      DB.config.leadSheetUrl = su.value.trim();
+      DB.config.leadSheetAuto = sa.value === '1';
+      DB.config.leadSheetErr = null;
+      touch('config'); render(); toast('Sheet settings saved', 'ok');
+    } }),
+    el('button', { class: 'btn', html: ico('sync',13) + ' Read it now',
+      onclick: () => { DB.config.leadSheetUrl = su.value.trim(); touch('config'); sheetSync(); } })
+  ]));
+  const ss = el('dl', { class: 'kvs', style: 'margin-top:var(--sp-3)' });
+  const srow = (k, v) => { ss.appendChild(el('dt', { text: k })); ss.appendChild(el('dd', { html: v })); };
+  srow('Last read', sheetLast()
+    ? `${esc(fdate(String(sheetLast()).slice(0,10)))} · ${DB.config.leadSheetCount || 0} rows in the sheet` : 'never');
+  srow('Leads held', String(live('leads').length));
+  if (DB.config.leadSheetErr) srow('Last error', `<span style="color:var(--critical-ink)">${esc(DB.config.leadSheetErr)}</span>`);
+  cS.body.appendChild(ss);
+  cS.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
+    'A published link needs no Google sign-in, which is why every rep can use it. It is also readable by ' +
+    '<b>anyone who has the link</b> — so keep that sheet to lead data and nothing else, and un-publish it in the ' +
+    'sheet if it ever holds more. Rows are matched on email, then phone, so re-reading the same sheet never ' +
+    'duplicates a lead.' }));
+  g.appendChild(cS.node);
+
+  /* ---- marketing leads: Claude ---- */
+  const cAI = card('Claude (Anthropic)', 'Tunes the follow-up messages and reads pasted lead lists');
+  const akSet = !!aiKey();
+  const ak = el('input', { class: 'inp', type: 'password', autocomplete: 'off',
+    placeholder: akSet ? '•••••••••••• — already set, type to replace' : 'sk-ant-…' });
+  const am = el('input', { class: 'inp', value: aiModel(), placeholder: 'claude-sonnet-4-6' });
+  cAI.body.appendChild(el('div', { class: 'field-row' }, [ fld('API key', ak), fld('Model', am) ]));
+  cAI.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap' }, [
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      if (ak.value.trim()) DB.config.aiKey = ak.value.trim();
+      DB.config.aiModel = am.value.trim() || 'claude-sonnet-4-6';
+      DB.config.aiKeyAt = new Date().toISOString();
+      DB.config.aiKeyBy = (AUTH.user && AUTH.user.username) || 'local';
+      touch('config'); render(); toast('Saved and syncing to the team', 'ok');
+    } }),
+    akSet ? el('button', { class: 'btn', text: 'Test it', onclick: () => {
+      toast('Asking Claude…');
+      claudeText('Reply with exactly: ok', 16)
+        .then(t => toast('Claude answered — "' + t.slice(0, 30) + '"', 'ok'))
+        .catch(e => toast('Claude: ' + String(e.message || e).slice(0, 120), 'err'));
+    } }) : null,
+    akSet ? el('button', { class: 'btn danger', text: 'Remove the key',
+      onclick: () => confirmDo('Remove the Anthropic key',
+        'Tuning and smart parsing stop for the whole team. The follow-up steps keep working — they just cannot be rewritten by Claude.',
+        'Remove', () => { delete DB.config.aiKey; delete DB.config.aiKeyAt; touch('config'); render(); toast('Key removed'); }) }) : null
+  ]));
+  if (akSet) cAI.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
+    text: `A key is set${DB.config.aiKeyBy ? ', by ' + DB.config.aiKeyBy : ''}${DB.config.aiKeyAt ? ' on ' + fdate(String(DB.config.aiKeyAt).slice(0,10)) : ''}. It is never shown back — replace it by typing a new one.` }));
+  cAI.body.appendChild(el('div', { class: 'alert', style: 'margin-top:var(--sp-3);border-color:var(--warning)' }, [
+    el('span', { class: 'ic', html: ico('warn',16), style: 'color:var(--warning)' }),
+    el('div', { style: 'flex:1;line-height:1.6', html:
+      '<b>Know what this key is exposed to.</b> It syncs to the team so nobody has to be asked for one, which means ' +
+      'it sits in every rep’s browser and in the shared folder. Anyone on the team can read it and spend against ' +
+      'your Anthropic account. Treat it as a key that will eventually leak: give it a spend limit in the Anthropic ' +
+      'console, and rotate it when somebody leaves.' })
+  ]));
+  g.appendChild(cAI.node);
 
   /* ---- recovery ---- */
   const cRec = card('If the team or the stages go missing', 'What the tool can put back, and where the freshest copy lives');
@@ -11025,13 +12061,13 @@ const VIEWS = {
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
   review: viewReview, demos: viewDemos, requests: viewRequests,
   monthly: viewMonthly, forecast: viewForecast, settings: viewSettings,
-  perf: viewPerf
+  perf: viewPerf, leads: viewLeads
 };
 const TITLES = {
   dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
   review: 'Sales Commitment', demos: 'Demo Tracker', requests: 'Demo Requests',
-  perf: 'Rep Performance',
+  perf: 'Rep Performance', leads: 'Marketing Leads',
   monthly: 'Per Month Commit vs. Forecast',
   forecast: 'Forecast & analytics', settings: 'Settings'
 };
