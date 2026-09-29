@@ -1112,7 +1112,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.18.0';
+const VERSION = '1.18.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1467,7 +1467,11 @@ function modal(title, bodyNode, footNodes, wide) {
     el('button', { class: 'btn icon ghost', html: ico('x',16), onclick: closeAll, 'aria-label': 'Close' })
   ]));
   const b = el('div', { class: 'body' }); b.appendChild(bodyNode); m.appendChild(b);
-  if (footNodes) { const f = el('div', { class: 'foot' }); footNodes.forEach(n => f.appendChild(n)); m.appendChild(f); }
+  /* A null in the footer list is how every caller writes a conditional button
+     (`cond ? el(...) : null`). Appending one threw, which took the whole dialog
+     down before it opened — that is what killed "Import a list" for anyone
+     without an Anthropic key set. */
+  if (footNodes) { const f = el('div', { class: 'foot' }); footNodes.forEach(n => n && f.appendChild(n)); m.appendChild(f); }
   m.classList.add('on'); openScrim(closeAll);
   const first = m.querySelector('input,select,textarea'); if (first) setTimeout(() => first.focus(), 60);
   return m;
@@ -10998,104 +11002,12 @@ function leadEdit(l) {
 }
 
 /* ---------------------------------------------------- import a list */
-let LEAD_IMPORT = { rows: [], busy: false, err: '' };
-function leadImportModal() {
-  LEAD_IMPORT = { rows: [], busy: false, err: '' };
-  leadImportInput();
-}
-function leadImportInput() {
-  const ta = el('textarea', { class: 'inp', rows: 9, id: 'leadraw',
-    placeholder: 'Omar Al Mansoori, +971 50 123 4567, omar@email.com — home setup, small villa gym in Jumeirah\nFitZone Gym (Dubai), Sara Khalifa, sara@fitzone.ae — 3 locations, member retention' });
-  const file = el('input', { class: 'inp', type: 'file', accept: '.csv,.tsv,.txt',
-    onchange: e => { const f = e.target.files[0]; if (!f) return;
-      const r = new FileReader(); r.onload = () => { ta.value = String(r.result || ''); }; r.readAsText(f); } });
-  modal('Import leads', el('div', {}, [
-    el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', html:
-      aiReady()
-        ? 'Paste the list, or pick a CSV. <b>Read it with Claude</b> sorts each one into B2B or B2C and pulls the phone, email and address out of messy text. Nothing is saved until you confirm.'
-        : 'Paste the list, or pick a CSV. Columns work best — a first row of headings like <code>name, type, company, phone, email, address, source, note</code>. Nothing is saved until you confirm.' }),
-    ta,
-    fld('…or choose a file', file),
-    LEAD_IMPORT.err ? el('div', { class: 'alert', style: 'border-color:var(--critical);margin-top:var(--sp-3)' }, [
-      el('span', { class: 'ic', html: ico('warn',16) }),
-      el('div', { style: 'flex:1;line-height:1.5', text: LEAD_IMPORT.err })]) : null
-  ]), [
-    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
-    aiReady() ? el('button', { class: 'btn', text: 'Read the columns', onclick: () => leadImportRun(false) }) : null,
-    el('button', { class: 'btn primary', text: aiReady() ? 'Read it with Claude' : 'Read the list',
-      onclick: () => leadImportRun(aiReady()) })
-  ], true);
-}
-async function leadImportRun(smart) {
-  const raw = (($('#leadraw') || {}).value || '').trim();
-  if (!raw) { LEAD_IMPORT.err = 'Paste a list or choose a file first.'; return leadImportInput(); }
-  LEAD_IMPORT.err = '';
-  let rows = [];
-  if (smart) {
-    toast('Reading the list with Claude…');
-    try { rows = await leadParseSmart(raw); }
-    catch (e) { LEAD_IMPORT.err = String(e.message || e) + ' — read as columns instead.'; rows = leadParsePlain(raw); }
-  } else rows = leadParsePlain(raw);
-  if (!rows.length) { LEAD_IMPORT.err = 'No leads found in that. A first row of column headings usually fixes it.'; return leadImportInput(); }
-  const seen = leadIndex();
-  rows.forEach(r => { r._dupe = seen.has(leadKey(r)); r._take = !r._dupe; });
-  LEAD_IMPORT.rows = rows;
-  leadImportPreview();
-}
-function leadImportPreview() {
-  const rows = LEAD_IMPORT.rows;
-  const list = el('div', { class: 'picklist', style: 'max-height:48vh' });
-  const sum = el('div', { class: 'picksum' });
-  const paint = () => {
-    list.innerHTML = '';
-    rows.forEach(r => {
-      const row = el('label', { class: 'pick' + (r._take ? ' on' : '') + (r._dupe ? ' taken' : '') });
-      row.appendChild(el('input', { type: 'checkbox', checked: r._take || null,
-        onchange: e => { r._take = e.target.checked; row.classList.toggle('on', r._take); count(); } }));
-      row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
-        el('div', { class: 'nm', text: r.name + (r.company ? ' · ' + r.company : '') }),
-        el('div', { class: 'sub', text: [r.type, r.phone, r.email, r.region || 'no region', r.source]
-          .filter(Boolean).join(' · ') }),
-        r._dupe ? el('div', { class: 'sub', style: 'color:var(--warning)',
-          text: 'Already here — same email or phone. Left unticked.' }) : null
-      ]));
-      list.appendChild(row);
-    });
-    count();
-  };
-  const count = () => {
-    const n = rows.filter(r => r._take).length;
-    const routed = rows.filter(r => r._take && r.region).length;
-    sum.innerHTML = `<b>${rows.length}</b> read · ${rows.filter(r => r._dupe).length} already here · ` +
-      `<b>${n}</b> ticked · ${routed} will route automatically`;
-    const go = $('#leadgo'); if (go) { go.disabled = !n; go.textContent = n ? `Import ${n}` : 'Import'; }
-  };
-  paint();
-  modal('Check before importing', el('div', {}, [
-    el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6', html:
-      'Each one becomes a lead <b>and a contact</b>, routed to a rep by the emirate in its address, with the ' +
-      'seven-step follow-up built for it. Anything already here is left unticked.' }),
-    el('div', { style: 'display:flex;gap:var(--sp-2);margin-bottom:var(--sp-2)' }, [
-      el('button', { class: 'btn sm', text: 'Tick all new',
-        onclick: () => { rows.forEach(r => { r._take = !r._dupe; }); paint(); } }),
-      el('button', { class: 'btn sm ghost', text: 'Tick none',
-        onclick: () => { rows.forEach(r => { r._take = false; }); paint(); } })
-    ]),
-    sum, list
-  ]), [
-    el('button', { class: 'btn', text: 'Back', onclick: leadImportInput },),
-    el('button', { class: 'btn primary', id: 'leadgo', text: 'Import', onclick: () => {
-      const take = rows.filter(r => r._take);
-      if (!take.length) return;
-      let routed = 0;
-      batch(() => take.forEach(r => { const l = leadCreate(r, { quiet: true }); if (l.assignee) routed++; }));
-      closeAll(); render();
-      toast(`${take.length} lead${take.length === 1 ? '' : 's'} imported · ${routed} routed` +
-        (take.length - routed ? ` · ${take.length - routed} need a rep` : ''), 'ok');
-    } })
-  ], true);
-  count();
-}
+/* "Import a list" and "From the Sales Tracker" are the same importer with a
+   different first screen. It used to be a second, simpler one that read only
+   the columns it recognised — so stage, rep and date never came in, a blank row
+   in the middle of a file shifted every row under it, and a semicolon-separated
+   export arrived as one long name. */
+const leadImportModal = () => migOpen('paste');
 
 function exportLeads(rows) {
   if (!rows.length) return toast('Nothing to export', 'err');
@@ -11231,34 +11143,78 @@ function migTake(text, label) {
        column it does not recognise, and stage and rep are exactly the two
        columns worth keeping off a tracker export. */
     const rows = migCsvRows(text);
-    if (!rows.length) { MIG.err = 'That file is neither JSON nor a table with a row of headings.'; return migPaint(); }
+    if (!rows.length) { MIG.err = 'Nothing readable in that — it is neither JSON nor rows of columns.';
+      MIG.step = MIG.raw ? 'paste' : MIG.step; return migPaint(); }
     MIG.cands = [{ path: label, rows: rows, score: 99, keys: migKeys(rows) }];
-    MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys); MIG.step = 'map';
+    MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows); MIG.step = 'map';
     return migPaint();
   }
   MIG.cands = migArrays(data).map(c => Object.assign(c, { score: migScore(c.rows), keys: migKeys(c.rows) }))
     .filter(c => c.score > 0)
     .sort((a, b) => b.score - a.score || b.rows.length - a.rows.length);
-  if (!MIG.cands.length) { MIG.err = 'Nothing in that file looks like a list of people — no names with a phone or an email.'; return migPaint(); }
-  MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys);
+  if (!MIG.cands.length) {
+    MIG.err = 'Nothing in there looks like a list of people — no names with a phone or an email against them.';
+    MIG.step = MIG.raw ? 'paste' : MIG.step; return migPaint(); }
+  MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows);
   MIG.step = MIG.cands.length > 1 ? 'pick' : 'map';
   migPaint();
 }
-/* A sheet, as rows of its own columns — headings kept exactly as written so
-   they read back recognisably in the mapper. */
+/* A sheet, as rows of its own columns — every column kept, headings exactly as
+   written so they read back recognisably in the mapper.
+
+   This replaces a reader that split the text on blank lines and then treated
+   each block separately. One empty row in the middle of an export — and there
+   nearly always is one — left every row after it with no headings at all, read
+   by position instead, so the phone column landed in the type field. It also
+   only knew about commas and tabs, and it threw away any column it did not
+   recognise, which is how stage, rep and date went missing on the way in. */
 function migCsvRows(text) {
-  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const delim = lines[0].indexOf('\t') >= 0 ? '\t' : ',';
-  const head = splitCsvLine(lines[0], delim).map((h, i) => h.trim() || 'column ' + (i + 1));
-  const out = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cells = splitCsvLine(lines[i], delim);
-    if (!cells.some(c => String(c).trim())) continue;
-    const o = {}; head.forEach((h, n) => { o[h] = cells[n] === undefined ? '' : cells[n]; });
-    out.push(o);
+  const s = String(text || '').replace(/^\uFEFF/, '');
+  if (!s.trim()) return [];
+  const first = s.split(/\r?\n/).find(l => l.trim()) || '';
+  /* Whichever separator appears most in the heading row. Excel writes
+     semicolons in a good part of the world, and tab when pasted from a sheet. */
+  const delim = [',', ';', '\t', '|']
+    .map(d => [d, first.split(d).length - 1])
+    .sort((a, b) => b[1] - a[1])[0];
+  const rows = migCsvCells(s, delim[1] ? delim[0] : ',');
+  if (!rows.length) return [];
+  /* A heading row holds no emails and no phone numbers. If the first row does,
+     the file has no headings and the columns are named by position instead. */
+  const looksLikeData = r => r.some(c => /@[\w-]+\.\w/.test(c) || /\d[\d\s()+-]{7,}/.test(c));
+  const head = looksLikeData(rows[0])
+    ? rows[0].map((_, i) => 'column ' + (i + 1))
+    : rows.shift().map((h, i) => String(h).trim() || 'column ' + (i + 1));
+  return rows.map(cells => {
+    const o = {};
+    head.forEach((h, n) => { o[h] = cells[n] === undefined ? '' : cells[n]; });
+    /* More cells than headings — a stray separator. Keep them rather than lose
+       whatever is in them. */
+    for (let n = head.length; n < cells.length; n++) o['column ' + (n + 1)] = cells[n];
+    return o;
+  });
+}
+/* A whole file at once, because a quoted cell is allowed to hold the line
+   break itself — reading it line by line splits a note in half. */
+function migCsvCells(s, d) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === '"' && s[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    }
+    else if (c === '"') q = true;
+    else if (c === d) { row.push(cur.trim()); cur = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && s[i + 1] === '\n') i++;
+      row.push(cur.trim()); cur = ''; rows.push(row); row = [];
+    }
+    else cur += c;
   }
-  return out;
+  row.push(cur.trim()); rows.push(row);
+  return rows.filter(r => r.some(c => String(c).trim() !== ''));
 }
 
 /* Every array of objects in the file, with the path that got there. */
@@ -11328,7 +11284,7 @@ const MIG_FIELDS = [
   ['language',  'Language',        /^(language|lang|preferred.?language)$/i, /language/i],
   ['createdAt', 'Date added',      /^(created|created.?at|created.?date|date|date.?added|added|added.?on|timestamp|submitted|submission.?date|received)$/i, /creat|^date|added|timestamp|submit|received/i]
 ];
-function migGuess(keys) {
+function migGuess(keys, rows) {
   const map = {}, used = new Set();
   const tail = k => k.split('.').pop();
   /* Exact matches first across every field, so a loose match on one field
@@ -11339,7 +11295,27 @@ function migGuess(keys) {
     const hit = keys.find(k => !used.has(k) && re.test(tail(k)));
     if (hit) { map[f] = hit; used.add(hit); }
   }));
+  /* A file with no heading row gets columns called "column 1, 2, 3", which
+     match nothing by name. Read what is in them instead. */
+  if (rows && rows.length) migGuessByContent(keys, rows, map, used);
   return map;
+}
+function migGuessByContent(keys, rows, map, used) {
+  const sample = rows.slice(0, 60).map(r => migFlat(r));
+  const share = (k, re) => {
+    const vals = sample.map(r => String(r[k] == null ? '' : r[k]).trim()).filter(Boolean);
+    return vals.length ? vals.filter(v => re.test(v)).length / vals.length : 0;
+  };
+  const claim = (field, re, floor) => {
+    if (map[field]) return;
+    const best = keys.filter(k => !used.has(k))
+      .map(k => [k, share(k, re)])
+      .sort((a, b) => b[1] - a[1])[0];
+    if (best && best[1] >= floor) { map[field] = best[0]; used.add(best[0]); }
+  };
+  claim('email', /^[\w.+-]+@[\w-]+\.[\w.]{2,}$/, 0.6);
+  claim('phone', /^[+()\d][\d\s()+-]{6,}$/, 0.6);
+  claim('name',  /^[^\d@]{2,}$/, 0.7);
 }
 
 /* ---------------------------------------------------- mapping a row */
@@ -11384,6 +11360,14 @@ function migDate(v) {
   const t = Date.parse(s);
   return isNaN(t) ? '' : new Date(t).toISOString();
 }
+/* What a lead with no source column of its own is labelled: where it came
+   from, in words a rep would recognise on the lead itself. */
+function migSourceName() {
+  if (MIG.folder) return MIG.folder.name;
+  const f = MIG.file && MIG.file.name;
+  if (f && !/^(a pasted list|the pasted list|probe)$/i.test(f)) return f.replace(/\.[a-z]+$/i, '');
+  return 'Imported list';
+}
 function migRowToLead(src, map) {
   const flat = migFlat(src);
   const rawOf = f => { const k = map[f]; if (!k) return null;
@@ -11392,7 +11376,7 @@ function migRowToLead(src, map) {
     return v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v)); };
   const name = [g('name'), g('name2')].filter(Boolean).join(' ').trim();
   const l = leadNormalise({ name, company: g('company'), phone: g('phone'), email: g('email'),
-    address: g('address'), source: g('source') || (MIG.folder ? MIG.folder.name : 'Sales Tracker'),
+    address: g('address'), source: g('source') || migSourceName(),
     note: g('note'), type: g('type'), language: g('language') });
   l.stage = migStage(g('stage'));
   l.rawStage = g('stage');
@@ -11431,17 +11415,17 @@ function migCommit() {
       ['company', 'phone', 'email', 'address', 'source', 'note'].forEach(k => { if (!l[k] && r[k]) l[k] = r[k]; });
       if (!l.assignee && r.assignee) l.assignee = r.assignee;
       if (MIG.opts.stage !== false && r.stage && r.stage !== 'New') l.stage = r.stage;
-      l.srcId = l.srcId || r.srcId; l.srcTool = l.srcTool || 'Sales Tracker';
+      l.srcId = l.srcId || r.srcId; l.srcTool = l.srcTool || (MIG.folder ? 'Sales Tracker' : migSourceName());
       leadSave(l); touched.push(l.id);
     } else {
       l = leadCreate(Object.assign({}, r, { assignee: r.assignee || '' }), { quiet: true });
       if (r.createdAt) l.createdAt = r.createdAt;
       if (r.stage) l.stage = r.stage;
-      l.srcId = r.srcId; l.srcTool = 'Sales Tracker';
+      l.srcId = r.srcId; l.srcTool = MIG.folder ? 'Sales Tracker' : migSourceName();
       if (r.rawStage && r.stage === 'New' && !/new|fresh|open/i.test(r.rawStage))
-        leadAddUpdate(l, `Came across from the Sales Tracker as "${r.rawStage}" — parked at New`, true);
+        leadAddUpdate(l, `Came across from ${MIG.folder ? "the Sales Tracker" : "that list"} as "${r.rawStage}" — parked at New`, true);
       if (r.rawAssignee && !r.assignee)
-        leadAddUpdate(l, `Was with "${r.rawAssignee}" in the Sales Tracker — no one here matched that name` +
+        leadAddUpdate(l, `Was with "${r.rawAssignee}" in ${MIG.folder ? "the Sales Tracker" : "that list"} — no one here matched that name` +
           (l.assignee ? `, so it was routed to ${ownerName(l.assignee)}` : ''), true);
       leadSave(l); made.push(l.id);
       if (l.assignee) routed++;
@@ -11484,8 +11468,9 @@ function migUndoLast() {
 /* ================================================================
    THE SCREENS
    ================================================================ */
-function migOpen() {
-  MIG.step = 'src'; MIG.err = ''; MIG.busy = ''; MIG.rows = []; MIG.cands = [];
+function migOpen(mode) {
+  MIG.step = mode === 'paste' ? 'paste' : 'src';
+  MIG.err = ''; MIG.busy = ''; MIG.rows = []; MIG.cands = []; MIG.raw = '';
   MIG.folder = null; MIG.file = null; MIG.pick = null; MIG.opts = { stage: true, deals: false };
   migPaint();
 }
@@ -11497,9 +11482,10 @@ function migPaint() {
     el('span', { class: 'ic', html: ico('warn', 16) }), el('div', { style: 'flex:1;line-height:1.5', text: MIG.err })]));
   const foot = [];
   MIG._after = null;
-  ({ src: migStepSrc, folder: migStepFolder, file: migStepFile, pick: migStepPick,
-     map: migStepMap, preview: migStepPreview }[MIG.step] || migStepSrc)(body, foot);
-  modal('Bring leads across from the Sales Tracker', body, foot, true);
+  ({ src: migStepSrc, paste: migStepPaste, folder: migStepFolder, file: migStepFile,
+     pick: migStepPick, map: migStepMap, preview: migStepPreview }[MIG.step] || migStepSrc)(body, foot);
+  modal(MIG.step === 'paste' ? 'Import a list of leads'
+    : 'Bring leads across from the Sales Tracker', body, foot, true);
   /* The footer buttons only exist once modal() has put them in the page, so
      anything that labels one runs here rather than while building the step. */
   if (MIG._after) MIG._after();
@@ -11523,7 +11509,7 @@ function migStepSrc(body, foot) {
       : 'Sign in with Microsoft first — this browser is not synced at the moment.',
     migScan, SYNC.mode !== 'onedrive'));
 
-  const file = el('input', { type: 'file', accept: '.json,.csv,.txt', style: 'display:none',
+  const file = el('input', { type: 'file', accept: '.json,.csv,.tsv,.txt', style: 'display:none',
     onchange: e => { const f = e.target.files[0]; if (!f) return;
       const r = new FileReader();
       r.onload = () => { MIG.file = { name: f.name }; migTake(String(r.result || ''), f.name); };
@@ -11532,6 +11518,9 @@ function migStepSrc(body, foot) {
   body.appendChild(opt('Choose a file I already exported',
     'A backup or export from the tracker — JSON or CSV. Use this if the tracker’s data is only in the browser it was typed into.',
     () => file.click()));
+  body.appendChild(opt('Paste a list',
+    'Rows copied out of a sheet, or a list written out in plain words.',
+    () => { MIG.step = 'paste'; MIG.err = ''; migPaint(); }));
 
   const last = DB.config && DB.config.leadMigLast;
   if (last && (last.made || []).length) body.appendChild(el('div', { class: 'alert', style: 'margin-top:var(--sp-3)' }, [
@@ -11541,6 +11530,58 @@ function migStepSrc(body, foot) {
       el('button', { class: 'btn sm ghost', style: 'margin-top:6px', text: 'Undo that import', onclick: migUndoLast })
     ])]));
   foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
+}
+
+function migStepPaste(body, foot) {
+  const ta = el('textarea', { class: 'inp', rows: 9, id: 'migraw',
+    placeholder: 'Paste the rows here — headings in the first line if you have them.\n\n' +
+      'Name, Phone, Email, Company, Area, Status, Owner, Notes\n' +
+      'Omar Al Mansoori, +971 50 123 4567, omar@email.ae, , Jumeirah, Follow-up, Fatima, villa gym' });
+  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.65;color:var(--ink-2)', html:
+    'Paste the rows or pick a file — <b>CSV, tab-separated, semicolon-separated or JSON</b>. ' +
+    'Every column is kept, whatever it is called, and the next screen shows which column it read as what ' +
+    'so you can correct it. Nothing is saved until you have seen the list.' }));
+  ta.value = MIG.raw || '';    /* a textarea holds its text as content, not as an attribute */
+  body.appendChild(ta);
+  const file = el('input', { class: 'inp', type: 'file', accept: '.csv,.tsv,.txt,.json',
+    onchange: e => { const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { MIG.raw = String(r.result || ''); MIG.file = { name: f.name };
+        migTake(MIG.raw, f.name); };
+      r.readAsText(f); } });
+  body.appendChild(fld('…or choose a file', file));
+  if (aiReady()) body.appendChild(el('p', { class: 'sub', style: 'margin-top:var(--sp-3);line-height:1.55',
+    html: '<b>Read it with Claude</b> is for a list that is not in columns at all — notes, ' +
+      'a chat thread, a jumble of names and numbers. It sorts each one into B2B or B2C and pulls the ' +
+      'phone, email and address out of the text.' }));
+  foot.push(el('button', { class: 'btn', text: 'Back',
+    onclick: () => { MIG.step = 'src'; MIG.err = ''; migPaint(); } }));
+  foot.push(el('div', { style: 'flex:1' }));
+  if (aiReady()) foot.push(el('button', { class: 'btn', text: 'Read it with Claude',
+    onclick: () => migPasteRun(true) }));
+  foot.push(el('button', { class: 'btn primary', text: 'Read the columns',
+    onclick: () => migPasteRun(false) }));
+}
+async function migPasteRun(smart) {
+  const raw = (($('#migraw') || {}).value || '').trim();
+  if (!raw) { MIG.err = 'Paste a list or choose a file first.'; return migPaint(); }
+  MIG.raw = raw; MIG.err = ''; MIG.file = MIG.file || { name: 'a pasted list' };
+  if (!smart) return migTake(raw, 'the pasted list');
+  MIG.busy = 'Reading the list with Claude…'; migPaint();
+  try {
+    const rows = await leadParseSmart(raw);
+    if (!rows.length) throw new Error('Claude found no leads in that');
+    /* Claude hands back the fields already named, so there is nothing to map —
+       straight to the list to check. */
+    MIG.busy = '';
+    MIG.cands = [{ path: 'read by Claude', rows, score: 99, keys: migKeys(rows) }];
+    MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows);
+    migBuild(); MIG.step = 'preview'; migPaint();
+  } catch (e) {
+    MIG.busy = '';
+    MIG.err = String(e.message || e) + ' — reading it as columns instead.';
+    migTake(raw, 'the pasted list');
+  }
 }
 
 function migStepFolder(body, foot) {
@@ -11598,7 +11639,7 @@ function migStepPick(body, foot) {
   const list = el('div', { class: 'picklist', style: 'max-height:44vh' });
   MIG.cands.slice(0, 12).forEach(c => {
     const row = el('button', { class: 'pick' + (c === MIG.pick ? ' on' : ''), style: 'width:100%;text-align:left',
-      onclick: () => { MIG.pick = c; MIG.map = migGuess(c.keys); MIG.step = 'map'; migPaint(); } });
+      onclick: () => { MIG.pick = c; MIG.map = migGuess(c.keys, c.rows); MIG.step = 'map'; migPaint(); } });
     row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
       el('div', { class: 'nm', text: `${c.rows.length} rows · ${c.path}` }),
       el('div', { class: 'sub', text: c.keys.slice(0, 8).join(', ') })
@@ -11606,10 +11647,11 @@ function migStepPick(body, foot) {
     list.appendChild(row);
   });
   body.appendChild(list);
-  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = MIG.folder ? 'file' : 'src'; migPaint(); } }));
+  foot.push(el('button', { class: 'btn', text: 'Back',
+    onclick: () => { MIG.step = MIG.folder ? 'file' : (MIG.raw ? 'paste' : 'src'); migPaint(); } }));
   foot.push(el('div', { style: 'flex:1' }));
   foot.push(el('button', { class: 'btn primary', text: 'Use this list',
-    onclick: () => { MIG.map = migGuess(MIG.pick.keys); MIG.step = 'map'; migPaint(); } }));
+    onclick: () => { MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows); MIG.step = 'map'; migPaint(); } }));
 }
 
 function migStepMap(body, foot) {
@@ -11642,7 +11684,7 @@ function migStepMap(body, foot) {
   body.appendChild(sample);
   redraw();
   foot.push(el('button', { class: 'btn', text: 'Back',
-    onclick: () => { MIG.step = MIG.cands.length > 1 ? 'pick' : (MIG.folder ? 'file' : 'src'); migPaint(); } }));
+    onclick: () => { MIG.step = MIG.cands.length > 1 ? 'pick' : (MIG.folder ? 'file' : (MIG.raw ? 'paste' : 'src')); migPaint(); } }));
   foot.push(el('div', { style: 'flex:1' }));
   foot.push(el('button', { class: 'btn primary', text: 'Check them',
     onclick: () => { if (!MIG.map.name && !MIG.map.phone && !MIG.map.email) {
