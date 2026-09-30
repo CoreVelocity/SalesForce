@@ -987,7 +987,22 @@ a.mfact:hover b{text-decoration:underline}
 .qtbl .qhead{padding:0 12px 4px;font-size:var(--fs-xs);color:var(--ink-3);font-weight:600}
 .qtbl .qrow{padding:9px 12px;border:1px solid var(--line-soft);border-radius:var(--r-md);background:var(--surface-1)}
 .qtbl .qrow.empty{opacity:.55}
+.qtbl .qrow.group{background:var(--surface-2);border-color:var(--line);
+  font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.04em}
+.qtbl .qrow.group>span:first-child{text-transform:none;letter-spacing:0}
+.qtbl .qrow.rep{cursor:pointer;text-align:left;font:inherit;color:inherit;width:100%}
+.qtbl .qrow.rep:hover{border-color:var(--accent);background:var(--surface-2)}
+.qtbl .who{display:flex;align-items:center;gap:8px;min-width:0}
+.qtbl .who .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qtbl .qrow.total{background:var(--surface-2);border-color:var(--line);font-weight:650}
+
+/* the region band that sits above each region's reps */
+.qregion{display:flex;gap:var(--sp-2);align-items:baseline;flex-wrap:wrap;
+  margin:var(--sp-4) 0 var(--sp-2);padding:8px 12px;border-radius:var(--r-md);
+  background:var(--surface-2);border:1px solid var(--line)}
+.qregion b{font-size:var(--fs-md)}
+.qregion .sub{font-size:var(--fs-xs);color:var(--ink-3)}
+.qregion .v{font-weight:650}
 .qtbl .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qtbl .n{text-align:right;font-variant-numeric:tabular-nums;font-size:var(--fs-sm)}
 
@@ -1222,7 +1237,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.20.0';
+const VERSION = '1.20.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -12789,13 +12804,16 @@ function viewLeadDupes(root, all) {
    QUARTER COMMITMENT
 
    The weekly screen answers "what is this rep standing behind this week".
-   This one answers a different question: what are the five deals each team
-   is putting its quarter on, how many XS1 and XP1 does that add up to, and
+   This one answers a different question: what are the five deals each rep
+   is putting the quarter on, how many XS1 and XP1 does that add up to, and
    what is the committed value.
 
-   Five is the point. A team that names fifteen has not chosen, so the list
-   is capped and the cap is enforced rather than suggested — to add a sixth,
+   Five is the point. A rep who names fifteen has not chosen, so the list is
+   capped and the cap is enforced rather than suggested — to add a sixth,
    something comes off.
+
+   Reps are shown under the region they sit in, so a region total reads off
+   the same numbers without anyone having to commit twice.
 
    These records live in the same `commitments` shard as the weekly ones but
    carry a `quarter` instead of a `week`, so the weekly screen — which filters
@@ -12828,30 +12846,34 @@ function qShift(k, n) {
   return Math.floor(t / 4) + '-Q' + (t % 4 + 1);
 }
 
-/* Teams are the sales regions the team is already grouped by everywhere else,
-   plus a home for anyone who has not been put in one. */
+/* Regions group the reps, exactly as they do everywhere else in the tool. */
 const Q_NOTEAM = 'No region set';
-function qTeams() {
-  const rs = salesRegions().slice();
-  if (activeOwners().some(o => !ownerRegion(o.id))) rs.push(Q_NOTEAM);
-  return rs;
-}
 const teamOf = ownerId => ownerRegion(ownerId) || Q_NOTEAM;
-
-const isQuarterly = c => !!c.quarter;
-function qCommits(qk, team) {
-  return live('commitments').filter(c => c.quarter === qk &&
-    (team == null || (c.team || teamOf(c.ownerId)) === team));
+/* Every rep, under their region, and anyone without one last. */
+function qRepGroups() {
+  const out = ownersByRegion().map(g => ({ region: g.region, owners: g.owners }));
+  const loose = activeOwners().filter(o => !ownerRegion(o.id));
+  if (loose.length) out.push({ region: Q_NOTEAM, owners: loose });
+  return out;
 }
+const qReps = () => qRepGroups().reduce((a, g) => a.concat(g.owners), []);
+
+/* The commitment belongs to the rep. `team` is still written alongside it so
+   an export reads without a lookup, but the rep is what everything keys on. */
+function qCommits(qk, ownerId) {
+  return live('commitments').filter(c => c.quarter === qk &&
+    (ownerId == null || String(c.ownerId) === String(ownerId)));
+}
+const qTeamCommits = (qk, team) => qCommits(qk).filter(c => teamOf(c.ownerId) === team);
 const qValue = c => { const d = getDl(c.dealId); return Number(c.amount) || (d && d.amount) || 0; };
 /* What landed out of what was named: a committed deal that is now Closed Won. */
 const qWon = recs => recs.filter(c => { const d = getDl(c.dealId); return d && isWon(d); });
 const qLost = recs => recs.filter(c => { const d = getDl(c.dealId); return d && isLost(d); });
 
-function qCanEdit(team) {
+function qCanEdit(ownerId) {
   if (isReadOnly()) return false;
   if (isAdmin() || myRole() === 'office') return true;
-  return teamOf(currentOwnerId()) === team;
+  return String(ownerId) === String(currentOwnerId());
 }
 
 /* ================================================================
@@ -12861,6 +12883,8 @@ function viewQuarter(root) {
   const qk = VIEW.quarter = VIEW.quarter || qKey();
   const rng = qRange(qk);
   const all = qCommits(qk);
+  const onlyRep = VIEW.rep !== 'all' ? VIEW.rep : null;
+  const shown = onlyRep ? qCommits(qk, onlyRep) : all;
 
   root.appendChild(viewHead(null, [
     el('div', { class: 'seg' }, [
@@ -12872,24 +12896,40 @@ function viewQuarter(root) {
       onclick: () => { VIEW.quarter = qKey(); render(); } }) : null,
     el('button', { class: 'btn', html: ico('dl', 14) + ' Export', onclick: () => exportQuarter(qk) }),
     isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('target', 14) + ' Pick the focus deals',
-      onclick: () => qPick(qk) })
+      onclick: () => qPick(qk, onlyRep || currentOwnerId()) })
   ]));
 
+  /* The same rep filter the weekly tab has, so a one-to-one opens on one
+     person rather than scrolling past everyone else's five. */
+  const fbar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  const rsel = el('select', { class: 'inp', style: 'width:auto;min-width:160px', 'aria-label': 'Sales rep',
+    onchange: e => { VIEW.rep = e.target.value; render(); } });
+  rsel.innerHTML = repOptions('All sales reps');
+  rsel.value = VIEW.rep;
+  fbar.appendChild(rsel);
+  if (onlyRep) fbar.appendChild(el('button', { class: 'btn sm ghost', text: 'Back to the team',
+    onclick: () => { VIEW.rep = 'all'; render(); } }));
+  fbar.appendChild(el('div', { style: 'flex:1' }));
+  fbar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: (onlyRep ? ownerName(onlyRep) : `${qReps().length} reps`) + ' · ' + qLabel(qk) }));
+  root.appendChild(fbar);
+
   /* ---- the quarter in one band ---- */
-  const val = sum(all, qValue);
-  const wonRecs = qWon(all), lostRecs = qLost(all);
-  const target = repTarget(VIEW.rep === 'all' || !VIEW.rep ? 'all' : VIEW.rep, rng);
+  const val = sum(shown, qValue);
+  const wonRecs = qWon(shown), lostRecs = qLost(shown);
+  const withSome = qReps().filter(o => qCommits(qk, o.id).length).length;
+  const target = repTarget(onlyRep || 'all', rng);
   const t = el('div', { class: 'tiles' });
   t.appendChild(tile('Committed this quarter', money(val), { cur: true, icon: 'target',
-    foot: `${all.length} deal${all.length === 1 ? '' : 's'} across ${qTeams().filter(tm => qCommits(qk, tm).length).length} team${
-      qTeams().filter(tm => qCommits(qk, tm).length).length === 1 ? '' : 's'}` }));
-  unitLines().forEach(L => t.appendChild(tile(L + ' committed', unitTotal(all, L), { icon: 'grid',
-    foot: `across ${all.filter(c => Number(unitsOf(c)[L]) || 0).length} of the ${all.length} deals` })));
+    foot: onlyRep ? `${shown.length} of ${Q_TOP_N} deals named`
+      : `${shown.length} deals from ${withSome} of ${qReps().length} reps` }));
+  unitLines().forEach(L => t.appendChild(tile(L + ' committed', unitTotal(shown, L), { icon: 'grid',
+    foot: `across ${shown.filter(c => Number(unitsOf(c)[L]) || 0).length} of the ${shown.length} deals` })));
   t.appendChild(tile('Landed so far', money(sum(wonRecs, qValue)), { cur: true, icon: 'check',
     foot: val ? pct(sum(wonRecs, qValue), val) + '% of what was committed' : 'nothing committed yet',
     meter: val ? pct(sum(wonRecs, qValue), val) : null }));
   if (lostRecs.length) t.appendChild(tile('Lost from the list', money(sum(lostRecs, qValue)), { cur: true, icon: 'x',
-    tag: 'bad', foot: `${lostRecs.length} of the ${all.length} named` }));
+    tag: 'bad', foot: `${lostRecs.length} of the ${shown.length} named` }));
   if (target) t.appendChild(tile('Against target', money(target), { cur: true, icon: 'flag',
     foot: `commitment covers ${pct(val, target)}%`, meter: pct(val, target) }));
   root.appendChild(t);
@@ -12897,51 +12937,40 @@ function viewQuarter(root) {
   if (!all.length) {
     const c = card('Nothing picked for ' + qLabel(qk), null);
     c.body.appendChild(el('div', { class: 'empty', html: ico('target', 34) +
-      `<h4>No focus deals yet</h4><p>Each team names the ${Q_TOP_N} deals it is putting the quarter on. ` +
+      `<h4>No focus deals yet</h4><p>Each rep names the ${Q_TOP_N} deals they are putting the quarter on. ` +
       'The devices and the value come from the deals themselves, so this stays in step with the pipeline.</p>' }));
     if (!isReadOnly()) c.body.appendChild(el('div', { style: 'text-align:center;margin-top:var(--sp-3)' }, [
       el('button', { class: 'btn primary', html: ico('target', 14) + ' Pick the focus deals',
-        onclick: () => qPick(qk) }) ]));
+        onclick: () => qPick(qk, onlyRep || currentOwnerId()) }) ]));
     root.appendChild(c.node);
     return;
   }
 
-  /* ---- one card per team ---- */
-  qTeams().forEach(team => root.appendChild(qTeamCard(qk, team)));
-
-  /* ---- how the teams compare ---- */
-  const cmp = card('Side by side', 'Every team in ' + qLabel(qk));
-  const tbl = el('div', { class: 'qtbl', style: '--qcols:' + unitLines().length });
-  const head = el('div', { class: 'qhead' });
-  ['Team', 'Deals'].concat(unitLines()).concat(['Committed', 'Landed']).forEach((h, i) =>
-    head.appendChild(el('span', { class: i ? 'n' : '', text: h })));
-  tbl.appendChild(head);
-  qTeams().forEach(team => {
-    const recs = qCommits(qk, team);
-    const row = el('div', { class: 'qrow' + (recs.length ? '' : ' empty') });
-    row.appendChild(el('span', { class: 'nm', text: team }));
-    row.appendChild(el('span', { class: 'n', text: `${recs.length}/${Q_TOP_N}` }));
-    unitLines().forEach(L => row.appendChild(el('span', { class: 'n', text: String(unitTotal(recs, L) || '—') })));
-    row.appendChild(el('span', { class: 'n mono', text: money(sum(recs, qValue)) }));
-    row.appendChild(el('span', { class: 'n mono', text: money(sum(qWon(recs), qValue)) }));
-    tbl.appendChild(row);
+  /* ---- one card per rep, under their region ---- */
+  qRepGroups().forEach(({ region, owners }) => {
+    const mine = onlyRep ? owners.filter(o => o.id === onlyRep) : owners;
+    if (!mine.length) return;
+    const recs = qCommits(qk).filter(c => mine.some(o => o.id === String(c.ownerId)));
+    if (onlyRep && !recs.length && !qCanEdit(onlyRep)) return;
+    if (!onlyRep) root.appendChild(el('div', { class: 'qregion' }, [
+      el('b', { text: region }),
+      el('span', { class: 'sub', text: `${mine.length} rep${mine.length === 1 ? '' : 's'} · ` +
+        `${recs.length} deal${recs.length === 1 ? '' : 's'}` +
+        (unitText(recs) ? ' · ' + unitText(recs) : '') }),
+      el('div', { style: 'flex:1' }),
+      el('span', { class: 'v mono', text: CFG.currency + ' ' + money(sum(recs, qValue), { dash: false }) })
+    ]));
+    mine.forEach(o => root.appendChild(qRepCard(qk, o)));
   });
-  const foot = el('div', { class: 'qrow total' });
-  foot.appendChild(el('span', { class: 'nm', text: 'All teams' }));
-  foot.appendChild(el('span', { class: 'n', text: String(all.length) }));
-  unitLines().forEach(L => foot.appendChild(el('span', { class: 'n', text: String(unitTotal(all, L) || '—') })));
-  foot.appendChild(el('span', { class: 'n mono', text: money(val) }));
-  foot.appendChild(el('span', { class: 'n mono', text: money(sum(wonRecs, qValue)) }));
-  tbl.appendChild(foot);
-  cmp.body.appendChild(tbl);
-  root.appendChild(cmp.node);
+
+  /* ---- how the reps compare ---- */
+  if (!onlyRep) root.appendChild(qSideBySide(qk, all));
 }
 
-function qTeamCard(qk, team) {
-  const recs = qCommits(qk, team)
-    .sort((a, b) => qValue(b) - qValue(a));
-  const mine = qCanEdit(team);
-  const c = card(team, recs.length
+function qRepCard(qk, o) {
+  const recs = qCommits(qk, o.id).sort((a, b) => qValue(b) - qValue(a));
+  const mine = qCanEdit(o.id);
+  const c = card(o.name, recs.length
     ? `${recs.length} of ${Q_TOP_N} named · ${CFG.currency} ${money(sum(recs, qValue), { dash: false })}` +
       (unitText(recs) ? ' · ' + unitText(recs) : '')
     : `No focus deals named for ${qLabel(qk)}`);
@@ -12949,14 +12978,13 @@ function qTeamCard(qk, team) {
     class: 'btn sm' + (recs.length >= Q_TOP_N ? '' : ' primary'),
     disabled: recs.length >= Q_TOP_N ? true : null,
     title: recs.length >= Q_TOP_N
-      ? `${team} has its ${Q_TOP_N} — take one off to swap it` : 'Add a focus deal for ' + team,
+      ? `${o.name} has their ${Q_TOP_N} — take one off to swap it` : 'Add a focus deal for ' + o.name,
     html: ico('plus', 13) + (recs.length >= Q_TOP_N ? ` ${Q_TOP_N} of ${Q_TOP_N}` : ` Add (${recs.length}/${Q_TOP_N})`),
-    onclick: () => qPick(qk, team) }));
+    onclick: () => qPick(qk, o.id) }));
 
   if (!recs.length) {
     c.body.appendChild(el('p', { class: 'sub', style: 'margin:0;line-height:1.55',
-      text: mine ? `Name the ${Q_TOP_N} deals this team is putting the quarter on.`
-                 : 'Nothing named yet.' }));
+      text: mine ? `Name the ${Q_TOP_N} deals this quarter rests on.` : 'Nothing named yet.' }));
     return c.node;
   }
 
@@ -12974,6 +13002,46 @@ function qTeamCard(qk, team) {
   return c.node;
 }
 
+function qSideBySide(qk, all) {
+  const cmp = card('Side by side', 'Every rep in ' + qLabel(qk));
+  const tbl = el('div', { class: 'qtbl', style: '--qcols:' + unitLines().length });
+  const head = el('div', { class: 'qhead' });
+  ['Sales rep', 'Deals'].concat(unitLines()).concat(['Committed', 'Landed']).forEach((h, i) =>
+    head.appendChild(el('span', { class: i ? 'n' : '', text: h })));
+  tbl.appendChild(head);
+  const cells = (row, recs, withCap) => {
+    row.appendChild(el('span', { class: 'n', text: withCap ? `${recs.length}/${Q_TOP_N}` : String(recs.length) }));
+    unitLines().forEach(L => row.appendChild(el('span', { class: 'n', text: String(unitTotal(recs, L) || '—') })));
+    row.appendChild(el('span', { class: 'n mono', text: money(sum(recs, qValue)) }));
+    row.appendChild(el('span', { class: 'n mono', text: money(sum(qWon(recs), qValue)) }));
+  };
+  qRepGroups().forEach(({ region, owners }) => {
+    const recs = qCommits(qk).filter(c => owners.some(o => o.id === String(c.ownerId)));
+    const gr = el('div', { class: 'qrow group' });
+    gr.appendChild(el('span', {}, [ el('b', { text: region }),
+      el('span', { class: 'sub', style: 'margin-left:8px', text: `${owners.length} rep${owners.length === 1 ? '' : 's'}` }) ]));
+    cells(gr, recs, false);
+    tbl.appendChild(gr);
+    owners.forEach(o => {
+      const mine = qCommits(qk, o.id);
+      const row = el('button', { class: 'qrow rep' + (mine.length ? '' : ' empty'),
+        onclick: () => { VIEW.rep = o.id; render(); } });
+      row.appendChild(el('span', { class: 'who' }, [
+        el('span', { class: 'av sm', style: `background:${ownerColor(o.id)}`, text: initials(o.name) }),
+        el('span', { class: 'nm', text: o.name })
+      ]));
+      cells(row, mine, true);
+      tbl.appendChild(row);
+    });
+  });
+  const foot = el('div', { class: 'qrow total' });
+  foot.appendChild(el('span', { class: 'nm', text: 'Everyone' }));
+  cells(foot, all, false);
+  tbl.appendChild(foot);
+  cmp.body.appendChild(tbl);
+  return cmp.node;
+}
+
 function qDealRow(rec, i, mine) {
   const d = getDl(rec.dealId);
   const st = d ? stage(d.stageId) : null;
@@ -12985,7 +13053,6 @@ function qDealRow(rec, i, mine) {
     onclick: () => d && openDeal(d.id) }));
   mid.appendChild(el('div', { class: 'sub', text: [
     d ? ((getCo(d.companyId) || {}).name || 'no account') : null,
-    ownerName(rec.ownerId),
     st ? st.label : null,
     d && d.closeDate ? 'closes ' + fdate(d.closeDate) : null,
     rec.note || null
@@ -13008,15 +13075,18 @@ function qDealRow(rec, i, mine) {
 /* ================================================================
    PICKING THE FIVE
    ================================================================ */
-function qPick(qk, team) {
+function qPick(qk, ownerId) {
   if (isReadOnly()) return toast('You have read-only access', 'err');
-  let tm = team || teamOf(currentOwnerId());
+  let rep = String(ownerId || currentOwnerId() || (qReps()[0] || {}).id || '');
+  if (!qCanEdit(rep)) rep = currentOwnerId();
   const picked = new Set();
   const units = new Map();
 
-  const tmSel = el('select', { class: 'inp', onchange: e => { tm = e.target.value; picked.clear(); paint(); paintUnits(); } });
-  qTeams().forEach(t => tmSel.appendChild(el('option', { value: t, text: t, selected: t === tm || null })));
-  const qSel = el('select', { class: 'inp', onchange: e => { VIEW.quarter = e.target.value; paint(); } });
+  const repSel = el('select', { class: 'inp', onchange: e => { rep = e.target.value; picked.clear(); paint(); paintUnits(); } });
+  qReps().filter(o => qCanEdit(o.id)).forEach(o => repSel.appendChild(el('option', { value: o.id,
+    text: o.name + ' · ' + teamOf(o.id), selected: String(o.id) === rep || null })));
+  if (!repSel.options.length) repSel.appendChild(el('option', { value: rep, text: ownerName(rep) }));
+  const qSel = el('select', { class: 'inp', onchange: e => { VIEW.quarter = e.target.value; paint(); paintUnits(); } });
   for (let i = -1; i <= 4; i++) { const k = qShift(qKey(), i);
     qSel.appendChild(el('option', { value: k, text: qLabel(k) + (i === 0 ? ' — this quarter' : ''), selected: k === qk || null })); }
 
@@ -13026,13 +13096,12 @@ function qPick(qk, team) {
   const unitHost = el('div', { style: 'margin-top:var(--sp-3)' });
   const note = el('input', { class: 'inp', placeholder: 'Why these — what has to happen this quarter?' });
 
-  const roomLeft = () => Q_TOP_N - qCommits(VIEW.quarter, tm).length;
+  const roomLeft = () => Q_TOP_N - qCommits(VIEW.quarter, rep).length;
 
   function candidates() {
     const term = q.value.trim().toLowerCase();
-    const teamReps = activeOwners().filter(o => teamOf(o.id) === tm).map(o => o.id);
     return live('deals').filter(isOpen)
-      .filter(d => teamReps.includes(String(d.ownerId)))
+      .filter(d => String(d.ownerId) === String(rep))
       .filter(d => !term || (d.name || '').toLowerCase().includes(term) ||
                    ((getCo(d.companyId) || {}).name || '').toLowerCase().includes(term))
       .sort((a, b) => ((b.amount || 0) - (a.amount || 0)) ||
@@ -13044,7 +13113,7 @@ function qPick(qk, team) {
     list.innerHTML = '';
     const ds = candidates();
     if (!ds.length) list.appendChild(el('div', { class: 'sub', style: 'padding:16px;text-align:center',
-      text: `No open deals owned by ${esc(tm)}${q.value.trim() ? ' match that' : ''}.` }));
+      text: `No open deals owned by ${esc(ownerName(rep))}${q.value.trim() ? ' match that' : ''}.` }));
     ds.forEach(d => {
       const has = taken.has(String(d.id));
       const on = picked.has(d.id);
@@ -13053,7 +13122,7 @@ function qPick(qk, team) {
         onchange: e => {
           if (e.target.checked) {
             if (picked.size >= roomLeft()) { e.target.checked = false;
-              return toast(`${tm} has room for ${roomLeft()} more in ${qLabel(VIEW.quarter)}`, 'err'); }
+              return toast(`${ownerName(rep)} has room for ${roomLeft()} more in ${qLabel(VIEW.quarter)}`, 'err'); }
             picked.add(d.id);
           } else picked.delete(d.id);
           row.classList.toggle('on', picked.has(d.id));
@@ -13063,7 +13132,7 @@ function qPick(qk, team) {
       const au = autoUnits(d);
       row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
         el('div', { class: 'nm', text: d.name }),
-        el('div', { class: 'sub', text: [(getCo(d.companyId) || {}).name, ownerName(d.ownerId),
+        el('div', { class: 'sub', text: [(getCo(d.companyId) || {}).name,
           stage(d.stageId).label, d.closeDate ? 'closes ' + fdate(d.closeDate) : null,
           unitLines().map(L => au[L] ? `${au[L]} ${L}` : null).filter(Boolean).join(' · ') || null
         ].filter(Boolean).join(' · ') }),
@@ -13106,7 +13175,7 @@ function qPick(qk, team) {
     const tot = sum(Array.from(picked), id => (getDl(id) || {}).amount || 0);
     const left = roomLeft();
     bar.innerHTML = `<b>${picked.size}</b> selected · <span class="mono">${CFG.currency} ${money(tot, { dash: false })}</span>` +
-      ` · ${esc(tm)} has <b>${left}</b> of ${Q_TOP_N} place${left === 1 ? '' : 's'} left in ${esc(qLabel(VIEW.quarter))}`;
+      ` · ${esc(ownerName(rep))} has <b>${left}</b> of ${Q_TOP_N} place${left === 1 ? '' : 's'} left in ${esc(qLabel(VIEW.quarter))}`;
     const go = $('#qgo');
     if (go) { go.disabled = !picked.size;
       go.textContent = picked.size ? `Commit ${picked.size} to ${qLabel(VIEW.quarter)}` : 'Commit to the quarter'; }
@@ -13115,10 +13184,10 @@ function qPick(qk, team) {
 
   modal('Focus deals for the quarter', el('div', {}, [
     el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
-      `Each team names the <b>${Q_TOP_N} deals</b> it is putting the quarter on. Only deals owned by that team ` +
-      'are offered, and a deal can sit on one team’s list only. This does not touch the weekly commitment — ' +
-      'it is a separate call on a longer horizon.' }),
-    el('div', { class: 'field-row' }, [ fld('Team', tmSel), fld('Quarter', qSel) ]),
+      `Each rep names the <b>${Q_TOP_N} deals</b> they are putting the quarter on. Only that rep’s own open ` +
+      'deals are offered, and a deal can sit on one list only. This does not touch the weekly commitment — it is ' +
+      'a separate call on a longer horizon.' }),
+    el('div', { class: 'field-row' }, [ fld('Sales rep', repSel), fld('Quarter', qSel) ]),
     el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Deals' }), q, bar, list ]),
     unitHost,
     fld('Note', note)
@@ -13131,16 +13200,14 @@ function qPick(qk, team) {
       batch(() => ids.forEach(id => {
         const d = getDl(id);
         const u = units.get(id) || autoUnits(d);
-        const rec = upsert('commitments', { quarter: VIEW.quarter, team: tm, dealId: id,
-          ownerId: d ? d.ownerId : currentOwnerId(), units: u,
-          note: note.value.trim() || null, addedAt: new Date().toISOString(),
+        upsert('commitments', { quarter: VIEW.quarter, ownerId: rep, team: teamOf(rep), dealId: id,
+          units: u, note: note.value.trim() || null, addedAt: new Date().toISOString(),
           addedBy: (AUTH.user && AUTH.user.username) || 'local' });
         if (d) logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'flag',
-          html: `Named a <b>${esc(qLabel(VIEW.quarter))}</b> focus deal for ${esc(tm)}` });
-        return rec;
+          html: `Named a <b>${esc(qLabel(VIEW.quarter))}</b> focus deal for ${esc(ownerName(rep))}` });
       }));
       closeAll(); render();
-      toast(`${ids.length} deal${ids.length === 1 ? '' : 's'} on ${tm}'s ${qLabel(VIEW.quarter)}`, 'ok');
+      toast(`${ids.length} deal${ids.length === 1 ? '' : 's'} on ${ownerName(rep)}'s ${qLabel(VIEW.quarter)}`, 'ok');
     } })
   ], true);
   updateSum();
@@ -13165,7 +13232,8 @@ function qEdit(rec) {
   const note = el('input', { class: 'inp', value: rec.note || '', placeholder: 'What has to happen' });
   modal('Edit the commitment', el('div', {}, [
     el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
-      text: d ? `${d.name} · ${ownerName(rec.ownerId)} · ${stage(d.stageId).label}` : 'The deal is no longer here.' }),
+      text: d ? `${d.name} · ${ownerName(rec.ownerId)} · ${stage(d.stageId).label}`
+              : `${ownerName(rec.ownerId)} · the deal is no longer here.` }),
     el('label', { class: 'fl', text: 'Devices' }), rows,
     fld(`Value (${CFG.currency})`, amt, d
       ? `Leave it empty to follow the deal, which is ${CFG.currency} ${money(d.amount, { dash: false })} today.`
@@ -13191,7 +13259,7 @@ function qEdit(rec) {
 function qRemove(rec) {
   const d = getDl(rec.dealId);
   confirmDo('Take it off the quarter',
-    `${d ? d.name : 'This deal'} comes off ${rec.team || teamOf(rec.ownerId)}'s ${qLabel(rec.quarter)} list. ` +
+    `${d ? d.name : 'This deal'} comes off ${ownerName(rec.ownerId)}'s ${qLabel(rec.quarter)} list. ` +
     'The deal itself is untouched, and the place frees up for another.',
     'Take it off', () => { remove('commitments', rec.id); render(); toast('Taken off the quarter', ''); });
 }
@@ -13201,10 +13269,10 @@ function exportQuarter(qk) {
   if (!rows.length) return toast('Nothing to export', 'err');
   const cols = [
     { h: 'Quarter', f: c => qLabel(c.quarter) },
-    { h: 'Team', f: c => c.team || teamOf(c.ownerId) },
+    { h: 'Sales rep', f: c => ownerName(c.ownerId) },
+    { h: 'Region', f: c => teamOf(c.ownerId) },
     { h: 'Deal', f: c => (getDl(c.dealId) || {}).name || '' },
     { h: 'Company', f: c => (getCo((getDl(c.dealId) || {}).companyId) || {}).name || '' },
-    { h: 'Owner', f: c => ownerName(c.ownerId) },
     { h: 'Stage', f: c => { const d = getDl(c.dealId); return d ? stage(d.stageId).label : ''; } },
     { h: 'Close date', f: c => (getDl(c.dealId) || {}).closeDate || '' }
   ].concat(unitLines().map(L => ({ h: L, f: c => Number(unitsOf(c)[L]) || 0 })))
