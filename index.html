@@ -979,6 +979,45 @@ a.mfact:hover b{text-decoration:underline}
 .cstep.now{border-color:var(--good);box-shadow:0 0 0 1px var(--good) inset}
 .cstep.cold{border-style:dashed}
 
+/* ---- quarter commitment ---- */
+.qtbl{display:flex;flex-direction:column;gap:4px}
+.qtbl .qhead,.qtbl .qrow{display:grid;
+  grid-template-columns:minmax(120px,1.4fr) 62px repeat(var(--qcols,2),58px) minmax(90px,1fr) minmax(90px,1fr);
+  gap:var(--sp-2);align-items:center}
+.qtbl .qhead{padding:0 12px 4px;font-size:var(--fs-xs);color:var(--ink-3);font-weight:600}
+.qtbl .qrow{padding:9px 12px;border:1px solid var(--line-soft);border-radius:var(--r-md);background:var(--surface-1)}
+.qtbl .qrow.empty{opacity:.55}
+.qtbl .qrow.total{background:var(--surface-2);border-color:var(--line);font-weight:650}
+.qtbl .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qtbl .n{text-align:right;font-variant-numeric:tabular-nums;font-size:var(--fs-sm)}
+
+.qdeals{display:flex;flex-direction:column;gap:6px}
+.qdeal{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;padding:9px 12px;
+  border:1px solid var(--line-soft);border-radius:var(--r-md);background:var(--surface-1)}
+.qdeal.won{border-color:var(--good)}
+.qdeal.lost{opacity:.65}
+.qdeal .rank{flex:none;font-weight:700;color:var(--ink-3);font-variant-numeric:tabular-nums;min-width:26px}
+.qdeal .mid{flex:1;min-width:150px}
+.qdeal .mid .nm{display:block;background:none;border:0;padding:0;font:inherit;font-weight:600;
+  color:var(--ink-1);text-align:left;cursor:pointer;max-width:100%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.qdeal .mid .nm:hover{color:var(--accent);text-decoration:underline}
+.qdeal .mid .sub{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;line-height:1.45}
+.qdeal .u{flex:none;font-size:var(--fs-xs);color:var(--ink-2);padding:3px 9px;border-radius:99px;
+  background:var(--surface-3);white-space:nowrap}
+.qdeal .u b{font-size:var(--fs-sm)}
+.qdeal .u.zero{opacity:.45}
+.qdeal .v{flex:none;font-weight:650;min-width:88px;text-align:right}
+.qtot{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;margin-top:var(--sp-3);
+  padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);border:1px solid var(--line)}
+.qtot .nm{font-weight:650;font-size:var(--fs-sm)}
+.qtot .u{font-size:var(--fs-xs);color:var(--ink-2);padding:3px 9px;border-radius:99px;background:var(--surface-1)}
+.qtot .v{font-weight:700}
+@media(max-width:640px){
+  .qtbl .qhead,.qtbl .qrow{grid-template-columns:minmax(80px,1fr) 44px repeat(var(--qcols,2),40px) 1fr 1fr;gap:5px}
+  .qdeal .v{min-width:0}
+}
+
 /* bringing leads across from the tracker — the column mapper */
 .migmap{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:0 var(--sp-3)}
 .migmap .field{margin-bottom:var(--sp-3)}
@@ -1183,7 +1222,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.19.2';
+const VERSION = '1.20.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -6955,6 +6994,10 @@ const signed = v => (v > 0 ? '+' : '') + Math.round(v * 100) + '%';
 
 /* ================================================================ view */
 function viewReview(root) {
+  const tab = VIEW.commitTab = VIEW.commitTab || 'month';
+  root.appendChild(commitTabs(tab));
+  if (tab === 'quarter') return viewQuarter(root);
+
   const wk = VIEW.week, rng = weekRange(wk);
   const prev = weekShift(wk, -1);
   const b = { from: rng.from, to: rng.to };
@@ -12741,6 +12784,439 @@ function viewLeadDupes(root, all) {
   if (groups.length > 60) c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0',
     text: `Showing the first 60 of ${groups.length} sets.` }));
   root.appendChild(c.node);
+}
+/* ================================================================
+   QUARTER COMMITMENT
+
+   The weekly screen answers "what is this rep standing behind this week".
+   This one answers a different question: what are the five deals each team
+   is putting its quarter on, how many XS1 and XP1 does that add up to, and
+   what is the committed value.
+
+   Five is the point. A team that names fifteen has not chosen, so the list
+   is capped and the cap is enforced rather than suggested — to add a sixth,
+   something comes off.
+
+   These records live in the same `commitments` shard as the weekly ones but
+   carry a `quarter` instead of a `week`, so the weekly screen — which filters
+   on `c.week === wk` — never sees them and nothing double-counts.
+   ================================================================ */
+
+const Q_TOP_N = 5;
+
+/* The two horizons, as one screen. The weekly call and the quarterly call are
+   different questions asked of the same pipeline, and reps were opening two
+   tools to answer them. */
+const COMMIT_TABS = [['month', 'Monthly commitment'], ['quarter', 'Quarter commitment']];
+function commitTabs(tab) {
+  const n = qCommits(VIEW.quarter || qKey()).length;
+  const bar = el('div', { class: 'leadtabs' });
+  COMMIT_TABS.forEach(([v, label]) => bar.appendChild(el('button', {
+    class: 'lt' + (tab === v ? ' on' : ''),
+    text: label + (v === 'quarter' && n ? ` (${n})` : ''),
+    onclick: () => { VIEW.commitTab = v; render(); } })));
+  return bar;
+}
+
+const qKey = d => { const b = qBounds(d || TODAY()); return b.from.slice(0, 4) + '-Q' + (Math.floor(+b.from.slice(5, 7) / 3) + 1); };
+const qFrom = k => { const [y, q] = String(k).split('-Q'); return `${y}-${String((+q - 1) * 3 + 1).padStart(2, '0')}-01`; };
+const qRange = k => qBounds(qFrom(k));
+const qLabel = k => qRange(k).label;
+function qShift(k, n) {
+  const [y, q] = String(k).split('-Q').map(Number);
+  const t = (y * 4 + (q - 1)) + n;
+  return Math.floor(t / 4) + '-Q' + (t % 4 + 1);
+}
+
+/* Teams are the sales regions the team is already grouped by everywhere else,
+   plus a home for anyone who has not been put in one. */
+const Q_NOTEAM = 'No region set';
+function qTeams() {
+  const rs = salesRegions().slice();
+  if (activeOwners().some(o => !ownerRegion(o.id))) rs.push(Q_NOTEAM);
+  return rs;
+}
+const teamOf = ownerId => ownerRegion(ownerId) || Q_NOTEAM;
+
+const isQuarterly = c => !!c.quarter;
+function qCommits(qk, team) {
+  return live('commitments').filter(c => c.quarter === qk &&
+    (team == null || (c.team || teamOf(c.ownerId)) === team));
+}
+const qValue = c => { const d = getDl(c.dealId); return Number(c.amount) || (d && d.amount) || 0; };
+/* What landed out of what was named: a committed deal that is now Closed Won. */
+const qWon = recs => recs.filter(c => { const d = getDl(c.dealId); return d && isWon(d); });
+const qLost = recs => recs.filter(c => { const d = getDl(c.dealId); return d && isLost(d); });
+
+function qCanEdit(team) {
+  if (isReadOnly()) return false;
+  if (isAdmin() || myRole() === 'office') return true;
+  return teamOf(currentOwnerId()) === team;
+}
+
+/* ================================================================
+   THE SCREEN
+   ================================================================ */
+function viewQuarter(root) {
+  const qk = VIEW.quarter = VIEW.quarter || qKey();
+  const rng = qRange(qk);
+  const all = qCommits(qk);
+
+  root.appendChild(viewHead(null, [
+    el('div', { class: 'seg' }, [
+      el('button', { html: '‹', title: 'Previous quarter', onclick: () => { VIEW.quarter = qShift(qk, -1); render(); } }),
+      el('button', { class: 'on', text: qLabel(qk) }),
+      el('button', { html: '›', title: 'Next quarter', onclick: () => { VIEW.quarter = qShift(qk, 1); render(); } })
+    ]),
+    qk !== qKey() ? el('button', { class: 'btn', text: 'This quarter',
+      onclick: () => { VIEW.quarter = qKey(); render(); } }) : null,
+    el('button', { class: 'btn', html: ico('dl', 14) + ' Export', onclick: () => exportQuarter(qk) }),
+    isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('target', 14) + ' Pick the focus deals',
+      onclick: () => qPick(qk) })
+  ]));
+
+  /* ---- the quarter in one band ---- */
+  const val = sum(all, qValue);
+  const wonRecs = qWon(all), lostRecs = qLost(all);
+  const target = repTarget(VIEW.rep === 'all' || !VIEW.rep ? 'all' : VIEW.rep, rng);
+  const t = el('div', { class: 'tiles' });
+  t.appendChild(tile('Committed this quarter', money(val), { cur: true, icon: 'target',
+    foot: `${all.length} deal${all.length === 1 ? '' : 's'} across ${qTeams().filter(tm => qCommits(qk, tm).length).length} team${
+      qTeams().filter(tm => qCommits(qk, tm).length).length === 1 ? '' : 's'}` }));
+  unitLines().forEach(L => t.appendChild(tile(L + ' committed', unitTotal(all, L), { icon: 'grid',
+    foot: `across ${all.filter(c => Number(unitsOf(c)[L]) || 0).length} of the ${all.length} deals` })));
+  t.appendChild(tile('Landed so far', money(sum(wonRecs, qValue)), { cur: true, icon: 'check',
+    foot: val ? pct(sum(wonRecs, qValue), val) + '% of what was committed' : 'nothing committed yet',
+    meter: val ? pct(sum(wonRecs, qValue), val) : null }));
+  if (lostRecs.length) t.appendChild(tile('Lost from the list', money(sum(lostRecs, qValue)), { cur: true, icon: 'x',
+    tag: 'bad', foot: `${lostRecs.length} of the ${all.length} named` }));
+  if (target) t.appendChild(tile('Against target', money(target), { cur: true, icon: 'flag',
+    foot: `commitment covers ${pct(val, target)}%`, meter: pct(val, target) }));
+  root.appendChild(t);
+
+  if (!all.length) {
+    const c = card('Nothing picked for ' + qLabel(qk), null);
+    c.body.appendChild(el('div', { class: 'empty', html: ico('target', 34) +
+      `<h4>No focus deals yet</h4><p>Each team names the ${Q_TOP_N} deals it is putting the quarter on. ` +
+      'The devices and the value come from the deals themselves, so this stays in step with the pipeline.</p>' }));
+    if (!isReadOnly()) c.body.appendChild(el('div', { style: 'text-align:center;margin-top:var(--sp-3)' }, [
+      el('button', { class: 'btn primary', html: ico('target', 14) + ' Pick the focus deals',
+        onclick: () => qPick(qk) }) ]));
+    root.appendChild(c.node);
+    return;
+  }
+
+  /* ---- one card per team ---- */
+  qTeams().forEach(team => root.appendChild(qTeamCard(qk, team)));
+
+  /* ---- how the teams compare ---- */
+  const cmp = card('Side by side', 'Every team in ' + qLabel(qk));
+  const tbl = el('div', { class: 'qtbl', style: '--qcols:' + unitLines().length });
+  const head = el('div', { class: 'qhead' });
+  ['Team', 'Deals'].concat(unitLines()).concat(['Committed', 'Landed']).forEach((h, i) =>
+    head.appendChild(el('span', { class: i ? 'n' : '', text: h })));
+  tbl.appendChild(head);
+  qTeams().forEach(team => {
+    const recs = qCommits(qk, team);
+    const row = el('div', { class: 'qrow' + (recs.length ? '' : ' empty') });
+    row.appendChild(el('span', { class: 'nm', text: team }));
+    row.appendChild(el('span', { class: 'n', text: `${recs.length}/${Q_TOP_N}` }));
+    unitLines().forEach(L => row.appendChild(el('span', { class: 'n', text: String(unitTotal(recs, L) || '—') })));
+    row.appendChild(el('span', { class: 'n mono', text: money(sum(recs, qValue)) }));
+    row.appendChild(el('span', { class: 'n mono', text: money(sum(qWon(recs), qValue)) }));
+    tbl.appendChild(row);
+  });
+  const foot = el('div', { class: 'qrow total' });
+  foot.appendChild(el('span', { class: 'nm', text: 'All teams' }));
+  foot.appendChild(el('span', { class: 'n', text: String(all.length) }));
+  unitLines().forEach(L => foot.appendChild(el('span', { class: 'n', text: String(unitTotal(all, L) || '—') })));
+  foot.appendChild(el('span', { class: 'n mono', text: money(val) }));
+  foot.appendChild(el('span', { class: 'n mono', text: money(sum(wonRecs, qValue)) }));
+  tbl.appendChild(foot);
+  cmp.body.appendChild(tbl);
+  root.appendChild(cmp.node);
+}
+
+function qTeamCard(qk, team) {
+  const recs = qCommits(qk, team)
+    .sort((a, b) => qValue(b) - qValue(a));
+  const mine = qCanEdit(team);
+  const c = card(team, recs.length
+    ? `${recs.length} of ${Q_TOP_N} named · ${CFG.currency} ${money(sum(recs, qValue), { dash: false })}` +
+      (unitText(recs) ? ' · ' + unitText(recs) : '')
+    : `No focus deals named for ${qLabel(qk)}`);
+  if (mine) c.head.appendChild(el('button', {
+    class: 'btn sm' + (recs.length >= Q_TOP_N ? '' : ' primary'),
+    disabled: recs.length >= Q_TOP_N ? true : null,
+    title: recs.length >= Q_TOP_N
+      ? `${team} has its ${Q_TOP_N} — take one off to swap it` : 'Add a focus deal for ' + team,
+    html: ico('plus', 13) + (recs.length >= Q_TOP_N ? ` ${Q_TOP_N} of ${Q_TOP_N}` : ` Add (${recs.length}/${Q_TOP_N})`),
+    onclick: () => qPick(qk, team) }));
+
+  if (!recs.length) {
+    c.body.appendChild(el('p', { class: 'sub', style: 'margin:0;line-height:1.55',
+      text: mine ? `Name the ${Q_TOP_N} deals this team is putting the quarter on.`
+                 : 'Nothing named yet.' }));
+    return c.node;
+  }
+
+  const list = el('div', { class: 'qdeals' });
+  recs.forEach((rec, i) => list.appendChild(qDealRow(rec, i, mine)));
+  c.body.appendChild(list);
+
+  const tot = el('div', { class: 'qtot' });
+  tot.appendChild(el('span', { class: 'nm', text: `Total · ${recs.length} deal${recs.length === 1 ? '' : 's'}` }));
+  unitLines().forEach(L => { const n = unitTotal(recs, L);
+    tot.appendChild(el('span', { class: 'u', html: `<b>${n || 0}</b> ${esc(L)}` })); });
+  tot.appendChild(el('div', { style: 'flex:1' }));
+  tot.appendChild(el('span', { class: 'v mono', text: CFG.currency + ' ' + money(sum(recs, qValue), { dash: false }) }));
+  c.body.appendChild(tot);
+  return c.node;
+}
+
+function qDealRow(rec, i, mine) {
+  const d = getDl(rec.dealId);
+  const st = d ? stage(d.stageId) : null;
+  const row = el('div', { class: 'qdeal' + (d && isWon(d) ? ' won' : d && isLost(d) ? ' lost' : '') });
+  row.appendChild(el('span', { class: 'rank', text: '#' + (i + 1) }));
+  const mid = el('div', { class: 'mid' });
+  mid.appendChild(el('button', { class: 'nm', text: d ? d.name : (rec.note || 'Deal no longer here'),
+    title: d ? 'Open the deal' : 'This deal has been removed',
+    onclick: () => d && openDeal(d.id) }));
+  mid.appendChild(el('div', { class: 'sub', text: [
+    d ? ((getCo(d.companyId) || {}).name || 'no account') : null,
+    ownerName(rec.ownerId),
+    st ? st.label : null,
+    d && d.closeDate ? 'closes ' + fdate(d.closeDate) : null,
+    rec.note || null
+  ].filter(Boolean).join(' · ') }));
+  row.appendChild(mid);
+  unitLines().forEach(L => { const n = Number(unitsOf(rec)[L]) || 0;
+    row.appendChild(el('span', { class: 'u' + (n ? '' : ' zero'), html: `<b>${n}</b> ${esc(L)}` })); });
+  row.appendChild(el('span', { class: 'v mono', text: money(qValue(rec)) }));
+  if (d && isWon(d)) row.appendChild(el('span', { class: 'tag good', text: 'Won' }));
+  else if (d && isLost(d)) row.appendChild(el('span', { class: 'tag bad', text: 'Lost' }));
+  if (mine) {
+    row.appendChild(el('button', { class: 'btn sm ghost', html: ico('edit', 13), 'aria-label': 'Edit',
+      title: 'Edit the devices, the value or the note', onclick: () => qEdit(rec) }));
+    row.appendChild(el('button', { class: 'btn sm ghost', html: ico('x', 13), 'aria-label': 'Take off the list',
+      title: 'Take this off the quarter', onclick: () => qRemove(rec) }));
+  }
+  return row;
+}
+
+/* ================================================================
+   PICKING THE FIVE
+   ================================================================ */
+function qPick(qk, team) {
+  if (isReadOnly()) return toast('You have read-only access', 'err');
+  let tm = team || teamOf(currentOwnerId());
+  const picked = new Set();
+  const units = new Map();
+
+  const tmSel = el('select', { class: 'inp', onchange: e => { tm = e.target.value; picked.clear(); paint(); paintUnits(); } });
+  qTeams().forEach(t => tmSel.appendChild(el('option', { value: t, text: t, selected: t === tm || null })));
+  const qSel = el('select', { class: 'inp', onchange: e => { VIEW.quarter = e.target.value; paint(); } });
+  for (let i = -1; i <= 4; i++) { const k = qShift(qKey(), i);
+    qSel.appendChild(el('option', { value: k, text: qLabel(k) + (i === 0 ? ' — this quarter' : ''), selected: k === qk || null })); }
+
+  const q = el('input', { class: 'inp', placeholder: 'Search open deals…', oninput: () => paint() });
+  const list = el('div', { class: 'picklist' });
+  const bar = el('div', { class: 'picksum' });
+  const unitHost = el('div', { style: 'margin-top:var(--sp-3)' });
+  const note = el('input', { class: 'inp', placeholder: 'Why these — what has to happen this quarter?' });
+
+  const roomLeft = () => Q_TOP_N - qCommits(VIEW.quarter, tm).length;
+
+  function candidates() {
+    const term = q.value.trim().toLowerCase();
+    const teamReps = activeOwners().filter(o => teamOf(o.id) === tm).map(o => o.id);
+    return live('deals').filter(isOpen)
+      .filter(d => teamReps.includes(String(d.ownerId)))
+      .filter(d => !term || (d.name || '').toLowerCase().includes(term) ||
+                   ((getCo(d.companyId) || {}).name || '').toLowerCase().includes(term))
+      .sort((a, b) => ((b.amount || 0) - (a.amount || 0)) ||
+                      (stage(b.stageId).probability - stage(a.stageId).probability))
+      .slice(0, 200);
+  }
+  function paint() {
+    const taken = new Set(qCommits(VIEW.quarter).map(c => String(c.dealId)));
+    list.innerHTML = '';
+    const ds = candidates();
+    if (!ds.length) list.appendChild(el('div', { class: 'sub', style: 'padding:16px;text-align:center',
+      text: `No open deals owned by ${esc(tm)}${q.value.trim() ? ' match that' : ''}.` }));
+    ds.forEach(d => {
+      const has = taken.has(String(d.id));
+      const on = picked.has(d.id);
+      const row = el('label', { class: 'pick' + (has ? ' taken' : '') + (on ? ' on' : '') });
+      const cb = el('input', { type: 'checkbox', checked: on || null, disabled: has ? true : null,
+        onchange: e => {
+          if (e.target.checked) {
+            if (picked.size >= roomLeft()) { e.target.checked = false;
+              return toast(`${tm} has room for ${roomLeft()} more in ${qLabel(VIEW.quarter)}`, 'err'); }
+            picked.add(d.id);
+          } else picked.delete(d.id);
+          row.classList.toggle('on', picked.has(d.id));
+          updateSum(); paintUnits();
+        } });
+      row.appendChild(cb);
+      const au = autoUnits(d);
+      row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { class: 'nm', text: d.name }),
+        el('div', { class: 'sub', text: [(getCo(d.companyId) || {}).name, ownerName(d.ownerId),
+          stage(d.stageId).label, d.closeDate ? 'closes ' + fdate(d.closeDate) : null,
+          unitLines().map(L => au[L] ? `${au[L]} ${L}` : null).filter(Boolean).join(' · ') || null
+        ].filter(Boolean).join(' · ') }),
+        has ? el('div', { class: 'sub', style: 'color:var(--warning)',
+          text: 'Already on this quarter' }) : null
+      ]));
+      row.appendChild(el('span', { class: 'mono', style: 'flex:none', text: money(d.amount) }));
+      list.appendChild(row);
+    });
+    updateSum();
+  }
+  function paintUnits() {
+    unitHost.innerHTML = '';
+    const ids = Array.from(picked);
+    if (!ids.length || !unitLines().length) return;
+    unitHost.appendChild(el('label', { class: 'fl', text: 'Devices in these deals' }));
+    unitHost.appendChild(el('p', { class: 'sub', style: 'margin:0 0 8px;line-height:1.55',
+      text: 'Read off each deal’s own lines where it has them. Type over anything that is wrong.' }));
+    const wrap = el('div', { class: 'unitrows' });
+    ids.forEach(id => {
+      const d = getDl(id); if (!d) return;
+      const cur = units.get(id) || autoUnits(d);
+      const row = el('div', { class: 'unitrow' });
+      row.appendChild(el('div', { class: 'nm', title: d.name, text: d.name }));
+      unitLines().forEach(L => {
+        const inp = el('input', { class: 'inp', type: 'number', min: '0', step: '1',
+          value: cur[L] != null ? cur[L] : '', placeholder: '0', 'aria-label': `${L} units for ${d.name}`,
+          oninput: e => {
+            const o = Object.assign({}, units.get(id) || autoUnits(d));
+            if (e.target.value === '') delete o[L]; else o[L] = Math.max(0, Number(e.target.value) || 0);
+            units.set(id, o);
+          } });
+        row.appendChild(el('label', { class: 'u' }, [ el('span', { text: L }), inp ]));
+      });
+      wrap.appendChild(row);
+    });
+    unitHost.appendChild(wrap);
+  }
+  function updateSum() {
+    const tot = sum(Array.from(picked), id => (getDl(id) || {}).amount || 0);
+    const left = roomLeft();
+    bar.innerHTML = `<b>${picked.size}</b> selected · <span class="mono">${CFG.currency} ${money(tot, { dash: false })}</span>` +
+      ` · ${esc(tm)} has <b>${left}</b> of ${Q_TOP_N} place${left === 1 ? '' : 's'} left in ${esc(qLabel(VIEW.quarter))}`;
+    const go = $('#qgo');
+    if (go) { go.disabled = !picked.size;
+      go.textContent = picked.size ? `Commit ${picked.size} to ${qLabel(VIEW.quarter)}` : 'Commit to the quarter'; }
+  }
+  paint(); paintUnits();
+
+  modal('Focus deals for the quarter', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
+      `Each team names the <b>${Q_TOP_N} deals</b> it is putting the quarter on. Only deals owned by that team ` +
+      'are offered, and a deal can sit on one team’s list only. This does not touch the weekly commitment — ' +
+      'it is a separate call on a longer horizon.' }),
+    el('div', { class: 'field-row' }, [ fld('Team', tmSel), fld('Quarter', qSel) ]),
+    el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Deals' }), q, bar, list ]),
+    unitHost,
+    fld('Note', note)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', id: 'qgo', text: 'Commit to the quarter', onclick: () => {
+      const ids = Array.from(picked);
+      if (!ids.length) return;
+      if (ids.length > roomLeft()) return toast(`Only ${roomLeft()} place${roomLeft() === 1 ? '' : 's'} left`, 'err');
+      batch(() => ids.forEach(id => {
+        const d = getDl(id);
+        const u = units.get(id) || autoUnits(d);
+        const rec = upsert('commitments', { quarter: VIEW.quarter, team: tm, dealId: id,
+          ownerId: d ? d.ownerId : currentOwnerId(), units: u,
+          note: note.value.trim() || null, addedAt: new Date().toISOString(),
+          addedBy: (AUTH.user && AUTH.user.username) || 'local' });
+        if (d) logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'flag',
+          html: `Named a <b>${esc(qLabel(VIEW.quarter))}</b> focus deal for ${esc(tm)}` });
+        return rec;
+      }));
+      closeAll(); render();
+      toast(`${ids.length} deal${ids.length === 1 ? '' : 's'} on ${tm}'s ${qLabel(VIEW.quarter)}`, 'ok');
+    } })
+  ], true);
+  updateSum();
+}
+
+function qEdit(rec) {
+  const d = getDl(rec.dealId);
+  const cur = unitsOf(rec);
+  const ins = {};
+  const rows = el('div', { class: 'unitrows' });
+  const row = el('div', { class: 'unitrow' });
+  row.appendChild(el('div', { class: 'nm', text: d ? d.name : 'This deal' }));
+  unitLines().forEach(L => {
+    const i = el('input', { class: 'inp', type: 'number', min: '0', step: '1',
+      value: cur[L] != null ? cur[L] : '', placeholder: '0', 'aria-label': L });
+    ins[L] = i;
+    row.appendChild(el('label', { class: 'u' }, [ el('span', { text: L }), i ]));
+  });
+  rows.appendChild(row);
+  const amt = el('input', { class: 'inp', type: 'number', min: '0', step: '1000',
+    value: rec.amount != null ? rec.amount : '', placeholder: d ? String(d.amount || '') : '' });
+  const note = el('input', { class: 'inp', value: rec.note || '', placeholder: 'What has to happen' });
+  modal('Edit the commitment', el('div', {}, [
+    el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
+      text: d ? `${d.name} · ${ownerName(rec.ownerId)} · ${stage(d.stageId).label}` : 'The deal is no longer here.' }),
+    el('label', { class: 'fl', text: 'Devices' }), rows,
+    fld(`Value (${CFG.currency})`, amt, d
+      ? `Leave it empty to follow the deal, which is ${CFG.currency} ${money(d.amount, { dash: false })} today.`
+      : 'The deal is gone, so this figure is all there is.'),
+    fld('Note', note)
+  ]), [
+    el('button', { class: 'btn danger', html: ico('x', 13) + ' Take off the quarter',
+      onclick: () => { closeAll(); qRemove(rec); } }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      const u = {};
+      unitLines().forEach(L => { const v = ins[L].value; if (v !== '') u[L] = Math.max(0, Number(v) || 0); });
+      rec.units = u;
+      rec.amount = amt.value === '' ? null : Math.max(0, Number(amt.value) || 0);
+      rec.note = note.value.trim() || null;
+      upsert('commitments', rec);
+      closeAll(); render(); toast('Saved', 'ok');
+    } })
+  ]);
+}
+
+function qRemove(rec) {
+  const d = getDl(rec.dealId);
+  confirmDo('Take it off the quarter',
+    `${d ? d.name : 'This deal'} comes off ${rec.team || teamOf(rec.ownerId)}'s ${qLabel(rec.quarter)} list. ` +
+    'The deal itself is untouched, and the place frees up for another.',
+    'Take it off', () => { remove('commitments', rec.id); render(); toast('Taken off the quarter', ''); });
+}
+
+function exportQuarter(qk) {
+  const rows = qCommits(qk);
+  if (!rows.length) return toast('Nothing to export', 'err');
+  const cols = [
+    { h: 'Quarter', f: c => qLabel(c.quarter) },
+    { h: 'Team', f: c => c.team || teamOf(c.ownerId) },
+    { h: 'Deal', f: c => (getDl(c.dealId) || {}).name || '' },
+    { h: 'Company', f: c => (getCo((getDl(c.dealId) || {}).companyId) || {}).name || '' },
+    { h: 'Owner', f: c => ownerName(c.ownerId) },
+    { h: 'Stage', f: c => { const d = getDl(c.dealId); return d ? stage(d.stageId).label : ''; } },
+    { h: 'Close date', f: c => (getDl(c.dealId) || {}).closeDate || '' }
+  ].concat(unitLines().map(L => ({ h: L, f: c => Number(unitsOf(c)[L]) || 0 })))
+   .concat([
+    { h: 'Committed value', f: c => qValue(c) },
+    { h: 'Outcome', f: c => { const d = getDl(c.dealId);
+      return !d ? 'deal removed' : isWon(d) ? 'Won' : isLost(d) ? 'Lost' : 'Open'; } },
+    { h: 'Note', f: c => c.note || '' },
+    { h: 'Added', f: c => String(c.addedAt || '').slice(0, 10) }
+  ]);
+  download(`corev-quarter-commitment-${qk}.csv`, toCSV(rows, cols), 'text/csv');
+  toast(`${rows.length} rows exported`, 'ok');
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
