@@ -1183,7 +1183,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.19.1';
+const VERSION = '1.19.2';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -11588,27 +11588,8 @@ function leadDetail(root, l) {
     root.appendChild(hc.node);
   }
 
-  /* the cadence */
-  const pend = (l.touches || []).filter(t => t.status === 'pending').length;
-  const stepNo = (l.touches || []).length - pend + 1;
-  const cc = card('The follow-up',
-    `${(l.touches || []).length} touches` + (l.cold ? ' including the cold drip' : ' over twelve days') +
-    (pend ? ` · step ${Math.min(stepNo, (l.touches || []).length)} of ${(l.touches || []).length}` : ' · all done'));
-  if (mine) {
-    const rem = leadRemindersFor(l).length;
-    cc.head.appendChild(el('button', { class: 'btn sm', html: ico('cal',13) + (rem ? ` ${rem} reminders set` : ' Set reminders'),
-      title: 'One task per remaining step, on the day the cadence says it is due',
-      onclick: () => leadRemind(l.id) }));
-  }
-  if (!aiReady()) cc.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
-    text: 'Tuning with Claude is off until an admin adds the Anthropic key in Settings. The steps below still work — edit them by hand.' }));
-  const steps = el('div', { class: 'cadence' });
-  const next = leadNextStep(l);
-  (l.touches || []).forEach(t => steps.appendChild(leadStep(l, t, mine, !!next && t.key === next.key)));
-  cc.body.appendChild(steps);
-  root.appendChild(cc.node);
-
-  /* updates */
+  /* Updates come before the follow-up: what actually happened is what a rep
+     reads first when they open a lead, and what they came to write down. */
   const uc = card('Updates', 'What happened, and when — everyone on the team sees this');
   if (mine) {
     const ta = el('textarea', { class: 'inp', rows: 3,
@@ -11645,6 +11626,26 @@ function leadDetail(root, l) {
     uc.body.appendChild(tl);
   }
   root.appendChild(uc.node);
+
+  /* the cadence */
+  const pend = (l.touches || []).filter(t => t.status === 'pending').length;
+  const stepNo = (l.touches || []).length - pend + 1;
+  const cc = card('The follow-up',
+    `${(l.touches || []).length} touches` + (l.cold ? ' including the cold drip' : ' over twelve days') +
+    (pend ? ` · step ${Math.min(stepNo, (l.touches || []).length)} of ${(l.touches || []).length}` : ' · all done'));
+  if (mine) {
+    const rem = leadRemindersFor(l).length;
+    cc.head.appendChild(el('button', { class: 'btn sm', html: ico('cal',13) + (rem ? ` ${rem} reminders set` : ' Set reminders'),
+      title: 'One task per remaining step, on the day the cadence says it is due',
+      onclick: () => leadRemind(l.id) }));
+  }
+  if (!aiReady()) cc.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.55',
+    text: 'Tuning with Claude is off until an admin adds the Anthropic key in Settings. The steps below still work — edit them by hand.' }));
+  const steps = el('div', { class: 'cadence' });
+  const next = leadNextStep(l);
+  (l.touches || []).forEach(t => steps.appendChild(leadStep(l, t, mine, !!next && t.key === next.key)));
+  cc.body.appendChild(steps);
+  root.appendChild(cc.node);
 }
 
 function leadStep(l, t, mine, isNext) {
