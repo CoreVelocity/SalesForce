@@ -1183,7 +1183,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.19.0';
+const VERSION = '1.19.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1934,39 +1934,131 @@ const FLAT_KEYS = ['owners', 'stages', 'lossReasons', 'config', 'meta'];
    of blank screen, and an empty CRM if the sync does not land. So the cache is
    now shed in priority order rather than written all-or-nothing, and the
    result is reported instead of swallowed. */
-const CACHE_SHED = ['activities', 'attachments', 'reviews', 'contacts', 'companies'];
-let CACHE_STATE = { ok: true, dropped: [], bytes: 0 };
+const CACHE_SHED = ['activities', 'attachments', 'reviews', 'leads', 'contacts', 'companies'];
+let CACHE_STATE = { ok: true, dropped: [], bytes: 0, compacted: 0 };
+
+/* THE CACHE MUST LEAVE ROOM FOR THE SIGN-IN.
+
+   localStorage is one allowance per origin — about 5 MB, counted in UTF-16, so
+   5 MB is 2.6 million characters, not 5 million. MSAL keeps the Microsoft
+   session in that same allowance. So a CRM cache that fills it does not just
+   lose its own copy: the next sign-in cannot write its tokens and FAILS. That
+   is what importing a few hundred marketing leads did — the cache went from
+   2.9 MB to 5.0 MB and pushed sign-in off the edge.
+
+   Two things follow. The cache now stops well short of the allowance instead
+   of writing until the browser refuses, and leads are stored without the text
+   that can be generated again from the cadence. */
+const CACHE_BUDGET = 2_100_000;          // characters ≈ 4.1 MB UTF-16, leaving ~0.9 MB for the sign-in
+
+/* A lead's steps are a template plus the lead's own name: the day, the timing,
+   the channel, the purpose and the message can all be written again from the
+   cadence. What cannot is what the rep DID — which steps went out, when, and
+   whether anyone replied. So the cache keeps the doing and drops the wording,
+   except where a rep edited it or Claude tuned it, which is kept verbatim.
+   That is most of a lead's weight gone with nothing lost. */
+const TOUCH_KEEP = ['key', 'status', 'waAt', 'waBy', 'waCount', 'sentAt', 'repliedAt', 'tunedAt', 'cold'];
+function leadTemplate(l) {
+  const out = {};
+  try { (typeof leadTouches === 'function' ? leadTouches(l) : []).forEach(t => { out[t.key] = t; }); }
+  catch (e) { /* leave it empty — the lean copy then keeps its own text */ }
+  if (typeof LEAD_COLD_STEPS !== 'undefined' && typeof leadFill === 'function') {
+    const b2b = l && l.type === 'B2B';
+    LEAD_COLD_STEPS.forEach(c => { out[c.key] = { key: c.key, day: c.day, when: c.when,
+      channel: c.channel, purpose: c.purpose, message: leadFill(b2b ? c.b2b : c.b2c, l) }; });
+  }
+  return out;
+}
+function leadsForCache(rows) {
+  if (!Array.isArray(rows) || !rows.length || typeof leadTouches !== 'function') return rows;
+  let saved = 0;
+  const out = rows.map(l => {
+    if (!l || !Array.isArray(l.touches) || !l.touches.length) return l;
+    const tpl = leadTemplate(l);
+    const touches = l.touches.map(t => {
+      const g = tpl[t.key];
+      if (!g) return t;                                  // a step the cadence no longer knows
+      const lean = {};
+      TOUCH_KEEP.forEach(k => { if (t[k] !== undefined) lean[k] = t[k]; });
+      /* Anything the rep changed is not the template any more, so it stays. */
+      if (t.message !== g.message) lean.message = t.message;
+      if ((t.subject || '') !== (g.subject || '')) lean.subject = t.subject;
+      saved += JSON.stringify(t).length - JSON.stringify(lean).length;
+      return lean;
+    });
+    return Object.assign({}, l, { touches });
+  });
+  CACHE_STATE.compacted = saved;
+  return out;
+}
+/* And write them back out on the way in, so nothing downstream can tell. */
+function leadsFromCache(rows) {
+  if (!Array.isArray(rows) || typeof leadTouches !== 'function') return rows;
+  return rows.map(l => {
+    if (!l || !Array.isArray(l.touches) || !l.touches.length) return l;
+    if (l.touches.every(t => t && t.purpose !== undefined)) return l;   // written by an older build
+    const tpl = leadTemplate(l);
+    l.touches = l.touches.map(t => {
+      const g = tpl[t && t.key]; if (!g) return t;
+      const full = Object.assign({}, g, t);
+      if (t.message === undefined) full.message = g.message;
+      if (t.subject === undefined && g.subject === undefined) delete full.subject;
+      return full;
+    });
+    return l;
+  });
+}
+
 function saveLocal() {
   const drop = new Set();
   for (let attempt = 0; attempt <= CACHE_SHED.length; attempt++) {
     const db = {};
-    REC_SHARDS.forEach(k => { db[k] = drop.has(k) ? [] : DB[k]; });
+    REC_SHARDS.forEach(k => {
+      db[k] = drop.has(k) ? [] : (k === 'leads' ? leadsForCache(DB[k]) : DB[k]);
+    });
     FLAT_KEYS.forEach(k => { db[k] = DB[k]; });
-    try {
-      const s = JSON.stringify({ at: now(), dirty: Array.from(SYNC.dirty),
-        partial: Array.from(drop), db });
-      localStorage.setItem(CFG.cacheKey, s);
-      CACHE_STATE = { ok: true, dropped: Array.from(drop), bytes: s.length };
-      return;
-    } catch (e) {
-      if (attempt === CACHE_SHED.length) break;
-      drop.add(CACHE_SHED[attempt]);      // shed the biggest, least urgent first
+    const s = JSON.stringify({ at: now(), dirty: Array.from(SYNC.dirty),
+      partial: Array.from(drop), db });
+    /* Over budget is treated exactly like the browser refusing it. Waiting for
+       the refusal is what left no room for the sign-in. */
+    const tooBig = s.length > CACHE_BUDGET;
+    if (!tooBig) {
+      try {
+        localStorage.setItem(CFG.cacheKey, s);
+        CACHE_STATE = { ok: true, dropped: Array.from(drop), bytes: s.length,
+          compacted: CACHE_STATE.compacted || 0 };
+        return;
+      } catch (e) { /* the browser said no sooner than the budget did */ }
     }
+    if (attempt === CACHE_SHED.length) break;
+    drop.add(CACHE_SHED[attempt]);      // shed the biggest, least urgent first
   }
   /* Even the skeleton would not fit. Leave no half-written key behind — a
      truncated cache is worse than none, because it loads as a believable
      empty CRM. */
   try { localStorage.removeItem(CFG.cacheKey); } catch (e) {}
-  CACHE_STATE = { ok: false, dropped: REC_SHARDS.slice(), bytes: 0 };
+  CACHE_STATE = { ok: false, dropped: REC_SHARDS.slice(), bytes: 0, compacted: 0 };
 }
+/* Roughly what this origin is holding, so the tool can say so before a
+   sign-in fails rather than after. */
+function storageUsed() {
+  let n = 0;
+  try { for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    n += k.length + String(localStorage.getItem(k) || '').length;
+  } } catch (e) { return null; }
+  return n;
+}
+const storageTight = () => { const n = storageUsed(); return n != null && n > 2_000_000; };
 function loadLocal() {
   try {
     const raw = localStorage.getItem(CFG.cacheKey);
     if (!raw) return false;
     const p = JSON.parse(raw);
     if (!p || !p.db) return false;
+    if (p.db.leads) p.db.leads = leadsFromCache(p.db.leads);
     Object.assign(DB, p.db);
-    CACHE_STATE = { ok: true, dropped: p.partial || [], bytes: raw.length };
+    CACHE_STATE = { ok: true, dropped: p.partial || [], bytes: raw.length, compacted: 0 };
     (p.dirty || []).forEach(s => SYNC.dirty.add(s));
     reindex(); rebuildStages();
     return true;
@@ -1999,6 +2091,14 @@ async function signIn() {
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Connecting…';
   try {
     if (!(await loadMsal())) throw new Error('Could not load the Microsoft sign-in library. Check your network, then reload.');
+    /* MSAL writes the session into the same localStorage this tool caches into.
+       If the cache has taken the lot, the sign-in cannot store its tokens and
+       fails with something that reads nothing like "out of space". So make room
+       first, before it gets the chance to. */
+    if (storageTight()) {
+      try { localStorage.removeItem(CFG.cacheKey); } catch (e) {}
+      CACHE_STATE = { ok: false, dropped: REC_SHARDS.slice(), bytes: 0, compacted: 0 };
+    }
     AUTH.msal = new msal.PublicClientApplication({
       auth: { clientId: CFG.clientId, authority: CFG.authority, redirectUri: location.href.split('#')[0].split('?')[0] },
       cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
@@ -2016,10 +2116,25 @@ async function signIn() {
     await boot();
   } catch (e) {
     const msg = String(e && e.message || e);
+    const quota = /quota|exceeded|storage|QuotaExceeded/i.test(msg) ||
+      (e && (e.name === 'QuotaExceededError' || e.code === 22));
     err.style.display = 'block';
-    err.innerHTML = esc(msg) + (/popup|window/i.test(msg)
-      ? '<br><br>If a popup was blocked, allow popups for this page and try again. This tool must be opened from its hosted URL — sign-in will not work from a local file or inside an iframe.'
-      : '');
+    err.innerHTML = esc(msg) +
+      (quota
+        ? '<br><br><b>This browser has run out of storage for this page.</b> The sign-in keeps your Microsoft ' +
+          'session in the same place this tool caches data, so a full cache stops it. Clearing the cached copy ' +
+          'fixes it — nothing is lost, everything is read back from the shared folder after you sign in.'
+        : '') +
+      (/popup|window/i.test(msg)
+        ? '<br><br>If a popup was blocked, allow popups for this page and try again. This tool must be opened from its hosted URL — sign-in will not work from a local file or inside an iframe.'
+        : '');
+    if (quota || storageTight()) {
+      const b = el('button', { class: 'btn', style: 'margin-top:10px',
+        text: 'Clear the cached copy and try again',
+        onclick: () => { try { localStorage.clear(); } catch (x) {} location.reload(); } });
+      err.appendChild(document.createElement('br'));
+      err.appendChild(b);
+    }
     btn.disabled = false;
     btn.innerHTML = 'Try again';
   }
@@ -13234,6 +13349,10 @@ function viewSettings(root) {
    ['Storage mode', SYNC.mode === 'onedrive' ? 'OneDrive + local cache' : 'Local only (this browser)'],
    ['Pending writes', SYNC.dirty.size || 'none'],
    ['Last sync', SYNC.last ? new Date(SYNC.last).toLocaleString('en-GB') : 'never'],
+   ['Cached in this browser', CACHE_STATE.ok
+     ? Math.round(CACHE_STATE.bytes * 2 / 1024) + ' KB of the ~5,120 KB this browser allows' +
+       (CACHE_STATE.dropped.length ? ' · read fresh each time: ' + CACHE_STATE.dropped.join(', ') : '')
+     : 'nothing — it would not fit, so everything is read from the folder on load'],
    ['Imported from', (DB.meta && DB.meta.source) || '—']
   ].forEach(([k, v]) => { stats.appendChild(el('dt', { text: k })); stats.appendChild(el('dd', { text: String(v) })); });
   c5.body.appendChild(stats);
