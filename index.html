@@ -979,6 +979,49 @@ a.mfact:hover b{text-decoration:underline}
 .cstep.now{border-color:var(--good);box-shadow:0 0 0 1px var(--good) inset}
 .cstep.cold{border-style:dashed}
 
+/* ---- the lead stage path: chevrons, not a dropdown ---- */
+.pathwrap{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
+  margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--line-soft)}
+.stagepath{display:flex;flex:1 1 420px;min-width:0;align-items:stretch;gap:2px}
+.stagepath .sp{
+  --notch:11px;
+  flex:1 1 0;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;
+  gap:5px;padding:9px 10px 9px 18px;border:0;cursor:pointer;font:inherit;
+  font-size:var(--fs-sm);font-weight:600;line-height:1.2;white-space:nowrap;
+  background:var(--surface-3);color:var(--ink-2);
+  clip-path:polygon(0 0, calc(100% - var(--notch)) 0, 100% 50%, calc(100% - var(--notch)) 100%,
+    0 100%, var(--notch) 50%);
+  transition:background .12s ease,color .12s ease}
+.stagepath .sp:first-child{padding-left:12px;border-radius:var(--r-sm) 0 0 var(--r-sm);
+  clip-path:polygon(0 0, calc(100% - var(--notch)) 0, 100% 50%, calc(100% - var(--notch)) 100%, 0 100%)}
+.stagepath .sp:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0;
+  clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%, var(--notch) 50%)}
+.stagepath .sp .t{overflow:hidden;text-overflow:ellipsis}
+.stagepath .sp .ck{display:inline-flex;align-items:center;flex:none}
+.stagepath .sp .ck:empty{display:none}
+.stagepath .sp:not(:disabled):hover{background:var(--line);color:var(--ink-1)}
+.stagepath .sp.done{background:var(--good);color:#fff}
+.stagepath .sp.done:not(:disabled):hover{filter:brightness(1.08)}
+.stagepath .sp.now{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.stagepath .sp.now:not(:disabled):hover{filter:brightness(1.08)}
+.stagepath .sp:disabled{cursor:default}
+.stagepath.off .sp{opacity:.5}
+.stagepath.off .sp.done{background:var(--ink-3);color:var(--surface-1)}
+.pathside{display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex:0 0 auto}
+.pathside .btn svg{vertical-align:-1px}
+/* Below this the path and the buttons stop competing for the row, because a
+   squeezed "Demo booked" is the one that loses its label first. */
+@media(max-width:1250px){
+  .stagepath{flex-basis:100%}
+  .pathside{width:100%}
+}
+/* And below this the labels will not fit however the row is split, so the
+   path scrolls sideways rather than truncating. */
+@media(max-width:700px){
+  .stagepath{overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}
+  .stagepath .sp{flex:0 0 auto;font-size:var(--fs-xs);padding:8px 9px 8px 16px}
+}
+
 /* ---- quarter commitment ---- */
 .qtbl{display:flex;flex-direction:column;gap:4px}
 .qtbl .qhead,.qtbl .qrow{display:grid;
@@ -1237,7 +1280,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.20.1';
+const VERSION = '1.21.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -11514,12 +11557,15 @@ function leadDetail(root, l) {
     text: l.priority ? '★' : '☆', onclick: () => { l.priority = !l.priority; leadSave(l); render(); } }));
   head.body.appendChild(hd);
 
-  /* stage + rep */
-  const ctl = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--line-soft)' });
-  const st = el('select', { class: 'inp', style: 'width:auto', disabled: mine ? null : true,
-    onchange: e => leadSetStage(l.id, e.target.value) });
-  MLEAD_STAGES.forEach(s => st.appendChild(el('option', { value: s, text: s, selected: l.stage === s || null })));
-  ctl.appendChild(el('span', { class: 'sub', text: 'Stage' })); ctl.appendChild(st);
+  /* ---- the stage path ----
+     A dropdown hides where a lead actually is: you have to open it to find
+     out, and it gives no sense of what comes next. A path shows the whole
+     journey at once, what is behind it in green, where it stands now, and
+     what the next step is — which is the one thing a rep is deciding. */
+  head.body.appendChild(leadPath(l, mine));
+
+  /* rep and the badges that qualify the path */
+  const ctl = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-top:var(--sp-3)' });
   const rep = ownerSelect(l.assignee || '', { emptyLabel: 'Not assigned',
     onchange: e => { l.assignee = e.target.value; l.routeNeeded = !e.target.value;
       if (l.assignee) { l.assignedAt = new Date().toISOString();
@@ -11527,8 +11573,8 @@ function leadDetail(root, l) {
       leadSave(l); render(); } });
   rep.style.width = 'auto'; rep.disabled = mine ? false : true;
   ctl.appendChild(el('span', { class: 'sub', text: 'Rep' })); ctl.appendChild(rep);
-  if (l.lostReason) ctl.appendChild(el('span', { class: 'tag bad', text: 'Lost: ' + l.lostReason }));
   if (l.dealId) ctl.appendChild(el('span', { class: 'tag good', text: 'In the pipeline' }));
+  if (l.cold) ctl.appendChild(el('span', { class: 'tag info', text: 'Cold' }));
   head.body.appendChild(ctl);
   root.appendChild(head.node);
 
@@ -11704,6 +11750,59 @@ function leadDetail(root, l) {
   (l.touches || []).forEach(t => steps.appendChild(leadStep(l, t, mine, !!next && t.key === next.key)));
   cc.body.appendChild(steps);
   root.appendChild(cc.node);
+}
+
+/* The five steps a lead actually walks. Lost and Referral are outcomes, not
+   steps — they sit beside the path rather than on it, which is also how they
+   behave: a lead can be lost from anywhere. */
+const LEAD_PATH = ['New', 'Contacted', 'Engaged', 'Demo booked', 'Won'];
+const LEAD_OFF  = ['Lost', 'Referral'];
+
+function leadPath(l, mine) {
+  const wrap = el('div', { class: 'pathwrap' });
+  const off = LEAD_OFF.includes(l.stage);
+  const at = LEAD_PATH.indexOf(l.stage);
+
+  const path = el('div', { class: 'stagepath' + (off ? ' off' : ''),
+    role: 'group', 'aria-label': 'Pipeline stage' });
+  LEAD_PATH.forEach((s, i) => {
+    /* Done, here, or still ahead. When a lead is Lost or Referral the whole
+       path reads as history, so nothing is marked "here". */
+    const cls = off ? (i === 0 ? ' done' : '')
+      : i < at ? ' done' : i === at ? ' now' : '';
+    const b = el('button', {
+      class: 'sp' + cls, disabled: mine ? null : true,
+      'aria-current': (!off && i === at) ? 'step' : null,
+      title: mine ? (s === l.stage ? s + ' — where it is now' : 'Move to ' + s) : s,
+      onclick: () => { if (s !== l.stage) leadSetStage(l.id, s); }
+    });
+    b.appendChild(el('span', { class: 'ck', html: (!off && i < at) ? ico('check', 12, 3) : '' }));
+    b.appendChild(el('span', { class: 't', text: s }));
+    path.appendChild(b);
+  });
+  wrap.appendChild(path);
+
+  /* What a rep does next, said in words, beside the path. */
+  const side = el('div', { class: 'pathside' });
+  if (off) {
+    side.appendChild(el('span', { class: 'tag ' + (l.stage === 'Lost' ? 'bad' : 'warn'),
+      text: l.stage + (l.lostReason ? ' · ' + l.lostReason : '') }));
+    if (mine) side.appendChild(el('button', { class: 'btn sm', text: 'Put it back in play',
+      title: 'Back to Contacted, and the follow-up carries on',
+      onclick: () => leadSetStage(l.id, 'Contacted') }));
+  } else {
+    const next = LEAD_PATH[at + 1];
+    if (mine && next) side.appendChild(el('button', { class: 'btn sm primary',
+      html: 'Move to ' + esc(next) + ' ' + ico('right', 12, 3),
+      title: 'Advance one step', onclick: () => leadSetStage(l.id, next) }));
+    if (mine) side.appendChild(el('button', { class: 'btn sm ghost', text: 'Mark lost',
+      onclick: () => leadSetStage(l.id, 'Lost') }));
+    if (mine && l.stage !== 'Referral') side.appendChild(el('button', { class: 'btn sm ghost', text: 'Referral',
+      title: 'Came through someone rather than the funnel',
+      onclick: () => leadSetStage(l.id, 'Referral') }));
+  }
+  if (side.childNodes.length) wrap.appendChild(side);
+  return wrap;
 }
 
 function leadStep(l, t, mine, isNext) {
