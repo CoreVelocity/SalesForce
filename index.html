@@ -1306,7 +1306,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.23.1';
+const VERSION = '1.23.2';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -11134,7 +11134,10 @@ function sheetUrlTries(u) {
   if (base && gid && sheetIsPub(s)) out.push({ url: sheetPubUrl(base, gid), via: 'the published link from another tab' });
   return out;
 }
-let SHEET_BUSY = false;
+/* When a sync started, not merely that one did. A fetch that never answers
+   used to leave this true for the rest of the session, and every later press of
+   Sync then did nothing at all — silently, which is the worst part. */
+let SHEET_BUSY = 0;
 /* A row the sheet produced that is not a person. An agency sheet accumulates
    blank rows, header repeats and the wreckage of a half-filled form, and one
    of those arriving as a lead is worse than it not arriving at all. */
@@ -11155,7 +11158,17 @@ async function sheetFetch(url) {
   let last = '';
   for (const t of tries) {
     try {
-      const r = await fetch(t.url, { cache: 'no-store', redirect: 'follow' });
+      /* Published output sits behind Google's own cache, so the address gets a
+         value that changes every time — otherwise a row added minutes ago can
+         keep coming back missing. And a request that never answers used to
+         wedge the sync for the rest of the session, so it is given 25 seconds
+         and then dropped. */
+      const bust = t.url + (t.url.includes('?') ? '&' : '?') + '_cv=' + Date.now();
+      const ac = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = ac ? setTimeout(() => ac.abort(), 25000) : null;
+      let r;
+      try { r = await fetch(bust, { cache: 'no-store', redirect: 'follow', signal: ac ? ac.signal : undefined }); }
+      finally { if (timer) clearTimeout(timer); }
       if (!r.ok) { last = 'the sheet returned ' + r.status; continue; }
       const text = await r.text();
       /* Google answers an unpublished link with the sign-in page, which is
@@ -11178,12 +11191,15 @@ async function sheetSync(opt) {
   const o = opt || {};
   const tabs = sheetTabList().filter(t => o.only == null || t.i === o.only);
   if (!tabs.length) { if (!o.quiet) toast('No sheet is connected — add the published CSV link in Settings', 'err'); return { added: 0 }; }
-  if (SHEET_BUSY) return { added: 0 };
-  SHEET_BUSY = true;
+  if (SHEET_BUSY && Date.now() - SHEET_BUSY < 90000) {
+    if (!o.quiet) toast('A sync is already running \u2014 give it a moment', 'err');
+    return { added: 0, busy: true };
+  }
+  SHEET_BUSY = Date.now();
   if (!o.quiet) toast(tabs.length > 1 ? `Reading ${tabs.length} tabs…` : 'Reading the sheet…');
   const seen = leadIndex(), dup = new Set();
   let added = 0, routed = 0, rows = 0, skipped = 0;
-  const errs = [], per = [];
+  const errs = [], rowErrs = [], per = [];
   try {
     for (const t of tabs) {
       try {
@@ -11192,10 +11208,10 @@ async function sheetSync(opt) {
         const got = sheetRead(text, { map: t.map, order: t.order,
           type: t.type || sheetTypeGuess(t.label), label: t.label });
         if (!got.rows.length) throw new Error('no rows with a name, a phone or an email in them — the first row should be the column headings');
-        const fresh = [];
+        const fresh = [], bad = [];
         got.rows.forEach(p => { const k = leadKey(p); if (!k || seen.has(k) || dup.has(k)) return; dup.add(k); fresh.push(p); });
         let tAdded = 0, tRouted = 0;
-        if (fresh.length) batch(() => { fresh.forEach(p => {
+        if (fresh.length) batch(() => { fresh.forEach(p => { try {
           const l = leadCreate(Object.assign({}, p, { source: p.source || t.label || 'Agency sheet' }), { quiet: true });
           /* The sheet carries where it stands and who has it — keep both. */
           if (p.createdAt) l.createdAt = p.createdAt;
@@ -11206,11 +11222,13 @@ async function sheetSync(opt) {
             leadAddUpdate(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
           leadSave(l);
           tAdded++; if (l.assignee) tRouted++;
+        } catch (err) { bad.push((p._row ? 'row ' + p._row : p.name) + ': ' + String(err.message || err)); }
         }); });
         rows += got.rows.length; skipped += got.skipped.length;
         added += tAdded; routed += tRouted;
         sheetTabWrite(t.i, { at: new Date().toISOString(), count: got.rows.length,
           skipped: got.skipped.length, err: null, order: got.order || t.order || null });
+        if (bad.length) rowErrs.push(t.label + ' \u2014 ' + bad.length + ' row(s) could not be written: ' + bad[0]);
         per.push(`${t.label}: ${tAdded ? tAdded + ' new' : 'nothing new'} of ${got.rows.length}` + (fetched.via ? ' (read through ' + fetched.via + ')' : ''));
       } catch (e) {
         const msg = String(e.message || e);
@@ -11222,7 +11240,7 @@ async function sheetSync(opt) {
     DB.config.leadSheetAt = new Date().toISOString();
     DB.config.leadSheetCount = rows;
     DB.config.leadSheetSkipped = skipped;
-    DB.config.leadSheetErr = errs.length ? errs.join(' · ') : null;
+    DB.config.leadSheetErr = errs.concat(rowErrs).length ? errs.concat(rowErrs).join(' · ') : null;
     DB.config._v = now(); touch('config');
     if (errs.length === tabs.length) {
       if (!o.quiet) toast('Sheet: ' + errs[0].slice(0, 130), 'err');
@@ -11237,7 +11255,7 @@ async function sheetSync(opt) {
     }
     render();
     return { added, routed, rows, skipped, tabs: per, errors: errs };
-  } finally { SHEET_BUSY = false; }
+  } finally { SHEET_BUSY = 0; }
 }
 
 /* ONE READER FOR EVERYTHING.
@@ -11359,12 +11377,21 @@ async function sheetDoctor() {
         if (!here && !across.has(k)) across.set(k, t.label);
         rec.rows.push({ row: r._row, name: r.name, email: r.email, phone: r.phone,
           type: r.type, region: r.region || '', emirate: r.emirate || '', rep: r.rawAssignee || '',
+          added: String(r.createdAt || '').slice(0, 10),
           verdict: here ? 'here' : twice ? 'twice' : 'new',
-          hereId: here ? here.id : null, hereName: here ? here.name : '', twiceIn: twice });
+          hereId: here ? here.id : null, hereName: here ? here.name : '',
+          hereStage: here ? here.stage : '', hereAt: here ? String(here.createdAt || '').slice(0, 10) : '',
+          twiceIn: twice });
       });
       read.skipped.forEach(sk => rec.rows.push({ row: sk.row, name: sk.saw,
         verdict: 'skipped', why: sk.why }));
       rec.rows.sort((a, b) => (a.row || 0) - (b.row || 0));
+      /* The decisive line when a row that is plainly in the sheet is not in the
+         tool: if the newest row the sheet handed over is not the newest row on
+         screen, Google is still serving an older copy of the published tab and
+         nothing here is wrong. */
+      const last = rec.rows.filter(r => r.verdict !== 'skipped').slice(-1)[0];
+      rec.newest = last || null;
       rec.ok = true;
     } catch (e) { rec.err = String(e.message || e); }
     report.push(rec);
@@ -11409,6 +11436,11 @@ function sheetDoctorPaint(report, q) {
     }
     if (rec.via) box.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.5',
       text: 'Read through ' + rec.via + '.' }));
+    if (rec.newest) box.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.5',
+      html: '<b>Last row the sheet handed over:</b> row ' + rec.newest.row + ' \u2014 ' +
+        esc(rec.newest.name || '(no name)') + (rec.newest.added ? ' \u00b7 ' + esc(fdate(rec.newest.added)) : '') +
+        '. If the sheet has newer rows than this, Google is still serving an older copy of the published tab \u2014 ' +
+        'it refreshes by itself within a few minutes.' }));
     const counts = ['new', 'here', 'twice', 'skipped'].map(v =>
       [v, rec.rows.filter(r => r.verdict === v).length]);
     box.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.5',
@@ -11425,7 +11457,8 @@ function sheetDoctorPaint(report, q) {
     const show = rec.rows.filter(r => hits(r.name) || hits(r.email) || hits(r.phone) || hits(String(r.row)));
     const list = el('div', { class: 'doclist' });
     show.slice(0, 400).forEach(r => {
-      const tag = { new: ['ok', 'comes in'], here: ['', 'already here'],
+      const tag = { new: ['ok', 'comes in'],
+        here: ['', 'already here' + (r.hereStage ? ' \u00b7 ' + r.hereStage : '')],
         twice: ['', 'already on ' + r.twiceIn], skipped: ['warn', 'skipped'] }[r.verdict];
       const line = el('div', { class: 'docrow' + (r.verdict === 'skipped' ? ' bad' : '') }, [
         el('span', { class: 'cellsub', style: 'width:3.2rem;flex:none', text: 'row ' + r.row }),
@@ -11434,6 +11467,7 @@ function sheetDoctorPaint(report, q) {
           el('div', { class: 'cellsub', text: [r.email, r.phone,
             r.verdict === 'skipped' ? '' : (r.region || (r.emirate ? r.emirate + ' — no rep covers it' : 'nowhere given — needs a rep')),
             r.rep ? 'rep: ' + r.rep : '',
+            r.verdict === 'here' && r.hereAt ? 'came in ' + fdate(r.hereAt) : '',
             r.why ? 'skipped because ' + r.why : ''].filter(Boolean).join(' · ') })
         ]),
         el('span', { class: 'pill' + (tag[0] ? ' ' + tag[0] : ''), text: tag[1] })
