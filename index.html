@@ -1318,7 +1318,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.24.0';
+const VERSION = '1.24.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -10592,8 +10592,8 @@ function leadTouches(l) {
 
 /* ---------------------------------------------------- routing */
 const EMIRATE_RULES = [
-  ['Abu Dhabi', /\b(abu\s*dhabi|abudhabi|auh|al\s*ain|yas|saadiyat|mussafah|musaffah|khalifa city|reem island|mbz|mohammed bin zayed|al raha|shakhbout|bani yas|al shamkha|madinat zayed|ruwais|liwa)\b/],
-  ['Dubai',     /\b(dubai|dxb|jumeirah|marina|deira|bur dubai|business bay|jbr|downtown|al barsha|tecom|jvc|jlt|silicon oasis|mirdif|karama|satwa|al quoz|dubai hills|palm jumeirah|international city|discovery gardens|motor city|arabian ranches|damac|emaar)\b/]
+  ['Abu Dhabi', /\b(abu\s*dhabi|abudhabi|auh|al\s*ain|yas|saadiyat|mussafah|musaffah|khalifa city|reem island|al\s*reem|mbz|mohammed bin zayed|mohamed bin zayed|al raha|shakhbout|bani yas|baniyas|al shamkha|madinat zayed|ruwais|liwa|masdar|al bateen|khalidiya|al mushrif|al maryah|al falah|al reef|al ghadeer|al wathba|shahama|between the two bridges)\b/],
+  ['Dubai',     /\b(dubai|dxb|jumeirah|marina|deira|bur dubai|business bay|jbr|downtown|al barsha|barsha|tecom|jvc|jvt|jlt|silicon oasis|mirdif|karama|satwa|al quoz|dubai hills|palm jumeirah|international city|discovery gardens|motor city|arabian ranches|damac|emaar|difc|murooj|sheikh zayed road|\bszr\b|al wasl|al safa|umm suqeim|al furjan|springs|meadows|emirates hills|the greens|nad al sheba|al khawaneej|al warqa|warqa|remraam|town square|creek harbour|festival city|academic city|dubailand|arjan|liwan|al qusais|muhaisnah|rashidiya|garhoud|zabeel|oud metha|jaddaf|city walk|bluewaters|la mer)\b/]
 ];
 /* The same places as the sheet writes them in Arabic. \b is an ASCII word
    boundary and matches nothing useful in Arabic script, so these are their own
@@ -11141,6 +11141,14 @@ function sheetCsvUrl(u) {
   }
   return s;
 }
+/* Where a tab's link actually ends up, without fetching it — so two tabs
+   pointing at the same sheet tab can be caught before a sync, not after. */
+function sheetResolved(url) { const t = sheetUrlTries(url)[0]; return t ? t.url : ''; }
+function sheetClashes() {
+  const tabs = sheetTabList(), by = {};
+  tabs.forEach(t => { const u = sheetResolved(t.url); if (!u) return; (by[u] = by[u] || []).push(t); });
+  return Object.keys(by).filter(u => by[u].length > 1).map(u => by[u]);
+}
 /* Every address worth trying for one tab, best first. */
 function sheetUrlTries(u) {
   const s = String(u || '').trim(), out = [];
@@ -11261,6 +11269,10 @@ async function sheetSync(opt) {
     DB.config.leadSheetSkipped = skipped;
     DB.config.leadSheetErr = errs.concat(rowErrs).length ? errs.concat(rowErrs).join(' · ') : null;
     DB.config._v = now(); touch('config');
+    const clash = sheetClashes();
+    if (clash.length && !o.quiet) toast('Two tabs point at the same tab of the sheet \u2014 ' +
+      clash[0].map(t => t.label).join(' and ') + ' both read gid ' +
+      (sheetGid(sheetResolved(clash[0][0].url)) || '0') + ', so one of them is never read. Fix the gid in Settings.', 'err');
     if (errs.length === tabs.length) {
       if (!o.quiet) toast('Sheet: ' + errs[0].slice(0, 130), 'err');
     } else if (!o.quiet || added) {
@@ -11375,7 +11387,7 @@ async function sheetPreview(idx) {
    sees — what came back from each link, which column was read as what,
    and for every row whether it is new, already here, or skipped and why.
    ================================================================ */
-async function sheetDoctor() {
+async function sheetDoctor(_ev, q0) {
   const tabs = sheetTabList();
   if (!tabs.length) return toast('No sheet is connected — add the published CSV link in Settings', 'err');
   toast('Reading ' + (tabs.length > 1 ? tabs.length + ' tabs…' : 'the sheet…'));
@@ -11386,6 +11398,7 @@ async function sheetDoctor() {
     try {
       const got = await sheetFetch(t.url);
       rec.via = got.via; rec.bytes = got.text.length;
+      rec.got = got.url; rec.gotGid = sheetGid(got.url);
       const read = sheetRead(got.text, { map: t.map, order: t.order,
         type: t.type || sheetTypeGuess(t.label), label: t.label });
       rec.keys = read.keys || []; rec.map = read.map || {}; rec.read = read.rows.length;
@@ -11415,7 +11428,11 @@ async function sheetDoctor() {
     } catch (e) { rec.err = String(e.message || e); }
     report.push(rec);
   }
-  sheetDoctorPaint(report, '');
+  /* Two tabs that end up at the same address read the same rows twice and the
+     other tab is simply never read — which looks exactly like "the sync is
+     ignoring my new row". It is worth saying out loud. */
+  report.forEach(r => { r.clash = report.filter(o => o !== r && o.got && o.got === r.got).map(o => o.tab.label); });
+  sheetDoctorPaint(report, q0 || '');
 }
 function sheetDoctorPaint(report, q) {
   const body = el('div', {});
@@ -11444,7 +11461,7 @@ function sheetDoctorPaint(report, q) {
       el('div', { style: 'flex:1' }),
       el('span', { class: 'cellsub',
         text: (rec.published ? 'published link' : 'NOT a published link') +
-          (rec.gid ? ' · gid ' + rec.gid : '') })
+          ' · gid ' + (rec.gotGid || rec.gid || '0 (none in the link)') })
     ]);
     box.appendChild(head);
     if (!rec.ok) {
@@ -11453,6 +11470,11 @@ function sheetDoctorPaint(report, q) {
       body.appendChild(box);
       return;
     }
+    if ((rec.clash || []).length) box.appendChild(el('p', { class: 'sub',
+      style: 'margin:0 0 var(--sp-2);line-height:1.55;color:var(--warning)',
+      text: 'This reads the same tab of the sheet as ' + rec.clash.join(' and ') +
+        ' \u2014 both links end at gid ' + (rec.gotGid || '0') + ', so one of the two tabs is never read. ' +
+        'Open the other tab in the sheet and take the number after gid= in the address bar.' }));
     if (rec.via) box.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.5',
       text: 'Read through ' + rec.via + '.' }));
     if (rec.newest) box.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.5',
@@ -12012,10 +12034,20 @@ function viewLeads(root) {
     c.body.appendChild(bar);
   }
   if (!rows.length) {
-    c.body.appendChild(el('div', { class: 'empty', html: ico('user',34) +
+    const empty = el('div', { class: 'empty', html: ico('user',34) +
       '<h4>Nothing here</h4><p>' + (base.length ? 'No lead matches these filters.'
         : lost ? 'Nothing has been marked lost.'
-        : 'Connect the agency sheet in Settings, import a list, or add one by hand.') + '</p>' }));
+        : 'Connect the agency sheet in Settings, import a list, or add one by hand.') + '</p>' });
+    /* Somebody is being looked for by name and is not here. The next question
+       is always the same one — is this person in the sheet at all, and what did
+       the sync do with them — so the answer is one button away rather than a
+       trip through Settings. */
+    if (f.q && String(f.q).trim().length > 2 && sheetTabList().length)
+      empty.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)',
+        html: ico('search', 14) + ' Look for \u201c' + esc(String(f.q).trim()) + '\u201d in the sheet',
+        title: 'Reads every connected tab and says what the sync does with that row',
+        onclick: () => sheetDoctor(null, String(f.q).trim()) }));
+    c.body.appendChild(empty);
   } else {
     const list = el('div', { class: 'leadlist' });
     rows.slice(0, 300).forEach(l => list.appendChild(leadRow(l)));
@@ -15638,6 +15670,19 @@ function sheetSettingsCard() {
       'after gid= in the address bar when that tab is open.'));
     box.appendChild(fld('B2B or B2C', type));
     if (t.url) {
+      /* The link carries the tab in its gid, and a link pasted without one
+         quietly means the first tab. Two tabs on the same gid is the quietest
+         failure there is: it syncs, it says "nothing new", and half the leads
+         are never looked at. */
+      const resolved = sheetResolved(t.url), gid = sheetGid(resolved) || '0';
+      const twins = rows.filter((o, m) => m !== n && o.url && sheetResolved(o.url) === resolved);
+      if (twins.length) box.appendChild(el('p', { class: 'sub',
+        style: 'margin:0 0 var(--sp-3);line-height:1.55;color:var(--warning)',
+        text: 'This link reads gid ' + gid + ' \u2014 the same tab of the sheet as ' +
+          twins.map(o => o.label || 'the other tab').join(' and ') + '. One of them is never read. ' +
+          'Open the right tab in the sheet and copy the number after gid= in the address bar.' }));
+      else box.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5',
+        text: 'Reads gid ' + gid + (/export\?format=csv/.test(resolved) ? ' (through the sheet\u2019s own export, which needs the sheet shared with anyone who has the link)' : '') }));
       const acts = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)' }, [
         el('button', { class: 'btn sm', html: ico('clip', 13) + ' Check the mapping',
           title: 'See which column is read as what, and save it for this tab',
