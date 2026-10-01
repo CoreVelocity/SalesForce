@@ -1318,7 +1318,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.24.1';
+const VERSION = '1.25.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -9565,27 +9565,42 @@ function requestText(r) {
     `\nApprove or decline here:\n${requestLink(r)}\n`;
 }
 
-async function graphSendMail(to, subject, html) {
+async function graphSendMail(to, subject, html, cc) {
   const tok = await mailToken();
+  const addr = a => ({ emailAddress: { address: String(a).trim() } });
+  const toList = (to || []).filter(Boolean);
+  const ccList = (cc || []).filter(Boolean)
+    .filter(x => !toList.some(t => String(t).toLowerCase() === String(x).toLowerCase()));
+  if (!toList.length && !ccList.length) throw new Error('no address to send to');
+  const message = {
+    subject,
+    body: { contentType: 'HTML', content: html },
+    toRecipients: toList.map(addr)
+  };
+  if (ccList.length) message.ccRecipients = ccList.map(addr);
   const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: {
-        subject,
-        body: { contentType: 'HTML', content: html },
-        toRecipients: to.filter(Boolean).map(a => ({ emailAddress: { address: a } }))
-      },
-      saveToSentItems: true
-    })
+    body: JSON.stringify({ message, saveToSentItems: true })
   });
-  if (!res.ok) throw new Error(`Graph ${res.status} ${(await res.text()).slice(0, 160)}`);
+  if (!res.ok) {
+    const raw = (await res.text()).slice(0, 400);
+    /* Graph's own words are no use to a rep. These three are the ones that
+       actually happen, and each has a different thing to do about it. */
+    let why = `Graph ${res.status}`;
+    if (res.status === 403) why = 'your Microsoft account has not been allowed to send mail from this app — an admin grants Mail.Send once';
+    else if (res.status === 401) why = 'the sign-in needs refreshing — sign out and back in';
+    else if (/ErrorSendAsDenied|SendAsDenied/i.test(raw)) why = 'this account is not allowed to send as that address';
+    else if (res.status === 429) why = 'Microsoft is rate-limiting the mailbox — try again in a minute';
+    throw new Error(why);
+  }
 }
 /* The fallback: hand the person a mail already written. Not as good as
    sending it, but it is the difference between the approver hearing about
    this today and not at all. */
-function mailtoFallback(to, subject, body) {
+function mailtoFallback(to, subject, body, cc) {
   const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}` +
+    ((cc || []).filter(Boolean).length ? `&cc=${encodeURIComponent((cc || []).filter(Boolean).join(','))}` : '') +
     `&body=${encodeURIComponent(body)}`;
   const a = el('a', { href: url });
   document.body.appendChild(a); a.click(); a.remove();
@@ -10733,7 +10748,7 @@ function leadCreate(p, opt) {
   const saved = leadSave(l);
   /* every lead is a contact from the moment it lands */
   try { leadToContact(saved); leadSave(saved); } catch (e) { console.error(e); }
-  if (!o.quiet && saved.assignee && saved.assignee !== currentOwnerId()) leadNotify(saved, 'assigned');
+  if (!o.quiet && saved.assignee) leadNotify(saved, 'assigned');
   return saved;
 }
 function leadSetStage(id, stg) {
@@ -10776,8 +10791,10 @@ function leadNotify(l, kind) {
     html: `Marketing lead <b>${esc(l.name || '')}</b> ${kind === 'assigned' ? 'was assigned to you' : kind}` +
       (l.region ? ` · ${esc(l.region)}` : '') });
   if (kind !== 'assigned' || !leadMailAuto()) return;
-  if (!l.assignee || String(l.assignee) === currentOwnerId()) return;
+  if (!l.assignee) return;
   if (SYNC.mode !== 'onedrive') return;            // not signed in — nothing to send with
+  /* Taking a lead yourself still sends the copy, because somebody is waiting
+     on that copy to know the lead is being worked. */
   leadEmailRep(l.id, { quiet: true }).catch(() => {});
 }
 
@@ -11225,7 +11242,7 @@ async function sheetSync(opt) {
   SHEET_BUSY = Date.now();
   if (!o.quiet) toast(tabs.length > 1 ? `Reading ${tabs.length} tabs…` : 'Reading the sheet…');
   const seen = leadIndex(), dup = new Set();
-  let added = 0, routed = 0, rows = 0, skipped = 0;
+  let added = 0, routed = 0, rows = 0, skipped = 0, made = [];
   const errs = [], rowErrs = [], per = [];
   try {
     for (const t of tabs) {
@@ -11248,11 +11265,13 @@ async function sheetSync(opt) {
           if (p.rawAssignee && !p.assignee)
             leadAddUpdate(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
           leadSave(l);
+          p._lead = l;
           tAdded++; if (l.assignee) tRouted++;
         } catch (err) { bad.push((p._row ? 'row ' + p._row : p.name) + ': ' + String(err.message || err)); }
         }); });
         rows += got.rows.length; skipped += got.skipped.length;
         added += tAdded; routed += tRouted;
+        made = made.concat(fresh.map(p => p._lead).filter(Boolean));
         sheetTabWrite(t.i, { at: new Date().toISOString(), count: got.rows.length,
           skipped: got.skipped.length, err: null, order: got.order || t.order || null });
         if (bad.length) rowErrs.push(t.label + ' \u2014 ' + bad.length + ' row(s) could not be written: ' + bad[0]);
@@ -11285,7 +11304,10 @@ async function sheetSync(opt) {
         (errs.length ? ` · ${errs.length} tab could not be read` : ''), 'ok');
     }
     render();
-    return { added, routed, rows, skipped, tabs: per, errors: errs };
+    /* The rep has to be told. A lead that arrives, routes itself and then sits
+       in a tool nobody has open is the same as a lead that never arrived. */
+    const posted = await leadsEmailHandover(made, { quiet: !!o.quiet });
+    return { added, routed, rows, skipped, tabs: per, errors: errs, mailed: posted.sent };
   } finally { SHEET_BUSY = 0; }
 }
 
@@ -11715,45 +11737,162 @@ function leadRemindersFor(l) { return live('tasks').filter(t => t.leadId === l.i
 function leadLink(l) {
   return location.origin + location.pathname + '#leads?l=' + encodeURIComponent(l.id);
 }
-function leadMailBody(l) {
-  const rows = [
-    ['Name', l.name], ['Type', l.type], ['Company', l.company],
-    ['Phone', l.phone], ['Email', l.email], ['Area', l.address || l.region],
-    ['Source', l.source], ['Stage', l.stage], ['Note', l.note]
+/* Who is copied on every handover. Ahmed asked to be on all of them, so it
+   is a setting with that address in it rather than a line of code nobody
+   can change. */
+const DEFAULT_LEAD_CC = 'Ahmed@core-velocity.com';
+function leadMailCc() {
+  const c = DB.config || {};
+  const raw = c.leadMailCc === undefined ? DEFAULT_LEAD_CC : c.leadMailCc;
+  return String(raw || '').split(/[,;\s]+/).map(x => x.trim()).filter(x => x.includes('@'));
+}
+const waLink = l => { const d = leadDigits(l.phone); return d ? 'https://wa.me/' + d : ''; };
+
+function leadMailRows(l) {
+  return [
+    ['Name', l.name], ['Phone', l.phone], ['Email', l.email],
+    ['Type', l.type === 'B2B' ? 'B2B — business' : 'B2C — home'],
+    ['Company', l.company], ['Area', l.address || l.emirate || l.region],
+    ['Source', l.source], ['Preferred model', l.model],
+    ['Came in', l.createdAt ? new Date(l.createdAt).toLocaleString('en-GB') : ''],
+    ['Where it came from', l.srcTool], ['Stage', l.stage]
   ].filter(([, v]) => v);
-  return '<p>A marketing lead has been assigned to you.</p><table cellpadding="6" style="border-collapse:collapse">' +
-    rows.map(([k, v]) => `<tr><td style="color:#667;white-space:nowrap">${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('') +
-    `</table><p>The first message is due within five minutes of it arriving — the follow-up is already written for you.</p>` +
-    `<p><a href="${esc(leadLink(l))}">Open the lead in the CRM</a></p>`;
 }
-function leadMailText(l) {
-  return [`Lead: ${l.name || ''}`, l.company && 'Company: ' + l.company, l.phone && 'Phone: ' + l.phone,
-    l.email && 'Email: ' + l.email, l.address && 'Area: ' + l.address, l.source && 'Source: ' + l.source,
-    l.note && 'Note: ' + l.note, '', leadLink(l)].filter(Boolean).join('\n');
+/* THE HANDOVER MAIL.
+   A rep reads this on a phone, usually while doing something else, so the
+   thing they have to do is at the top in words, the number is a link that
+   dials and a link that opens WhatsApp, and everything else is underneath. */
+function leadMailBody(l, intro) {
+  const rows = leadMailRows(l).map(([k, v]) =>
+    `<tr><td style="padding:6px 14px 6px 0;color:#5b6474;white-space:nowrap;vertical-align:top">${esc(k)}</td>` +
+    `<td style="padding:6px 0;color:#11151c"><b>${esc(String(v))}</b></td></tr>`).join('');
+  const wa = waLink(l), tel = leadDigits(l.phone);
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#11151c;max-width:640px">
+  <p style="margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#5b6474">CoreV Sales CRM · marketing lead</p>
+  <h2 style="margin:0 0 6px;font-size:21px">${esc(l.name || 'New lead')}${l.company ? ' — ' + esc(l.company) : ''}</h2>
+  <p style="margin:0 0 16px;font-size:16px"><b>${esc(intro || 'This lead is yours. Please contact them immediately.')}</b></p>
+  <table style="border-collapse:collapse;margin:0 0 18px">${rows}</table>
+  ${l.note ? `<p style="margin:0 0 6px;font-weight:600">What they asked for</p>
+  <p style="margin:0 0 18px;white-space:pre-wrap">${esc(l.note)}</p>` : ''}
+  <p style="margin:0 0 22px">
+    ${tel ? `<a href="tel:+${esc(tel)}" style="background:#11151c;color:#fff;text-decoration:none;padding:11px 18px;border-radius:8px;display:inline-block;font-weight:600;margin:0 8px 8px 0">Call +${esc(tel)}</a>` : ''}
+    ${wa ? `<a href="${esc(wa)}" style="background:#25d366;color:#fff;text-decoration:none;padding:11px 18px;border-radius:8px;display:inline-block;font-weight:600;margin:0 8px 8px 0">WhatsApp now</a>` : ''}
+    <a href="${esc(leadLink(l))}" style="background:#2f6df6;color:#fff;text-decoration:none;padding:11px 18px;border-radius:8px;display:inline-block;font-weight:600;margin:0 8px 8px 0">Open in the CRM</a>
+  </p>
+  <p style="margin:0;color:#5b6474;font-size:13px">The first message is due within five minutes of the lead arriving — the follow-up is already written for you in the CRM.<br>
+    <a href="${esc(leadLink(l))}" style="color:#2f6df6">${esc(leadLink(l))}</a></p>
+</div>`;
 }
+function leadMailText(l, intro) {
+  return [intro || 'This lead is yours. Please contact them immediately.', '']
+    .concat(leadMailRows(l).map(([k, v]) => `${k}: ${v}`))
+    .concat(l.note ? ['', 'What they asked for:', l.note] : [])
+    .concat(['', waLink(l) && 'WhatsApp: ' + waLink(l), leadLink(l)].filter(Boolean))
+    .join('\n');
+}
+/* SEVERAL AT ONCE.
+   A sheet sync can hand one rep nine leads. Nine mails is how a rep learns
+   to ignore the sender, so past a handful they get one with all of them in
+   it — same facts, same urgency, one notification. */
+function leadsMailDigestBody(rows) {
+  const items = rows.map(l => {
+    const wa = waLink(l);
+    return `<li style="margin:0 0 14px">
+      <b style="font-size:16px">${esc(l.name || 'Unnamed')}</b>${l.company ? ' — ' + esc(l.company) : ''}<br>
+      ${esc([l.phone, l.email, l.address || l.emirate || l.region, l.source].filter(Boolean).join(' · '))}
+      ${l.note ? `<br><span style="color:#5b6474">${esc(String(l.note).slice(0, 220))}</span>` : ''}
+      <br>${wa ? `<a href="${esc(wa)}" style="color:#25d366;font-weight:600">WhatsApp</a> · ` : ''}<a href="${esc(leadLink(l))}" style="color:#2f6df6">open in the CRM</a>
+    </li>`;
+  }).join('');
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#11151c;max-width:640px">
+  <p style="margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#5b6474">CoreV Sales CRM · marketing leads</p>
+  <h2 style="margin:0 0 6px;font-size:21px">${rows.length} new leads are yours</h2>
+  <p style="margin:0 0 16px;font-size:16px"><b>Please contact them immediately.</b></p>
+  <ul style="margin:0 0 18px;padding-left:18px">${items}</ul>
+  <p style="margin:0;color:#5b6474;font-size:13px">The first message is due within five minutes of a lead arriving — every follow-up is already written in the CRM.</p>
+</div>`;
+}
+
 async function leadEmailRep(id, opt) {
   const o = opt || {};
   const l = getLead(id); if (!l) return false;
   const rep = DB.owners.find(x => x.id === String(l.assignee));
-  const to = rep && String(rep.email || '').trim();
-  if (!to) {
+  const repMail = rep && String(rep.email || '').trim();
+  const cc = leadMailCc();
+  /* Assigning a lead to yourself does not need a mail to yourself — but the
+     copy still goes out, because that is the whole point of the copy. */
+  const toSelf = rep && String(rep.id) === currentOwnerId();
+  const to = repMail && !toSelf ? [repMail] : [];
+  if (!to.length && !cc.length) {
     if (!o.quiet) toast(rep ? `No email address on ${rep.name} — add it in Settings → Sales team`
       : 'This lead has no rep yet', 'err');
     return false;
   }
-  const subject = `New lead: ${l.name || 'unnamed'}` + (l.company ? ' · ' + l.company : '') +
-    (l.region ? ' · ' + l.region : '');
+  const subject = `New lead · contact immediately: ${l.name || 'unnamed'}` +
+    (l.company ? ' · ' + l.company : '') + (l.region || l.emirate ? ' · ' + (l.region || l.emirate) : '');
+  const intro = toSelf
+    ? `${ownerName(l.assignee)} took this lead. Contact immediately.`
+    : `${rep ? rep.name.split(' ')[0] + ', this' : 'This'} lead is yours. Please contact them immediately.`;
   try {
-    await graphSendMail([to], subject, leadMailBody(l));
-    l.mailedAt = new Date().toISOString(); l.mailedTo = to; leadSave(l);
-    if (!o.quiet) { render(); toast('Emailed ' + rep.name, 'ok'); }
+    await graphSendMail(to.length ? to : cc, subject, leadMailBody(l, intro), to.length ? cc : []);
+    l.mailedAt = new Date().toISOString(); l.mailedTo = (to.length ? to : cc).join(', ');
+    l.mailedCc = to.length ? cc.join(', ') : '';
+    leadSave(l);
+    if (!o.quiet) { render(); toast('Emailed ' + (to.length ? rep.name : cc[0]) +
+      (to.length && cc.length ? ' · copied to ' + cc.join(', ') : ''), 'ok'); }
     return true;
   } catch (e) {
+    const why = String(e.message || e);
+    leadAddUpdate(l, 'Could not email the handover: ' + why, true); leadSave(l);
     if (o.quiet) return false;
-    mailtoFallback(to, subject, leadMailText(l));
-    toast('Could not send it from here — opened it in your mail app instead', 'warn');
+    /* Say what went wrong, then still get the mail written — a rep who is
+       told "it did not send" and handed a draft is not stuck. */
+    toast('Could not send it from here — ' + why.slice(0, 120) + '. Opening your mail app instead.', 'err');
+    mailtoFallback((to.length ? to : cc)[0], subject, leadMailText(l, intro), to.length ? cc : []);
+    render();
     return false;
   }
+}
+
+/* Every lead that just landed, to the rep who got it, copied as configured.
+   Returns what it did so the sync can say so. */
+async function leadsEmailHandover(leads, opt) {
+  const o = opt || {};
+  if (!leadMailAuto() || SYNC.mode !== 'onedrive') return { sent: 0, skipped: (leads || []).length };
+  const cc = leadMailCc();
+  const byRep = new Map();
+  (leads || []).forEach(l => {
+    if (!l || !l.assignee) return;
+    const k = String(l.assignee);
+    byRep.set(k, (byRep.get(k) || []).concat([l]));
+  });
+  let sent = 0, failed = 0;
+  for (const [repId, rows] of byRep) {
+    const rep = DB.owners.find(x => x.id === repId);
+    const mail = rep && String(rep.email || '').trim();
+    const to = mail ? [mail] : [];
+    if (!to.length && !cc.length) continue;
+    try {
+      if (rows.length <= 3) {
+        for (const l of rows) { if (await leadEmailRep(l.id, { quiet: true })) sent++; else failed++; }
+      } else {
+        await graphSendMail(to.length ? to : cc,
+          `${rows.length} new leads · contact immediately` + (rep ? ' · ' + rep.name : ''),
+          leadsMailDigestBody(rows), to.length ? cc : []);
+        const at = new Date().toISOString();
+        rows.forEach(l => { l.mailedAt = at; l.mailedTo = (to.length ? to : cc).join(', ');
+          l.mailedCc = to.length ? cc.join(', ') : ''; leadSave(l); });
+        sent += rows.length;
+      }
+    } catch (e) {
+      failed += rows.length;
+      rows.forEach(l => { leadAddUpdate(l, 'Could not email the handover: ' + String(e.message || e), true); leadSave(l); });
+    }
+  }
+  if (!o.quiet && (sent || failed)) toast(
+    (sent ? sent + ' lead' + (sent === 1 ? '' : 's') + ' emailed to the rep' + (cc.length ? ' · copied to ' + cc.join(', ') : '') : '') +
+    (failed ? (sent ? ' · ' : '') + failed + ' could not be emailed' : ''), failed && !sent ? 'err' : 'ok');
+  return { sent, failed };
 }
 const leadMailAuto = () => (DB.config || {}).leadMailAuto !== false;
 
@@ -14624,11 +14763,19 @@ function viewSettings(root) {
   tg.appendChild(el('div', {}, [
     el('div', { text: 'Email the rep when a lead is assigned to them' }),
     el('div', { class: 'sub', style: 'white-space:normal;line-height:1.5', text:
-      'Sent from the account of whoever is signed in, with the lead and a link straight to it. ' +
-      'Assigning a lead to yourself never sends one. A rep with no email address in the team list is skipped — ' +
-      'the lead still lands in their list either way.' })
+      'Sent from the account of whoever is signed in — the lead\u2019s name, phone, area and what they asked for, ' +
+      'with a button to call, one to open WhatsApp and one to open the lead, and the words "contact immediately" at the top. ' +
+      'It goes out whether the lead was routed automatically from the sheet or handed over by somebody, ' +
+      'and a rep who takes a lead themselves gets no mail \u2014 the copy below still does. ' +
+      'More than three leads for one rep in a single sync arrive as one mail rather than several.' })
   ]));
   cN.body.appendChild(tg);
+  const ccI = el('input', { class: 'inp', value: leadMailCc().join(', '),
+    placeholder: 'ahmed@core-velocity.com',
+    onchange: e => { DB.config.leadMailCc = e.target.value.trim(); DB.config._v = now(); touch('config'); render(); toast('Saved', 'ok'); } });
+  cN.body.appendChild(fld('Always copy', ccI,
+    'Copied on every handover mail, including the ones sent automatically. Several addresses can be separated by commas. ' +
+    'Leave it empty to copy nobody.'));
   const noMail = activeOwners().filter(o => !String(o.email || '').trim());
   if (noMail.length) cN.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5',
     text: `No email address on ${noMail.map(o => o.name).join(', ')} — they will not be emailed until one is set.` }));
