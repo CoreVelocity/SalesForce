@@ -1092,6 +1092,11 @@ a.mfact:hover b{text-decoration:underline}
 }
 
 /* bringing leads across from the tracker — the column mapper */
+/* one connected sheet tab in Settings */
+.sheettab{border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-3);margin-bottom:var(--sp-3);background:var(--surface-2)}
+.sheettabhead{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-3)}
+.sheettabhead b{font-size:.92rem}
+.sheettab .field:last-of-type{margin-bottom:0}
 .migmap{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:0 var(--sp-3)}
 .migmap .field{margin-bottom:var(--sp-3)}
 .migsample{display:flex;flex-direction:column;gap:6px}
@@ -1295,7 +1300,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.22.0';
+const VERSION = '1.23.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -10980,9 +10985,73 @@ function leadReplied(id, key) {
    is stated in Settings: anyone holding that URL can read the sheet,
    so it must carry lead data and nothing else.
    ================================================================ */
-const sheetUrl  = () => String((DB.config && DB.config.leadSheetUrl) || '').trim();
 const sheetAuto = () => !!(DB.config && DB.config.leadSheetAuto);
 const sheetLast = () => (DB.config && DB.config.leadSheetAt) || '';
+
+/* MORE THAN ONE TAB.
+
+   The marketing sheet is not one list. It has a B2C Leads tab and a B2B Leads
+   tab, each with its own columns, and reading only the one the link happened
+   to point at meant half the leads never arrived. A connection is therefore a
+   list of tabs — a published CSV link each, with its own name, its own saved
+   column mapping and its own last-read stamp.
+
+   The old single-link setting is still written alongside it, so a rep who has
+   not reloaded the tool yet keeps reading the first tab rather than nothing. */
+function sheetTabList() {
+  const c = DB.config || {};
+  const list = Array.isArray(c.leadSheetTabs) ? c.leadSheetTabs : [];
+  const out = [];
+  list.forEach((t, i) => {
+    if (!t || !String(t.url || '').trim()) return;
+    out.push({ i, url: String(t.url).trim(),
+      label: String(t.label || '').trim() || ('Tab ' + (i + 1)),
+      type: t.type === 'B2B' || t.type === 'B2C' ? t.type : '',
+      map: t.map && typeof t.map === 'object' ? t.map : null,
+      mapAt: t.mapAt || '', at: t.at || '', count: t.count || 0,
+      skipped: t.skipped || 0, err: t.err || null,
+      order: t.order === 'dmy' || t.order === 'mdy' ? t.order : null });
+  });
+  if (out.length) return out;
+  /* Nothing migrated yet: the one link that was there is the first tab. */
+  const legacy = String(c.leadSheetUrl || '').trim();
+  if (!legacy) return [];
+  return [{ i: 0, url: legacy, label: 'Agency sheet', type: '',
+    map: c.leadSheetMap && typeof c.leadSheetMap === 'object' ? c.leadSheetMap : null,
+    mapAt: c.leadSheetMapAt || '', at: c.leadSheetAt || '', count: c.leadSheetCount || 0,
+    skipped: c.leadSheetSkipped || 0, err: c.leadSheetErr || null, order: null }];
+}
+/* The stored array itself, created from whatever is there now so the first
+   write does not throw away the link that was already connected. */
+function sheetTabsRaw() {
+  const c = DB.config || (DB.config = {});
+  if (!Array.isArray(c.leadSheetTabs) || !c.leadSheetTabs.length)
+    c.leadSheetTabs = sheetTabList().map(t => ({ url: t.url, label: t.label, type: t.type,
+      map: t.map, mapAt: t.mapAt, at: t.at, count: t.count, skipped: t.skipped, err: t.err }));
+  return c.leadSheetTabs;
+}
+function sheetTabWrite(i, patch) {
+  const raw = sheetTabsRaw();
+  if (!raw[i]) return;
+  Object.assign(raw[i], patch);
+  if (i === 0 && patch.url !== undefined) DB.config.leadSheetUrl = String(patch.url || '').trim();
+  if (i === 0 && patch.map !== undefined) {
+    DB.config.leadSheetMap = patch.map;
+    DB.config.leadSheetMapAt = patch.mapAt || new Date().toISOString();
+  }
+  DB.config._v = now(); touch('config');
+}
+/* A tab called "B2B Leads" is a tab of B2B leads. Reading that off the name
+   saves setting it by hand, and picking a side in Settings overrides it. */
+function sheetTypeGuess(label) {
+  const s = String(label || '').toLowerCase();
+  if (/\bb2b\b|business|commercial|corporate|trade|dealer/.test(s)) return 'B2B';
+  if (/\bb2c\b|consumer|retail|home|individual/.test(s)) return 'B2C';
+  return '';
+}
+const sheetTab  = i => sheetTabList().filter(t => t.i === i)[0] || null;
+/* Kept for everything that only asks "is a sheet connected at all". */
+const sheetUrl  = () => { const t = sheetTabList()[0]; return t ? t.url : ''; };
 
 function sheetCsvUrl(u) {
   const s = String(u || '').trim();
@@ -11013,54 +11082,83 @@ function sheetJunk(l) {
   return null;
 }
 
+async function sheetFetch(url) {
+  const csv = sheetCsvUrl(url);
+  if (!csv) throw new Error('no link');
+  const r = await fetch(csv, { cache: 'no-store', redirect: 'follow' });
+  if (!r.ok) throw new Error('the sheet returned ' + r.status +
+    (r.status === 404 ? ' — check the link is the published CSV, not the edit link' : ''));
+  const text = await r.text();
+  if (/<html/i.test(text.slice(0, 200))) throw new Error(
+    'that link returned a web page, not CSV. In the sheet use File → Share → Publish to web → comma-separated values');
+  return text;
+}
+/* Every tab in turn, into one run. A tab that fails is reported against its
+   own name and the others still land — one broken link should not stop the
+   rest of the sheet arriving. Duplicates are matched across tabs as well as
+   within them, so a lead sitting in both B2C and B2B arrives once. */
 async function sheetSync(opt) {
   const o = opt || {};
-  const url = sheetCsvUrl(sheetUrl());
-  if (!url) { if (!o.quiet) toast('No sheet is connected — add the published CSV link in Settings', 'err'); return { added: 0 }; }
+  const tabs = sheetTabList().filter(t => o.only == null || t.i === o.only);
+  if (!tabs.length) { if (!o.quiet) toast('No sheet is connected — add the published CSV link in Settings', 'err'); return { added: 0 }; }
   if (SHEET_BUSY) return { added: 0 };
   SHEET_BUSY = true;
-  if (!o.quiet) toast('Reading the sheet…');
+  if (!o.quiet) toast(tabs.length > 1 ? `Reading ${tabs.length} tabs…` : 'Reading the sheet…');
+  const seen = leadIndex(), dup = new Set();
+  let added = 0, routed = 0, rows = 0, skipped = 0;
+  const errs = [], per = [];
   try {
-    const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
-    if (!r.ok) throw new Error('The sheet returned ' + r.status +
-      (r.status === 404 ? ' — check the link is the published CSV, not the edit link' : ''));
-    const text = await r.text();
-    if (/<html/i.test(text.slice(0, 200))) throw new Error(
-      'That link returned a web page, not CSV. In the sheet use File → Share → Publish to web → comma-separated values.');
-    const got = sheetRead(text);
-    if (!got.rows.length) throw new Error('No rows with a name, a phone or an email in them. ' +
-      'The first row should be the column headings.');
-    const seen = leadIndex(), fresh = [], dup = new Set();
-    got.rows.forEach(p => { const k = leadKey(p); if (!k || seen.has(k) || dup.has(k)) return; dup.add(k); fresh.push(p); });
-    let added = 0, routed = 0;
-    if (fresh.length) batch(() => { fresh.forEach(p => {
-      const l = leadCreate(Object.assign({}, p, { source: p.source || 'Agency sheet' }), { quiet: true });
-      /* The sheet carries where it stands and who has it — keep both. */
-      if (p.createdAt) l.createdAt = p.createdAt;
-      if (p.sheetStage) l.stage = p.sheetStage;
-      l.srcTool = 'Agency sheet'; l.srcId = p.srcId || leadKey(p);
-      if (p.rawAssignee && !p.assignee)
-        leadAddUpdate(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
-      leadSave(l);
-      added++; if (l.assignee) routed++;
-    }); });
+    for (const t of tabs) {
+      try {
+        const text = await sheetFetch(t.url);
+        const got = sheetRead(text, { map: t.map, order: t.order,
+          type: t.type || sheetTypeGuess(t.label), label: t.label });
+        if (!got.rows.length) throw new Error('no rows with a name, a phone or an email in them — the first row should be the column headings');
+        const fresh = [];
+        got.rows.forEach(p => { const k = leadKey(p); if (!k || seen.has(k) || dup.has(k)) return; dup.add(k); fresh.push(p); });
+        let tAdded = 0, tRouted = 0;
+        if (fresh.length) batch(() => { fresh.forEach(p => {
+          const l = leadCreate(Object.assign({}, p, { source: p.source || t.label || 'Agency sheet' }), { quiet: true });
+          /* The sheet carries where it stands and who has it — keep both. */
+          if (p.createdAt) l.createdAt = p.createdAt;
+          if (p.sheetStage) l.stage = p.sheetStage;
+          l.srcTool = 'Agency sheet' + (t.label === 'Agency sheet' ? '' : ' · ' + t.label);
+          l.srcId = p.srcId || leadKey(p);
+          if (p.rawAssignee && !p.assignee)
+            leadAddUpdate(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
+          leadSave(l);
+          tAdded++; if (l.assignee) tRouted++;
+        }); });
+        rows += got.rows.length; skipped += got.skipped.length;
+        added += tAdded; routed += tRouted;
+        sheetTabWrite(t.i, { at: new Date().toISOString(), count: got.rows.length,
+          skipped: got.skipped.length, err: null, order: got.order || t.order || null });
+        per.push(`${t.label}: ${tAdded ? tAdded + ' new' : 'nothing new'} of ${got.rows.length}`);
+      } catch (e) {
+        const msg = String(e.message || e);
+        errs.push(t.label + ' — ' + msg);
+        sheetTabWrite(t.i, { err: msg });
+        per.push(`${t.label}: could not be read`);
+      }
+    }
     DB.config.leadSheetAt = new Date().toISOString();
-    DB.config.leadSheetCount = got.rows.length;
-    DB.config.leadSheetSkipped = got.skipped.length;
-    DB.config.leadSheetErr = null;
-    touch('config');
-    if (!o.quiet || added) toast(added
-      ? `${added} new lead${added === 1 ? '' : 's'} from the sheet · ${routed} routed automatically` +
-        (added - routed ? ` · ${added - routed} need a rep` : '') +
-        (got.skipped.length ? ` · ${got.skipped.length} row${got.skipped.length === 1 ? '' : 's'} skipped` : '')
-      : `Up to date — all ${got.rows.length} rows are already here` +
-        (got.skipped.length ? ` · ${got.skipped.length} skipped` : ''), 'ok');
+    DB.config.leadSheetCount = rows;
+    DB.config.leadSheetSkipped = skipped;
+    DB.config.leadSheetErr = errs.length ? errs.join(' · ') : null;
+    DB.config._v = now(); touch('config');
+    if (errs.length === tabs.length) {
+      if (!o.quiet) toast('Sheet: ' + errs[0].slice(0, 130), 'err');
+    } else if (!o.quiet || added) {
+      toast((added
+        ? `${added} new lead${added === 1 ? '' : 's'} from the sheet · ${routed} routed automatically` +
+          (added - routed ? ` · ${added - routed} need a rep` : '')
+        : `Up to date — all ${rows} rows are already here`) +
+        (skipped ? ` · ${skipped} row${skipped === 1 ? '' : 's'} skipped` : '') +
+        (tabs.length > 1 ? ` · ${per.join(' · ')}` : '') +
+        (errs.length ? ` · ${errs.length} tab could not be read` : ''), 'ok');
+    }
     render();
-    return { added, routed, rows: got.rows.length, skipped: got.skipped.length, map: got.map };
-  } catch (e) {
-    DB.config.leadSheetErr = String(e.message || e);
-    if (!o.quiet) toast('Sheet: ' + String(e.message || e).slice(0, 130), 'err');
-    return { added: 0, error: String(e.message || e) };
+    return { added, routed, rows, skipped, tabs: per, errors: errs };
   } finally { SHEET_BUSY = false; }
 }
 
@@ -11073,19 +11171,26 @@ async function sheetSync(opt) {
    numbers one row out. That is where the garbage came from. It now uses the
    same whole-file reader the import screens use, which knows a quoted cell is
    allowed to contain line breaks. */
-function sheetRead(text) {
+function sheetRead(text, opt) {
+  const o = opt || {};
   const rows = migCsvRows(text);
   if (!rows.length) return { rows: [], skipped: [], map: {} };
   const keys = migKeys(rows);
   /* A mapping saved from the preview wins; otherwise it is guessed, and only
-     the columns that are actually in the sheet are kept. */
-  const saved = (DB.config || {}).leadSheetMap;
+     the columns that are actually in the sheet are kept. Each tab keeps its
+     own mapping, because the two tabs do not have the same columns. */
+  const saved = o.map || (DB.config || {}).leadSheetMap;
   const map = {};
   if (saved && typeof saved === 'object') Object.keys(saved).forEach(f => {
     if (saved[f] && keys.includes(saved[f])) map[f] = saved[f]; });
   const guessed = migGuess(keys, rows);
   Object.keys(guessed).forEach(f => { if (!map[f]) map[f] = guessed[f]; });
-  migLearnDateOrder(rows, map);
+  /* 04/07/26 is undecidable on its own, and a tab's convention does not change
+     between syncs — so a tab that once settled it keeps that answer rather
+     than falling back to the default on a run where no row happens to prove
+     it. One tab's convention never decides the other's. */
+  const order = migLearnDateOrder(rows, map) || o.order || null;
+  MIG_DATE_ORDER = order;
 
   const out = [], skipped = [];
   rows.forEach((raw, i) => {
@@ -11093,13 +11198,19 @@ function sheetRead(text) {
     /* An empty Source cell should read as the sheet, not as the importer's own
        name for a pasted list. */
     const flat = migFlat(raw);
-    if (!map.source || !String(flat[map.source] == null ? '' : flat[map.source]).trim()) l.source = '';
+    const cell = f => { const k = map[f]; if (!k) return '';
+      const v = flat[k] !== undefined ? flat[k] : migGet(raw, k);
+      return v == null ? '' : String(v).trim(); };
+    if (!cell('source')) l.source = '';
+    /* A whole tab of one kind beats the per-row guess — but only where the row
+       does not say for itself. */
+    if (o.type && !cell('type')) l.type = o.type;
     const why = sheetJunk(l);
     if (why) { skipped.push({ row: i + 2, why, saw: String(l.name || '').slice(0, 60) }); return; }
     l.srcId = 'sheet:' + leadKey(l);
     out.push(l);
   });
-  return { rows: out, skipped, map, keys };
+  return { rows: out, skipped, map, keys, order };
 }
 /* SEE WHAT THE SHEET LOOKS LIKE BEFORE IT LANDS.
 
@@ -11107,25 +11218,44 @@ function sheetRead(text) {
    read as what, three sample rows, and the list to tick. Confirming also saves
    the column mapping, so every sync from then on uses the one that was seen to
    be right rather than guessing again. */
-async function sheetPreview() {
-  const url = sheetCsvUrl(sheetUrl());
-  if (!url) return toast('No sheet is connected — add the published CSV link in Settings', 'err');
-  toast('Reading the sheet…');
+async function sheetPreview(idx) {
+  /* Called straight off a click in one place, which would hand us the event. */
+  if (typeof idx !== 'number') idx = null;
+  const tabs = sheetTabList();
+  if (!tabs.length) return toast('No sheet is connected — add the published CSV link in Settings', 'err');
+  /* With more than one tab there is no sensible default: ask which one. */
+  if (idx == null && tabs.length > 1) return sheetPickTab(sheetPreview);
+  const t = (idx == null ? tabs[0] : sheetTab(idx)) || tabs[0];
+  toast('Reading ' + t.label + '…');
   try {
-    const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
-    if (!r.ok) throw new Error('The sheet returned ' + r.status);
-    const text = await r.text();
-    if (/<html/i.test(text.slice(0, 200))) throw new Error(
-      'That link returned a web page, not CSV. Use File → Share → Publish to web → comma-separated values.');
+    const text = await sheetFetch(t.url);
     migOpen('paste');
-    MIG.raw = text; MIG.file = { name: 'the agency sheet' }; MIG.sheet = true;
-    migTake(text, 'the agency sheet');
+    MIG.raw = text; MIG.file = { name: t.label }; MIG.sheet = true;
+    MIG.sheetIdx = t.i; MIG.sheetLabel = t.label;
+    if (t.map) MIG.savedMap = t.map;
+    migTake(text, t.label);
   } catch (e) { toast('Sheet: ' + String(e.message || e).slice(0, 130), 'err'); }
+}
+/* Which tab? One button each, so nobody has to remember an order. */
+function sheetPickTab(fn) {
+  const tabs = sheetTabList();
+  const body = el('div', {}, [
+    el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6',
+      text: 'The sheet has ' + tabs.length + ' tabs connected. Which one?' })
+  ]);
+  const list = el('div', { style: 'display:flex;flex-direction:column;gap:var(--sp-2)' });
+  tabs.forEach(t => list.appendChild(el('button', { class: 'btn', style: 'justify-content:flex-start',
+    html: ico('clip', 14) + ' ' + esc(t.label) +
+      (t.type ? ` <span class="pill">${esc(t.type)}</span>` : '') +
+      (t.at ? ` <span class="cellsub" style="margin-left:auto">${esc(fdate(String(t.at).slice(0,10)))} · ${t.count} rows</span>` : ''),
+    onclick: () => { closeAll(); fn(t.i); } })));
+  body.appendChild(list);
+  modal('Pick a tab', body, [el('button', { class: 'btn', text: 'Cancel', onclick: closeAll })]);
 }
 
 /* Poll while the tool is open, if it is switched on. */
 setInterval(() => {
-  if (sheetAuto() && sheetUrl() && canWrite && !isReadOnly()) sheetSync({ quiet: true });
+  if (sheetAuto() && sheetTabList().length && canWrite && !isReadOnly()) sheetSync({ quiet: true });
 }, 15 * 60 * 1000);
 
 /* ================================================================
@@ -11489,11 +11619,13 @@ function viewLeads(root) {
   const tab = VIEW.leadTab = VIEW.leadTab || 'summary';
 
   root.appendChild(viewHead(null, [
-    sheetUrl() ? el('button', { class: 'btn', html: ico('sync',14) + ' Sync the sheet',
-      title: 'Read the agency sheet now', onclick: () => sheetSync() }) : null,
-    sheetUrl() && !isReadOnly() ? el('button', { class: 'btn', html: ico('clip',14) + ' Check the sheet',
+    sheetTabList().length ? el('button', { class: 'btn', html: ico('sync',14) + ' Sync the sheet',
+      title: sheetTabList().length > 1
+        ? 'Read every connected tab now: ' + sheetTabList().map(t => t.label).join(', ')
+        : 'Read the agency sheet now', onclick: () => sheetSync() }) : null,
+    sheetTabList().length && !isReadOnly() ? el('button', { class: 'btn', html: ico('clip',14) + ' Check the sheet',
       title: 'See which column is read as what before anything lands, and save that mapping',
-      onclick: sheetPreview }) : null,
+      onclick: () => sheetPreview() }) : null,
     el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportLeads(all) }),
     isReadOnly() ? null : el('button', { class: 'btn', html: ico('clip',14) + ' Import a list',
       onclick: leadImportModal }),
@@ -12289,6 +12421,14 @@ async function migBackup() {
 }
 
 /* ---------------------------------------------------- finding the leads */
+/* A tab whose columns were confirmed once should open showing those columns,
+   not a fresh guess at them. */
+function migSeedMap() {
+  const saved = MIG.savedMap;
+  if (!saved || !MIG.pick) return;
+  const keys = MIG.pick.keys || [];
+  Object.keys(saved).forEach(f => { if (saved[f] && keys.includes(saved[f])) MIG.map[f] = saved[f]; });
+}
 function migTake(text, label) {
   MIG.busy = '';
   let data;
@@ -12302,7 +12442,8 @@ function migTake(text, label) {
     if (!rows.length) { MIG.err = 'Nothing readable in that — it is neither JSON nor rows of columns.';
       MIG.step = MIG.raw ? 'paste' : MIG.step; return migPaint(); }
     MIG.cands = [{ path: label, rows: rows, score: 99, keys: migKeys(rows) }];
-    MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows); MIG.step = 'map';
+    MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows);
+    migSeedMap(); MIG.step = 'map';
     return migPaint();
   }
   MIG.cands = migArrays(data).map(c => Object.assign(c, { score: migScore(c.rows), keys: migKeys(c.rows) }))
@@ -12312,6 +12453,7 @@ function migTake(text, label) {
     MIG.err = 'Nothing in there looks like a list of people — no names with a phone or an email against them.';
     MIG.step = MIG.raw ? 'paste' : MIG.step; return migPaint(); }
   MIG.pick = MIG.cands[0]; MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows);
+  migSeedMap();
   migLearnDateOrder(MIG.pick.rows, MIG.map);
   MIG.step = MIG.cands.length > 1 ? 'pick' : 'map';
   migPaint();
@@ -12631,8 +12773,14 @@ function migCommit() {
   /* Came in from the sheet: remember the mapping that was confirmed, so the
      next sync reads the columns the way they were seen to be right. */
   if (MIG.sheet) {
-    DB.config.leadSheetMap = Object.assign({}, MIG.map);
-    DB.config.leadSheetMapAt = new Date().toISOString();
+    /* Per tab: the two tabs do not have the same columns, so one shared
+       mapping would have each sync undoing the other one's work. */
+    if (MIG.sheetIdx != null && typeof sheetTabWrite === 'function')
+      sheetTabWrite(MIG.sheetIdx, { map: Object.assign({}, MIG.map), mapAt: new Date().toISOString() });
+    else {
+      DB.config.leadSheetMap = Object.assign({}, MIG.map);
+      DB.config.leadSheetMapAt = new Date().toISOString();
+    }
   }
   DB.config.leadMigLast = { at: new Date().toISOString(),
     by: (AUTH.user && AUTH.user.username) || 'local',
@@ -12674,6 +12822,7 @@ function migOpen(mode) {
   MIG.step = mode === 'paste' ? 'paste' : 'src';
   MIG.err = ''; MIG.busy = ''; MIG.rows = []; MIG.cands = []; MIG.raw = '';
   MIG.folder = null; MIG.file = null; MIG.pick = null; MIG.sheet = false;
+  MIG.sheetIdx = null; MIG.sheetLabel = ''; MIG.savedMap = null;
   MIG.opts = { stage: true, deals: false };
   migPaint();
 }
@@ -12687,7 +12836,7 @@ function migPaint() {
   MIG._after = null;
   ({ src: migStepSrc, paste: migStepPaste, folder: migStepFolder, file: migStepFile,
      pick: migStepPick, map: migStepMap, preview: migStepPreview }[MIG.step] || migStepSrc)(body, foot);
-  modal(MIG.sheet ? 'Check the agency sheet'
+  modal(MIG.sheet ? 'Check the agency sheet' + (MIG.sheetLabel ? ' — ' + MIG.sheetLabel : '')
     : MIG.step === 'paste' ? 'Import a list of leads'
     : 'Bring leads across from the Sales Tracker', body, foot, true);
   /* The footer buttons only exist once modal() has put them in the page, so
@@ -13060,6 +13209,18 @@ function viewLeadSummary(root, all) {
     n.appendChild(el('div', { style: 'flex:1;line-height:1.5',
       text: 'Connect the agency sheet and new rows come in on their own, routed to a rep by emirate.' }));
     if (isAdmin()) n.appendChild(el('button', { class: 'btn sm', text: 'Connect a sheet',
+      onclick: () => { VIEW.name = 'settings'; render(); } }));
+    root.appendChild(n);
+  }
+  /* One tab connected, and the marketing sheet has more than one. Nothing else
+     in the tool would ever say so, and the missing tab is simply missing leads. */
+  if (sheetTabList().length === 1 && isAdmin() && !isReadOnly()) {
+    const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
+    n.appendChild(el('span', { class: 'ic', html: ico('warn', 18) }));
+    n.appendChild(el('div', { style: 'flex:1;line-height:1.5',
+      text: 'One tab of the agency sheet is connected (' + sheetTabList()[0].label +
+        '). If the sheet keeps B2C and B2B on separate tabs, the other one is not being read.' }));
+    n.appendChild(el('button', { class: 'btn sm', text: 'Add the other tab',
       onclick: () => { VIEW.name = 'settings'; render(); } }));
     root.appendChild(n);
   }
@@ -13883,52 +14044,7 @@ function viewSettings(root) {
   g.appendChild(cT.node);
 
   /* ---- marketing leads: the agency sheet ---- */
-  const cS = card('Agency lead sheet', 'Marketing Leads reads new rows from this sheet and routes them');
-  if (sheetUrl()) {
-    cS.head.appendChild(el('button', { class: 'btn sm', html: ico('clip',13) + ' Check the mapping',
-      title: 'See which column is read as what, and save it',
-      onclick: sheetPreview }));
-    const m = (DB.config || {}).leadSheetMap;
-    if (m && Object.keys(m).length) cS.body.appendChild(el('p', { class: 'sub',
-      style: 'margin:0 0 var(--sp-3);line-height:1.5',
-      text: 'Columns saved on ' + fdate(String(DB.config.leadSheetMapAt || '').slice(0,10), 'long') + ': ' +
-        Object.keys(m).map(k => `${k} ← ${m[k]}`).join(' · ') }));
-    if ((DB.config || {}).leadSheetSkipped) cS.body.appendChild(el('p', { class: 'sub',
-      style: 'margin:0 0 var(--sp-3);line-height:1.5;color:var(--warning)',
-      text: DB.config.leadSheetSkipped + ' row(s) in the sheet were skipped on the last read — they had no name, ' +
-        'phone or email, or were a heading repeated.' }));
-  }
-  const su = el('input', { class: 'inp', value: sheetUrl(),
-    placeholder: 'https://docs.google.com/spreadsheets/d/e/…/pub?output=csv' });
-  cS.body.appendChild(fld('Published CSV link', su,
-    'In the sheet: File → Share → Publish to web → pick the tab → Comma-separated values (.csv) → Publish. Paste that link here.'));
-  const sa = el('select', { class: 'inp' });
-  [['1','Yes — check every 15 minutes while the tool is open'],['0','No — only when somebody presses Sync']]
-    .forEach(([v, t]) => sa.appendChild(el('option', { value: v, text: t, selected: String(sheetAuto() ? 1 : 0) === v || null })));
-  cS.body.appendChild(fld('Read it automatically', sa));
-  cS.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
-    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
-      DB.config.leadSheetUrl = su.value.trim();
-      DB.config.leadSheetAuto = sa.value === '1';
-      DB.config.leadSheetErr = null;
-      touch('config'); render(); toast('Sheet settings saved', 'ok');
-    } }),
-    el('button', { class: 'btn', html: ico('sync',13) + ' Read it now',
-      onclick: () => { DB.config.leadSheetUrl = su.value.trim(); touch('config'); sheetSync(); } })
-  ]));
-  const ss = el('dl', { class: 'kvs', style: 'margin-top:var(--sp-3)' });
-  const srow = (k, v) => { ss.appendChild(el('dt', { text: k })); ss.appendChild(el('dd', { html: v })); };
-  srow('Last read', sheetLast()
-    ? `${esc(fdate(String(sheetLast()).slice(0,10)))} · ${DB.config.leadSheetCount || 0} rows in the sheet` : 'never');
-  srow('Leads held', String(live('leads').length));
-  if (DB.config.leadSheetErr) srow('Last error', `<span style="color:var(--critical-ink)">${esc(DB.config.leadSheetErr)}</span>`);
-  cS.body.appendChild(ss);
-  cS.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
-    'A published link needs no Google sign-in, which is why every rep can use it. It is also readable by ' +
-    '<b>anyone who has the link</b> — so keep that sheet to lead data and nothing else, and un-publish it in the ' +
-    'sheet if it ever holds more. Rows are matched on email, then phone, so re-reading the same sheet never ' +
-    'duplicates a lead.' }));
-  g.appendChild(cS.node);
+  g.appendChild(sheetSettingsCard());
 
   /* ---- marketing leads: Claude ---- */
   /* ---- marketing-lead notifications and showrooms ---- */
@@ -14906,6 +15022,148 @@ function pushEverything() {
       SYNC.dirty.add('config');
       await syncNow({ loud: true });
     });
+}
+
+
+/* ================================================================
+   THE AGENCY SHEET, TAB BY TAB
+   The marketing sheet holds a B2C Leads tab and a B2B Leads tab, and
+   there is a Checkout Data tab that is not leads at all. So this is a
+   list: one published CSV link per tab, each with a name, a side it
+   belongs to and its own column mapping. Only the tabs listed here are
+   ever read.
+   ================================================================ */
+function sheetEditRows() {
+  const raw = Array.isArray((DB.config || {}).leadSheetTabs) ? DB.config.leadSheetTabs : null;
+  if (raw && raw.length) return raw.map((t, i) => Object.assign({}, t, { i }));
+  const l = sheetTabList();
+  return l.length ? l : [{ i: 0, url: '', label: '', type: '' }];
+}
+function sheetSettingsCard() {
+  const c = card('Agency lead sheet',
+    'Marketing Leads reads new rows from these tabs and routes them to a rep');
+  const rows = sheetEditRows();
+  const inputs = [];
+
+  /* What is typed in now, kept against whatever each tab already knows. */
+  const collect = () => inputs.map((x, n) => {
+    const was = rows[n] || {};
+    return { url: x.url.value.trim(), label: x.label.value.trim(),
+      type: x.type.value === 'B2B' || x.type.value === 'B2C' ? x.type.value : '',
+      map: was.map || null, mapAt: was.mapAt || '', at: was.at || '',
+      count: was.count || 0, skipped: was.skipped || 0, err: was.err || null,
+      order: was.order || null };
+  });
+  const store = () => {
+    const list = collect();
+    DB.config.leadSheetTabs = list;
+    /* The old single-link setting stays in step with the first tab, so a rep
+       who has not reloaded the new build yet still reads something. */
+    DB.config.leadSheetUrl = (list[0] && list[0].url) || '';
+    DB.config.leadSheetMap = (list[0] && list[0].map) || DB.config.leadSheetMap || null;
+    DB.config.leadSheetAuto = auto.value === '1';
+    DB.config.leadSheetErr = null;
+    DB.config._v = now(); touch('config');
+    return list;
+  };
+
+  rows.forEach((t, n) => {
+    const box = el('div', { class: 'sheettab' });
+    const label = el('input', { class: 'inp', value: t.label || '',
+      placeholder: n === 0 ? 'B2C Leads' : 'B2B Leads' });
+    const url = el('input', { class: 'inp', value: t.url || '',
+      placeholder: 'https://docs.google.com/spreadsheets/d/e/…/pub?gid=0&output=csv' });
+    const type = el('select', { class: 'inp' });
+    [['', 'Work it out from each row' + (sheetTypeGuess(t.label) ? ' (reads as ' + sheetTypeGuess(t.label) + ' from the name)' : '')],
+     ['B2C', 'Everything in this tab is B2C'], ['B2B', 'Everything in this tab is B2B']]
+      .forEach(([v, txt]) => type.appendChild(el('option', { value: v, text: txt,
+        selected: (t.type || '') === v || null })));
+    inputs.push({ label, url, type });
+
+    const head = el('div', { class: 'sheettabhead' }, [
+      el('b', { text: t.label || (n === 0 ? 'First tab' : 'Tab ' + (n + 1)) }),
+      el('div', { style: 'flex:1' }),
+      rows.length > 1 ? el('button', { class: 'btn icon ghost sm', html: ico('trash', 14),
+        title: 'Stop reading this tab',
+        onclick: () => {
+          const list = collect(); list.splice(n, 1);
+          DB.config.leadSheetTabs = list;
+          DB.config.leadSheetUrl = (list[0] && list[0].url) || '';
+          DB.config._v = now(); touch('config'); render();
+          toast('Tab removed — leads already brought across stay where they are');
+        } }) : null
+    ]);
+    box.appendChild(head);
+    box.appendChild(fld('Tab name', label, 'Whatever it is called in the sheet — it shows on the leads it brings in.'));
+    box.appendChild(fld('Published CSV link', url,
+      'In the sheet: File → Share → Publish to web → pick this tab → Comma-separated values (.csv) → Publish.'));
+    box.appendChild(fld('B2B or B2C', type));
+    if (t.url) {
+      const acts = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)' }, [
+        el('button', { class: 'btn sm', html: ico('clip', 13) + ' Check the mapping',
+          title: 'See which column is read as what, and save it for this tab',
+          onclick: () => { store(); sheetPreview(n); } }),
+        el('button', { class: 'btn sm', html: ico('sync', 13) + ' Read this tab now',
+          onclick: () => { store(); sheetSync({ only: n }); } })
+      ]);
+      box.appendChild(acts);
+      const bits = [];
+      if (t.at) bits.push('Last read ' + fdate(String(t.at).slice(0, 10)) + ' · ' + (t.count || 0) + ' rows');
+      if (t.skipped) bits.push(t.skipped + ' row(s) skipped — no name, phone or email, or a heading repeated');
+      if (t.map && Object.keys(t.map).length)
+        bits.push('Columns saved' + (t.mapAt ? ' on ' + fdate(String(t.mapAt).slice(0, 10)) : '') + ': ' +
+          Object.keys(t.map).map(k => k + ' ← ' + t.map[k]).join(' · '));
+      if (bits.length) box.appendChild(el('p', { class: 'sub',
+        style: 'margin:var(--sp-3) 0 0;line-height:1.55', text: bits.join(' · ') }));
+      if (t.err) box.appendChild(el('p', { class: 'sub',
+        style: 'margin:var(--sp-2) 0 0;line-height:1.55;color:var(--critical-ink)',
+        text: 'Last error: ' + t.err }));
+    }
+    c.body.appendChild(box);
+  });
+
+  c.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-2)',
+    html: ico('plus', 13) + ' Add another tab',
+    onclick: () => {
+      const list = collect();
+      list.push({ url: '', label: '', type: '' });
+      DB.config.leadSheetTabs = list;
+      DB.config._v = now(); touch('config'); render();
+    } }));
+
+  const auto = el('select', { class: 'inp' });
+  [['1', 'Yes — check every tab every 15 minutes while the tool is open'],
+   ['0', 'No — only when somebody presses Sync']]
+    .forEach(([v, t]) => auto.appendChild(el('option', { value: v, text: t,
+      selected: String(sheetAuto() ? 1 : 0) === v || null })));
+  c.body.appendChild(fld('Read it automatically', auto));
+
+  c.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      store(); render(); toast('Sheet settings saved', 'ok'); } }),
+    el('button', { class: 'btn', html: ico('sync', 13) + ' Read every tab now',
+      onclick: () => { store(); sheetSync(); } })
+  ]));
+
+  const ss = el('dl', { class: 'kvs', style: 'margin-top:var(--sp-3)' });
+  const srow = (k, v) => { ss.appendChild(el('dt', { text: k })); ss.appendChild(el('dd', { html: v })); };
+  srow('Last read', sheetLast()
+    ? esc(fdate(String(sheetLast()).slice(0, 10))) + ' · ' + (DB.config.leadSheetCount || 0) + ' rows across every tab'
+    : 'never');
+  srow('Tabs connected', String(sheetTabList().length));
+  srow('Leads held', String(live('leads').length));
+  if (DB.config.leadSheetErr)
+    srow('Last error', '<span style="color:var(--critical-ink)">' + esc(DB.config.leadSheetErr) + '</span>');
+  c.body.appendChild(ss);
+
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
+    'Each tab needs its own published link — publishing the sheet does not publish every tab, and the link carries ' +
+    'the tab in its <code>gid</code>. Leave out anything that is not leads, such as a checkout or payments tab. ' +
+    'A published link needs no Google sign-in, which is why every rep can use it. It is also readable by ' +
+    '<b>anyone who has the link</b> — so keep that sheet to lead data and nothing else, and un-publish it in the ' +
+    'sheet if it ever holds more. Rows are matched on email, then phone, across tabs as well as within one, so ' +
+    're-reading never duplicates a lead.' }));
+  return c.node;
 }
 /* ================================================================
    RENDER + BOOT
