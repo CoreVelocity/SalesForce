@@ -979,6 +979,12 @@ a.mfact:hover b{text-decoration:underline}
 .cstep.now{border-color:var(--good);box-shadow:0 0 0 1px var(--good) inset}
 .cstep.cold{border-style:dashed}
 
+/* a tile you can click through to the list behind it */
+.tile.tapme{cursor:pointer;transition:border-color .12s ease,transform .08s ease}
+.tile.tapme:hover{border-color:var(--accent)}
+.tile.tapme:active{transform:translateY(1px)}
+.tile.tapme:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 /* ---- the lead stage path: chevrons, not a dropdown ---- */
 .pathwrap{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
   margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--line-soft)}
@@ -1280,7 +1286,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.21.0';
+const VERSION = '1.21.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -11393,6 +11399,12 @@ function viewLeads(root) {
   if (f.q) { const q = f.q.toLowerCase();
     rows = rows.filter(l => [l.name, l.company, l.phone, l.email, l.note, l.source, l.address]
       .some(v => String(v || '').toLowerCase().includes(q))); }
+  /* Arriving from a tile on the summary carries that tile's period with it, so
+     the number you clicked and the number you land on are the same one. */
+  if (f.period && f.period !== 'all') {
+    const b = leadPeriodBounds(f.period);
+    rows = rows.filter(l => inPeriod(String(l.createdAt || '').slice(0, 10), b));
+  }
 
   /* Overdue first, then priority, then whatever moved most recently — the
      order a rep would put their own day in. */
@@ -11471,6 +11483,10 @@ function leadFilterBar(f, base, lost) {
      ['priority', 'Priority only'], ['cold', 'Cold only']],
     v => { f.flag = v || null; render(); }, 165));
 
+  if (f.period && f.period !== 'all') bar.appendChild(el('button', { class: 'btn sm',
+    title: 'Only leads that arrived in this period — click to drop it',
+    html: ico('cal', 12) + ' Added in ' + esc(leadPeriodBounds(f.period).label) + ' \u00d7',
+    onclick: () => { delete f.period; render(); } }));
   if (Object.keys(f).some(k => f[k])) bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear',
     onclick: () => { VIEW.leadFilter = {}; render(); } }));
   bar.appendChild(el('div', { style: 'flex:1' }));
@@ -12678,8 +12694,8 @@ const LEAD_PERIODS = [['w0','This week'],['m','This month'],['q','This quarter']
   ['mn6','Half-year'],['fy','Fiscal year'],['all','All time']];
 
 function leadPeriod() { return (VIEW.leadPeriod = VIEW.leadPeriod || 'all'); }
-function leadPeriodBounds() {
-  const p = leadPeriod();
+function leadPeriodBounds(key) {
+  const p = key || leadPeriod();
   if (p === 'all') return { from: '1900-01-01', to: '2999-12-31', label: 'all time', grain: 'all' };
   if (p === 'w0') return periodBounds('w0');
   if (p === 'mn6') { const a = mBounds(monthShift(monthKey(), -5) + '-01'), z = mBounds();
@@ -12698,7 +12714,10 @@ function leadStats(rows) {
   const engaged = rows.map(leadEngagedMs).filter(v => v != null);
   return {
     total: rows.length,
-    priority: rows.filter(l => l.priority).length,
+    /* Priority and re-connect are counted over leads still in play. A star on
+       a lead that is already lost is not work anybody can do, and counting it
+       would make this tile disagree with the list it opens. */
+    priority: rows.filter(l => l.priority && LEAD_ACTIVE(l)).length,
     due: rows.filter(leadIsDue).length,
     demos: cnt('Demo booked'),
     won: cnt('Won'),
@@ -12707,7 +12726,7 @@ function leadStats(rows) {
     awaiting: rows.filter(leadAwaiting).length,
     avgEngage: engaged.length ? engaged.reduce((a, b) => a + b, 0) / engaged.length : null,
     engagedCount: engaged.length,
-    reconnect: rows.filter(l => l.reconnect).length,
+    reconnect: rows.filter(l => l.reconnect && LEAD_ACTIVE(l)).length,
     noRep: rows.filter(l => !l.assignee).length
   };
 }
@@ -12717,6 +12736,26 @@ function leadRepRow(rows) {
     won: rows.filter(l => l.stage === 'Won').length,
     lost: rows.filter(l => l.stage === 'Lost').length,
     ref: rows.filter(l => l.stage === 'Referral').length };
+}
+
+/* A number on a tile is a question half-answered: the next thing anyone wants
+   is the list behind it. Clicking a tile opens that list, filtered to exactly
+   what was counted — including the period, so the count on the tile and the
+   count on the list are the same number rather than two different ones. */
+function leadTileLink(node, tab, filter, label) {
+  node.classList.add('tapme');
+  node.setAttribute('role', 'button');
+  node.setAttribute('tabindex', '0');
+  node.title = label || 'Show these leads';
+  const go = () => {
+    VIEW.leadTab = tab;
+    VIEW.leadFilter = Object.assign({ period: leadPeriod() }, filter || {});
+    render();
+  };
+  node.addEventListener('click', go);
+  node.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  return node;
 }
 
 function viewLeadSummary(root, all) {
@@ -12748,23 +12787,28 @@ function viewLeadSummary(root, all) {
 
   /* ---- the numbers ---- */
   const t = el('div', { class: 'tiles' });
-  t.appendChild(tile('Priority', s.priority, { icon: 'flag', tag: s.priority ? 'warn' : '',
-    foot: 'starred by a rep' }));
+  t.appendChild(leadTileLink(tile('Priority', s.priority, { icon: 'flag', tag: s.priority ? 'warn' : '',
+    foot: 'starred by a rep, still open' }), 'active', { flag: 'priority' }, 'Show the priority leads'));
   t.appendChild(tile('Total leads', s.total, { icon: 'user',
     foot: s.noRep ? `${s.noRep} still need a rep` : 'all routed' }));
-  t.appendChild(tile('Action due now', s.due, { icon: 'bolt', tag: s.due ? 'bad' : 'good',
-    foot: s.due ? 'a step is past its moment' : 'nothing overdue' }));
-  t.appendChild(tile('Demos booked', s.demos, { icon: 'cal', foot: 'in the pipeline as deals' }));
+  t.appendChild(leadTileLink(tile('Action due now', s.due, { icon: 'bolt', tag: s.due ? 'bad' : 'good',
+    foot: s.due ? 'a step is past its moment' : 'nothing overdue' }), 'active', { flag: 'due' },
+    'Show what is overdue'));
+  t.appendChild(leadTileLink(tile('Demos booked', s.demos, { icon: 'cal', foot: 'in the pipeline as deals' }),
+    'active', { stage: 'Demo booked' }, 'Show the leads with a demo booked'));
   t.appendChild(tile('Won', s.won, { icon: 'check',
     foot: s.won + s.lost ? `${Math.round(s.won / (s.won + s.lost) * 100)}% of ${s.won + s.lost} decided` : 'none decided yet' }));
-  t.appendChild(tile('Lost', s.lost, { icon: 'x', foot: 'with a reason on each' }));
-  t.appendChild(tile('Referral', s.referral, { icon: 'chat', foot: 'came through someone' }));
+  t.appendChild(leadTileLink(tile('Lost', s.lost, { icon: 'x', foot: 'with a reason on each' }),
+    'lost', {}, 'Show the lost leads'));
+  t.appendChild(leadTileLink(tile('Referral', s.referral, { icon: 'chat', foot: 'came through someone' }),
+    'active', { stage: 'Referral' }, 'Show the referrals'));
   t.appendChild(tile('Avg time to engage', s.avgEngage == null ? '—' : fdur(s.avgEngage), { icon: 'sync',
     foot: s.engagedCount ? `across ${s.engagedCount} who answered` : 'nobody has answered yet' }));
-  t.appendChild(tile('Awaiting engagement', s.awaiting, { icon: 'warn', tag: s.awaiting ? 'warn' : '',
-    foot: 'messaged, no reply yet' }));
-  if (s.reconnect) t.appendChild(tile('To re-connect', s.reconnect, { icon: 'cal',
-    foot: rows.filter(leadReconnectDue).length + ' due now' }));
+  t.appendChild(leadTileLink(tile('Awaiting engagement', s.awaiting, { icon: 'warn', tag: s.awaiting ? 'warn' : '',
+    foot: 'messaged, no reply yet' }), 'active', { flag: 'awaiting' }, 'Show who has not replied'));
+  if (s.reconnect) t.appendChild(leadTileLink(tile('To re-connect', s.reconnect, { icon: 'cal',
+    foot: rows.filter(l => leadReconnectDue(l) && LEAD_ACTIVE(l)).length + ' due now' }), 'active', { recon: 'yes' },
+    'Show the leads tagged to re-connect'));
   root.appendChild(t);
 
   /* ---- by rep, grouped the way the team is actually organised ---- */
