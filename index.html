@@ -1092,6 +1092,18 @@ a.mfact:hover b{text-decoration:underline}
 }
 
 /* bringing leads across from the tracker — the column mapper */
+/* the media library */
+.medialine{display:grid;grid-template-columns:1fr 2fr;gap:0 var(--sp-3)}
+@media(max-width:620px){.medialine{grid-template-columns:1fr}}
+.medialist{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:var(--sp-4)}
+.mediaitem{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+.mediaitem .ic{color:var(--ink-3);flex:none}
+.mediaitem .cellsub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;color:var(--ink-3)}
+.mediarow{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)}
+.mchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 8px;border:1px solid var(--line);border-radius:999px;font-size:.8rem;background:var(--surface-2)}
+.mchip .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:14rem}
+.mchip .x{border:0;background:none;color:var(--ink-3);cursor:pointer;padding:0;display:inline-flex;line-height:1}
+.mchip .x:hover{color:var(--critical-ink)}
 /* the sheet report */
 .doclist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
 .docrow{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--line);font-size:.9rem}
@@ -1306,7 +1318,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.23.2';
+const VERSION = '1.24.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1336,6 +1348,7 @@ const CFG = {
   driveOwner: 'demo@core-velocity.com',
   shards   : ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads','config'],
   attachDir: 'attachments',
+  mediaDir: 'media',
   cacheKey : 'corevcrm.v1',
   autoSyncMs: 120000,
   currency : 'AED',
@@ -2081,7 +2094,7 @@ const CACHE_BUDGET = 2_100_000;          // characters ≈ 4.1 MB UTF-16, leavin
    whether anyone replied. So the cache keeps the doing and drops the wording,
    except where a rep edited it or Claude tuned it, which is kept verbatim.
    That is most of a lead's weight gone with nothing lost. */
-const TOUCH_KEEP = ['key', 'status', 'waAt', 'waBy', 'waCount', 'sentAt', 'repliedAt', 'tunedAt', 'cold'];
+const TOUCH_KEEP = ['key', 'status', 'waAt', 'waBy', 'waCount', 'sentAt', 'repliedAt', 'tunedAt', 'cold','mv','mi'];
 function leadTemplate(l) {
   const out = {};
   try { (typeof leadTouches === 'function' ? leadTouches(l) : []).forEach(t => { out[t.key] = t; }); }
@@ -10968,6 +10981,12 @@ function leadWhatsApp(id, key) {
   if (!num) return toast('No phone number on this lead — add one in Contact details', 'err');
   const t = (l.touches || []).find(x => x.key === key);
   let text = t ? ((t.subject ? t.subject + '\n\n' : '') + (t.message || '')) : '';
+  /* The clip that belongs to this step, in place of the placeholder the
+     cadence copy carries — and the photo, fetched now so it is in Downloads
+     before WhatsApp has finished opening. */
+  const med = t ? stepMedia(l, t) : { video: null, image: null };
+  text = mediaInText(text, med.video);
+  if (med.image) mediaGrab(med.image);
   const rep = ownerName(l.assignee || currentOwnerId());
   if (rep && rep !== 'Unassigned' && text && text.toLowerCase().indexOf(rep.toLowerCase()) < 0)
     text += '\n\n— ' + rep + ', CoreV · OxeFit';
@@ -10989,7 +11008,7 @@ function leadWhatsApp(id, key) {
 function leadCopy(id, key) {
   const l = getLead(id); const t = l && (l.touches || []).find(x => x.key === key);
   if (!t) return;
-  const text = (t.subject ? t.subject + '\n\n' : '') + (t.message || '');
+  const text = mediaInText((t.subject ? t.subject + '\n\n' : '') + (t.message || ''), stepMedia(l, t).video);
   navigator.clipboard.writeText(text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err'));
 }
 function leadStepStatus(id, key, status) {
@@ -12471,6 +12490,8 @@ function leadStep(l, t, mine, isNext) {
     value: t.message || '', disabled: mine ? null : true,
     onchange: e => { t.message = e.target.value; leadSave(l); } });
   n.appendChild(ta);
+  const med = mediaRow(l, t, mine);
+  if (med) n.appendChild(med);
   if (!mine) return n;
   const acts = el('div', { class: 'ca' });
   acts.appendChild(el('button', { class: 'btn sm', disabled: busy || !aiReady() ? true : null,
@@ -14134,6 +14155,255 @@ function exportQuarter(qk) {
   toast(`${rows.length} rows exported`, 'ok');
 }
 /* ================================================================
+   THE MEDIA LIBRARY
+   A follow-up that is only words gets ignored. The old tracker had a
+   small library of videos and photos that it shuffled across the
+   cadence, so the fourth message carries a different clip from the
+   first and a rep never sends the same three things to everybody.
+
+   This is that, with one difference that matters: the files are not
+   kept inside the data. An image pasted into the config is carried in
+   every rep's browser storage and in every sync, and that is exactly
+   what broke sign-in once already. So an upload goes to the shared
+   OneDrive folder, beside the attachments, and only its name and id
+   are stored. Links — YouTube, Drive, a CDN — are just links.
+
+   Which video and which image a step gets is settled by the lead and
+   the step, not by chance at send time: the same step shows the same
+   clip every time it is opened, so what is on screen is what goes out.
+   "Shuffle" re-rolls it deliberately.
+   ================================================================ */
+const MEDIA_MAX = 60;
+const mediaAll = () => (DB.config && Array.isArray(DB.config.leadMedia) ? DB.config.leadMedia : [])
+  .filter(m => m && m.url);
+const mediaOf = kind => mediaAll().filter(m => m.kind === kind);
+const mediaGet = id => mediaAll().find(m => m.id === id) || null;
+
+/* A small stable hash, so the pick survives a reload and a re-render. */
+function mediaHash(s) {
+  let h = 2166136261;
+  for (let i = 0; i < String(s).length; i++) { h ^= String(s).charCodeAt(i); h = Math.imul(h, 16777619); }
+  return Math.abs(h);
+}
+function mediaPick(kind, seed) {
+  const list = mediaOf(kind);
+  if (!list.length) return null;
+  return list[mediaHash(seed) % list.length];
+}
+/* What goes with this step: the rep's own choice if they shuffled or
+   picked one, otherwise the settled pick. */
+function stepMedia(l, t) {
+  const seed = l.id + ':' + t.key;
+  return {
+    video: (t.mv && mediaGet(t.mv)) || (t.mv === '-' ? null : mediaPick('video', seed)),
+    image: (t.mi && mediaGet(t.mi)) || (t.mi === '-' ? null : mediaPick('image', seed + ':i'))
+  };
+}
+function stepShuffle(l, key) {
+  const t = (l.touches || []).find(x => x.key === key); if (!t) return;
+  const v = mediaOf('video'), i = mediaOf('image');
+  if (!v.length && !i.length) return toast('Nothing in the media library yet — an admin adds it in Settings', 'err');
+  if (v.length) t.mv = v[Math.floor(Math.random() * v.length)].id;
+  if (i.length) t.mi = i[Math.floor(Math.random() * i.length)].id;
+  leadSave(l); render();
+}
+function stepMediaOff(l, key, which) {
+  const t = (l.touches || []).find(x => x.key === key); if (!t) return;
+  t[which === 'video' ? 'mv' : 'mi'] = '-';
+  leadSave(l); render();
+  toast(which === 'video' ? 'No video on this one' : 'No photo on this one');
+}
+
+/* THE MESSAGE.
+   The cadence copy carries "[video link]" where a clip belongs — until
+   now that went out as those literal words, which is worse than sending
+   nothing. If there is a placeholder the link replaces it; if there is
+   not, it goes on the end. */
+function mediaInText(text, video) {
+  const s = String(text || '');
+  /* No clip in the library, or none on this step: the placeholder still has to
+     go, and so does the punctuation left hanging where it stood. */
+  if (!video) return s.replace(/\s*\[video link\]\s*/gi, ' ')
+    .replace(/\s*:\s*([.,!?])/g, '$1')
+    .replace(/\s+([.,!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ').trim();
+  if (/\[video link\]/i.test(s)) return s.replace(/\[video link\]/gi, video.url);
+  return s + '\n\n' + (video.label ? video.label + ': ' : '') + video.url;
+}
+
+/* THE PHOTO.
+   WhatsApp cannot be handed a file from a link, so the rep attaches it:
+   the picture is downloaded the moment the send is pressed, with the
+   name it has in the library, and it is sitting in Downloads by the
+   time WhatsApp opens. */
+async function mediaGrab(item) {
+  if (!item) return;
+  if (!item.driveItemId) { window.open(item.url, '_blank', 'noopener'); return; }
+  try {
+    const r = await graph(`/drives/${item.driveId || DRIVE.id}/items/${item.driveItemId}/content`, { raw: true });
+    const blob = await r.blob();
+    const a = el('a', { href: URL.createObjectURL(blob), download: item.name || 'image.jpg' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+  } catch (e) { toast('Could not fetch the photo: ' + String(e.message || e).slice(0, 90), 'err'); }
+}
+
+/* ---------------------------------------------------- adding to it */
+function mediaAddLink(kind, label, url) {
+  const u = String(url || '').trim();
+  if (!/^https?:\/\//i.test(u)) return toast('That needs to be a link starting with https://', 'err');
+  if (mediaAll().length >= MEDIA_MAX) return toast('The library is full at ' + MEDIA_MAX + ' items', 'err');
+  DB.config.leadMedia = (DB.config.leadMedia || []).concat([{
+    id: 'M' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    kind, label: String(label || '').trim() || (kind === 'video' ? 'Video' : 'Photo'),
+    url: u, at: new Date().toISOString(), by: (AUTH.user && AUTH.user.name) || 'local'
+  }]);
+  DB.config._v = now(); touch('config'); render();
+  toast('Added to the library — every rep gets it on their next sync', 'ok');
+}
+function mediaRemove(id) {
+  const m = mediaGet(id); if (!m) return;
+  confirmDo('Remove from the library', `"${m.label}" stops being sent with follow-ups.` +
+    (m.driveItemId ? ' The file stays in the OneDrive folder.' : ''), 'Remove', () => {
+    DB.config.leadMedia = (DB.config.leadMedia || []).filter(x => x.id !== id);
+    DB.config._v = now(); touch('config'); render(); toast('Removed');
+  });
+}
+
+/* Big photos off a phone are 4 MB each and nobody needs that in a
+   WhatsApp message, so they are re-drawn at 1600px and re-encoded
+   before anything is uploaded. */
+function mediaShrink(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\//.test(file.type)) return reject(new Error('that is not an image'));
+    const img = new Image(), fr = new FileReader();
+    fr.onload = () => { img.src = fr.result; };
+    fr.onerror = () => reject(new Error('could not read the file'));
+    img.onload = () => {
+      const max = 1600;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('could not re-encode it')), 'image/jpeg', 0.82);
+    };
+    img.onerror = () => reject(new Error('that image could not be opened'));
+    fr.readAsDataURL(file);
+  });
+}
+async function mediaUpload(files) {
+  if (SYNC.mode !== 'onedrive')
+    return toast('Sign in with Microsoft to upload photos — in local-only mode, add an image link instead', 'err');
+  const list = [...files].filter(f => /^image\//.test(f.type));
+  if (!list.length) return toast('Pick image files', 'err');
+  if (mediaAll().length + list.length > MEDIA_MAX) return toast('That would take the library over ' + MEDIA_MAX + ' items', 'err');
+  toast('Preparing ' + list.length + ' photo' + (list.length === 1 ? '' : 's') + '…');
+  await resolveDrive();
+  let done = 0, failed = 0;
+  for (const f of list) {
+    try {
+      const blob = await mediaShrink(f);
+      const safe = String(f.name).replace(/\.[a-z0-9]+$/i, '').replace(/[\\/:*?"<>|#%]/g, '-').slice(0, 60) + '.jpg';
+      const t = await getToken();
+      const r = await fetch('https://graph.microsoft.com/v1.0' +
+        `${driveBase()}:/${CFG.mediaDir}/${Date.now().toString(36)}-${safe}:/content`, {
+        method: 'PUT', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'image/jpeg' }, body: blob });
+      if (!r.ok) throw new Error('OneDrive refused it (' + r.status + ')');
+      const item = await r.json();
+      DB.config.leadMedia = (DB.config.leadMedia || []).concat([{
+        id: 'M' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        kind: 'image', label: safe.replace(/\.jpg$/, ''), name: safe,
+        url: item.webUrl || '', driveItemId: item.id || null,
+        driveId: (item.parentReference && item.parentReference.driveId) || DRIVE.id || null,
+        size: blob.size, at: new Date().toISOString(), by: (AUTH.user && AUTH.user.name) || 'local'
+      }]);
+      done++;
+    } catch (e) { failed++; console.error(e); }
+  }
+  DB.config._v = now(); touch('config'); render();
+  toast(done + ' photo' + (done === 1 ? '' : 's') + ' added' + (failed ? ' · ' + failed + ' could not be read' : ''),
+    done ? 'ok' : 'err');
+}
+
+/* ---------------------------------------------------- on the step */
+function mediaRow(l, t, mine) {
+  if (!mediaAll().length) return null;
+  const { video, image } = stepMedia(l, t);
+  const row = el('div', { class: 'mediarow' });
+  const chip = (m, which, icon) => {
+    if (!m) return el('span', { class: 'sub', text: which === 'video' ? 'no video' : 'no photo' });
+    const c = el('span', { class: 'mchip', title: m.url }, [
+      el('span', { html: ico(icon, 13) }),
+      el('span', { class: 'lbl', text: m.label })
+    ]);
+    if (mine) c.appendChild(el('button', { class: 'x', html: ico('x', 11), title: 'Not on this one',
+      onclick: () => stepMediaOff(l, t.key, which) }));
+    return c;
+  };
+  row.appendChild(chip(video, 'video', 'bolt'));
+  row.appendChild(chip(image, 'image', 'clip'));
+  row.appendChild(el('div', { style: 'flex:1' }));
+  if (mine) row.appendChild(el('button', { class: 'btn sm ghost', html: ico('sync', 12) + ' Shuffle',
+    title: 'Pick a different video and photo for this step', onclick: () => stepShuffle(l, t.key) }));
+  if (image && mine) row.appendChild(el('button', { class: 'btn sm ghost', html: ico('dl', 12) + ' Photo',
+    title: 'Download it now so you can attach it', onclick: () => mediaGrab(image) }));
+  return row;
+}
+
+/* ---------------------------------------------------- in Settings */
+function mediaSettingsCard() {
+  const c = card('WhatsApp media library',
+    'Videos and photos shuffled across the follow-up steps — shared with the whole team');
+  const vids = mediaOf('video'), imgs = mediaOf('image');
+
+  const vl = el('input', { class: 'inp', placeholder: 'e.g. All in One XS1' });
+  const vu = el('input', { class: 'inp', placeholder: 'https://www.youtube.com/watch?v=…' });
+  c.body.appendChild(el('div', { class: 'medialine' }, [
+    fld('Video label', vl), fld('Video link (YouTube, Drive, CDN)', vu) ]));
+  c.body.appendChild(el('button', { class: 'btn primary', text: 'Add video',
+    onclick: () => { mediaAddLink('video', vl.value, vu.value); } }));
+
+  const il = el('input', { class: 'inp', placeholder: 'e.g. before / after' });
+  const iu = el('input', { class: 'inp', placeholder: 'https://…/photo.jpg' });
+  c.body.appendChild(el('div', { class: 'medialine', style: 'margin-top:var(--sp-4)' }, [
+    fld('Photo label', il), fld('Photo link', iu) ]));
+  const pick = el('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none',
+    onchange: e => { const f = e.target.files; e.target.value = ''; mediaUpload(f); } });
+  c.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center' }, [
+    el('button', { class: 'btn', text: 'Add photo link', onclick: () => { mediaAddLink('image', il.value, iu.value); } }),
+    el('button', { class: 'btn', html: ico('up', 13) + ' Upload photos', onclick: () => pick.click() }),
+    pick,
+    el('span', { class: 'sub', text: 'Uploads are resized to 1600px and kept in the shared OneDrive folder, not in the data.' })
+  ]));
+
+  const list = el('div', { class: 'medialist' });
+  mediaAll().forEach(m => {
+    list.appendChild(el('div', { class: 'mediaitem' }, [
+      el('span', { class: 'ic', html: ico(m.kind === 'video' ? 'bolt' : 'clip', 15) }),
+      el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', {}, [
+          el('b', { text: m.label }),
+          el('span', { class: 'sub', text: ' · ' + (m.kind === 'video' ? 'video link'
+            : m.driveItemId ? 'photo in OneDrive' + (m.size ? ' · ' + fbytes(m.size) : '') : 'photo link') })
+        ]),
+        el('div', { class: 'cellsub', text: m.url || '' })
+      ]),
+      el('button', { class: 'btn sm ghost', text: 'Remove', onclick: () => mediaRemove(m.id) })
+    ]));
+  });
+  if (!mediaAll().length) list.appendChild(el('p', { class: 'sub', style: 'margin:0',
+    text: 'Nothing here yet. A follow-up with a clip in it gets answered more often than one without.' }));
+  c.body.appendChild(list);
+
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6', html:
+    `<b>${vids.length}</b> video${vids.length === 1 ? '' : 's'} and <b>${imgs.length}</b> photo${imgs.length === 1 ? '' : 's'}. ` +
+    'Each follow-up step gets one of each, settled by the lead and the step so it does not change under the rep — ' +
+    'the same lead gets a different clip at step 4 from the one at step 1. Where the message says <span class="mono">[video link]</span> ' +
+    'the link takes its place; otherwise it goes on the end. The photo downloads when WhatsApp is pressed, ready to attach. ' +
+    'Prefer links to uploads: a link costs the team nothing, an upload is fetched by every rep who sends it.' }));
+  return c.node;
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
@@ -14309,6 +14579,9 @@ function viewSettings(root) {
 
   /* ---- marketing leads: the agency sheet ---- */
   g.appendChild(sheetSettingsCard());
+
+  /* ---- marketing leads: the media that goes with the follow-ups ---- */
+  g.appendChild(mediaSettingsCard());
 
   /* ---- marketing leads: Claude ---- */
   /* ---- marketing-lead notifications and showrooms ---- */
