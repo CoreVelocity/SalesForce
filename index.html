@@ -1322,6 +1322,12 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
   main{overflow:visible;padding:0}
   .card,.tile,.tw{break-inside:avoid}}
 
+/* The one-time agent key: it cannot be shown again, so it is hard to miss. */
+.keynote{border:1px solid var(--warning);border-left-width:3px;border-radius:var(--r-md);
+  background:color-mix(in srgb,var(--warning) 10%,transparent);padding:var(--sp-3) var(--sp-4);
+  font-size:var(--fs-sm);line-height:1.6}
+.keynote .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+
 /* ====================== Info pages (Deal Rules / Guidelines) ======================
    Ported from the old Sales Tracker. Those two documents were written against that
    tool's palette, so rather than rewrite 19KB of CSS by hand the old token names are
@@ -1938,7 +1944,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.31.0';
+const VERSION = '1.32.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -11262,7 +11268,38 @@ function printDoc(html) {
 
 const MLEAD_STAGES = ['New', 'Contacted', 'Engaged', 'Demo booked', 'Won', 'Lost', 'Referral'];
 const MLEAD_LOST   = ['Above budget', 'Went with a competitor', 'No show', 'Not interested', 'Asked to drop it'];
-const LEAD_DEAL_AT = ['Demo booked', 'Won'];      // when a lead earns a place in the pipeline
+const LEAD_DEAL_AT = ['Demo booked', 'Won'];      // the later stages that also force a deal
+
+/* Every lead gets a deal at Discovery & Identify the moment it lands, whoever
+   sent it — the sheet, a rep typing it in, or the calling agent over the API.
+   The Deal Rules page is the reason: no deal means no ownership, so a lead
+   nobody has registered is a lead nobody owns. Switchable, because it is the
+   one setting that decides how fast the pipeline fills. */
+const leadDealOnCreate = () => DB.config.leadDealOnCreate !== false;
+
+/* Which stage that deal opens on. Matched by name so it survives the stage
+   list being rebuilt with different ids (the HubSpot ids and the default
+   ids are both 'Discovery & Identify'), with an explicit override in
+   Settings for a pipeline that calls it something else. */
+function identifyStage() {
+  const open = openStages();
+  const pick = String(DB.config.leadDealStageId || '');
+  if (pick) { const hit = open.find(s => String(s.id) === pick); if (hit) return hit; }
+  return open.find(s => /\bidentify\b/i.test(s.label || '')) ||
+         open.find(s => /\bdiscovery\b/i.test(s.label || '')) ||
+         open[0] || DB.stages[0] || null;
+}
+
+/* Where a lead goes when nothing in it names an emirate. Gladys works the
+   office rather than a territory, so she is nobody's region — which is
+   exactly why she is the one who picks these up. */
+const LEAD_FALLBACK_NAME = 'Gladys';
+function leadFallbackOwner() {
+  const set = String(DB.config.leadFallbackOwner || '');
+  if (set && DB.owners.some(o => String(o.id) === set && o.active !== false)) return set;
+  const byName = activeOwners().find(o => new RegExp('\\b' + LEAD_FALLBACK_NAME + '\\b', 'i').test(o.name || ''));
+  return byName ? String(byName.id) : '';
+}
 
 /* CoreV's own cadence copy, carried across word for word. {name} and
    {company} are filled per lead. */
@@ -11360,15 +11397,28 @@ function leadNextRep(region) {
   DB.config.leadRot[region] = (n + 1) % people.length;
   return people[n % people.length].id;
 }
+/* Dubai to the Dubai team, Abu Dhabi to the Abu Dhabi team, and anything that
+   names neither — a Sharjah lead, or one with no address at all — to Gladys,
+   so every lead has an owner from the moment it arrives and the deal that
+   comes with it is never unassigned. The fallback is still flagged, because
+   "Gladys has it" and "we know whose territory it is" are different things. */
 function leadAutoAssign(l) {
   const region = l.region || leadRegionOf([l.emirate, l.address, l.note, l.company].filter(Boolean).join(' '));
   l.region = region || '';
-  if (!region) { l.routeNeeded = true; return ''; }
-  const rep = leadNextRep(region);
-  if (!rep) { l.routeNeeded = true; return ''; }
-  l.assignee = rep; l.autoAssigned = true; l.routeNeeded = false;
+  const rep = region ? leadNextRep(region) : '';
+  if (rep) {
+    l.assignee = rep; l.autoAssigned = true;
+    l.routeNeeded = false; l.fallbackRouted = false;
+    l.assignedAt = new Date().toISOString();
+    return rep;
+  }
+  const back = leadFallbackOwner();
+  if (!back) { l.routeNeeded = true; return ''; }
+  l.assignee = back; l.autoAssigned = true; l.fallbackRouted = true;
+  /* still wants a human to say which territory it belongs to */
+  l.routeNeeded = !region;
   l.assignedAt = new Date().toISOString();
-  return rep;
+  return back;
 }
 
 /* ---------------------------------------------------- identity & dedupe */
@@ -11424,24 +11474,28 @@ function leadToContact(l) {
   if (co) l.companyId = co.id;
   return saved;
 }
-function leadToDeal(l) {
+function leadToDeal(l, opt) {
   if (l.dealId && getDl(l.dealId)) return getDl(l.dealId);
+  const o = opt || {};
   const c = leadToContact(l);
-  const openFirst = openStages()[0] || stage();
+  const st = o.stage || identifyStage();
+  if (!st) return null;                       // a pipeline with no stages yet
   const d = upsert('deals', {
     name: l.company || l.name || 'Marketing lead',
     companyId: l.companyId || (c && c.companyId) || null,
     contactIds: c ? [c.id] : [],
-    stageId: openFirst.id, amount: null, currency: CFG.currency,
+    stageId: st.id, amount: null, currency: CFG.currency,
     closeDate: addDays(TODAY(), 30), createdAt: TODAY(),
     ownerId: l.assignee || currentOwnerId(),
     dealType: l.type === 'B2B' ? 'Commercial' : 'Consumer',
     source: l.source || 'Marketing lead',
-    nextStep: 'From marketing lead — ' + (l.stage || 'Demo booked')
+    leadId: l.id || null,
+    nextStep: 'From marketing lead — ' + (l.stage || 'New')
   });
   l.dealId = d.id;
   logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'open',
-    html: `Created from the marketing lead <b>${esc(l.name || '')}</b>` });
+    html: `Created from the marketing lead <b>${esc(l.name || '')}</b>` +
+      (l.fallbackRouted ? ' — no emirate in the lead, so it came here unrouted' : '') });
   return d;
 }
 
@@ -11465,8 +11519,13 @@ function leadCreate(p, opt) {
   if (!l.assignee) leadAutoAssign(l); else { l.region = l.region || leadRegionOf(l.address || l.note); l.routeNeeded = false; }
   l.touches = leadTouches(l);
   const saved = leadSave(l);
-  /* every lead is a contact from the moment it lands */
-  try { leadToContact(saved); leadSave(saved); } catch (e) { console.error(e); }
+  /* every lead is a contact from the moment it lands, and — unless the
+     setting says otherwise — a deal at Discovery & Identify with it */
+  try {
+    leadToContact(saved);
+    if (leadDealOnCreate() && o.deal !== false) leadToDeal(saved);
+    leadSave(saved);
+  } catch (e) { console.error(e); }
   if (!o.quiet && saved.assignee) leadNotify(saved, 'assigned');
   return saved;
 }
@@ -16992,6 +17051,9 @@ function viewSettings(root) {
       () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
   g.appendChild(cT.node);
 
+  /* ---- how a new lead is routed, and who outside may work it ---- */
+  g.appendChild(routingSettingsCard());
+
   /* ---- marketing leads: the agency sheet ---- */
   g.appendChild(sheetSettingsCard());
 
@@ -18393,6 +18455,166 @@ function quotePayTermsEdit(mode, label) {
         .map(r => ({ label: (r.label || '').trim(), detail: (r.detail || '').trim() }));
       DB.config.quotePayTerms = lib; DB.config._v = now(); touch('config');
       closeAll(); render(); toast('Saved — quotes on ' + label.toLowerCase() + ' carry these', 'ok');
+    } })
+  ], true);
+}
+
+/* ================================================================
+   LEAD ROUTING + THE CALLING AGENT
+   Two things on one card because they are one decision: who a new lead
+   belongs to, and who outside the building is allowed to work it.
+   ================================================================ */
+function routingSettingsCard() {
+  const c = card('Lead routing & the calling agent',
+    'Where a new lead goes, what it opens in the pipeline, and the key an outside agent uses to reach it');
+
+  /* ---- the rule, written out as it actually runs ---- */
+  const regionRow = r => {
+    const people = activeOwners().filter(o => ownerRegion(o.id) === r);
+    return el('div', { class: 'nitem' }, [
+      el('div', { style: 'flex:1' }, [
+        el('div', { style: 'font-weight:600' , text: r }),
+        el('div', { class: 'sub', text: people.length
+          ? people.map(o => o.name).join(', ') + (people.length > 1 ? ' — round robin' : '')
+          : 'nobody is in this region, so these leads fall through to the backstop' })
+      ]),
+      el('span', { class: 'tag' + (people.length ? ' good' : ' warn'),
+        text: people.length ? people.length + ' rep' + (people.length > 1 ? 's' : '') : 'empty' })
+    ]);
+  };
+  const list = el('div', { class: 'nlist', style: 'margin-bottom:var(--sp-4)' });
+  ['Dubai', 'Abu Dhabi'].forEach(r => list.appendChild(regionRow(r)));
+
+  const back = leadFallbackOwner();
+  const backSel = el('select', { class: 'inp', onchange: e => {
+    DB.config.leadFallbackOwner = e.target.value; DB.config._v = now(); touch('config');
+    render(); toast('Saved', 'ok');
+  } });
+  activeOwners().forEach(o => backSel.appendChild(el('option',
+    { value: o.id, text: o.name + (ownerRegion(o.id) !== UNASSIGNED_REGION ? ' · ' + ownerRegion(o.id) : ''),
+      selected: String(o.id) === back || null })));
+  list.appendChild(el('div', { class: 'nitem' }, [
+    el('div', { style: 'flex:1' }, [
+      el('div', { style: 'font-weight:600', text: 'Anything else' }),
+      el('div', { class: 'sub', text: 'Sharjah, Ajman, outside the UAE, or no address at all' })
+    ]),
+    el('span', { class: 'tag info', text: back ? ownerName(back) : 'nobody set' })
+  ]));
+  c.body.appendChild(list);
+  c.body.appendChild(fld('Backstop owner', backSel,
+    'Who picks up a lead when nothing in it names an emirate. The lead is still flagged as needing a territory.'));
+
+  /* ---- what a new lead opens ---- */
+  const stSel = el('select', { class: 'inp', onchange: e => {
+    DB.config.leadDealStageId = e.target.value; DB.config._v = now(); touch('config');
+    toast('Saved', 'ok');
+  } });
+  stSel.appendChild(el('option', { value: '', text: 'Discovery & Identify (matched by name)' }));
+  const nowStage = identifyStage();
+  openStages().forEach(s => stSel.appendChild(el('option', { value: s.id, text: s.label,
+    selected: String(DB.config.leadDealStageId || '') === String(s.id) || null })));
+
+  const dealTg = el('label', { style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin:var(--sp-4) 0 var(--sp-3)' });
+  dealTg.appendChild(el('input', { type: 'checkbox', checked: leadDealOnCreate() || null, style: 'margin-top:3px',
+    onchange: e => { DB.config.leadDealOnCreate = e.target.checked; DB.config._v = now(); touch('config');
+      render(); toast('Saved', 'ok'); } }));
+  dealTg.appendChild(el('div', {}, [
+    el('div', { style: 'font-weight:600', text: 'Open a deal as soon as a lead arrives' }),
+    el('div', { class: 'sub', html: 'Contact first, then a deal on <b>' +
+      esc(nowStage ? nowStage.label : 'the first open stage') + '</b>, whoever sent the lead — the sheet, a rep, or the agent. ' +
+      'Off, and a deal is only created once the lead reaches ' + esc(LEAD_DEAL_AT.join(' or ')) + '.' })
+  ]));
+  c.body.appendChild(dealTg);
+  c.body.appendChild(fld('Stage a new lead opens on', stSel));
+
+  /* ---- the agent's key ---- */
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-5) 0 var(--sp-2);font-size:var(--fs-md)', text: 'Calling agent API' }));
+  const api = DB.config.agentApi || {};
+  const urlIn = el('input', { class: 'inp', type: 'url', value: api.url || '',
+    placeholder: 'https://corev-crm-api.azurewebsites.net',
+    onchange: e => { DB.config.agentApi = Object.assign({}, DB.config.agentApi, { url: e.target.value.trim() });
+      DB.config._v = now(); touch('config'); toast('Saved', 'ok'); } });
+  c.body.appendChild(fld('API base URL', urlIn,
+    'Where the Azure Function app is deployed. The CRM does not call it — this is here so the team knows the address.'));
+
+  const keys = Array.isArray(api.keys) ? api.keys : [];
+  const klist = el('div', { class: 'nlist', style: 'margin-top:var(--sp-3)' });
+  if (!keys.length) klist.appendChild(el('div', { class: 'nitem' }, [
+    el('div', { class: 'sub', text: 'No agent registered yet.' }) ]));
+  keys.forEach(k => klist.appendChild(el('div', { class: 'nitem' }, [
+    el('div', { style: 'flex:1' }, [
+      el('div', { style: 'font-weight:600', text: k.name || 'Agent' }),
+      el('div', { class: 'sub', text: 'key ending ' + esc(String(k.hint || '????')) +
+        ' · ' + (k.scopes || []).join(', ') + (k.at ? ' \u00b7 added ' + qDate(k.at) : '') })
+    ]),
+    el('button', { class: 'btn sm danger', text: 'Revoke', onclick: () => confirmDo('Revoke this key',
+      'The agent stops being able to read leads or post updates the moment the Function app reloads its settings. ' +
+      'You still have to delete the key from the Function app’s configuration — this list is a record, not the lock.',
+      'Revoke', () => {
+        DB.config.agentApi = Object.assign({}, DB.config.agentApi,
+          { keys: keys.filter(x => x !== k) });
+        DB.config._v = now(); touch('config'); render(); toast('Revoked', 'ok');
+      }) })
+  ])));
+  c.body.appendChild(klist);
+  c.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)',
+    html: ico('plus', 14) + ' Register an agent', onclick: () => agentKeyNew() }));
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    html: 'The key itself is <b>never stored here</b> — it is generated once, you paste it into the Function app and into the ' +
+      'agent platform, and this list keeps only the last four characters so you can tell two agents apart. ' +
+      'Anyone holding a key can read every lead’s name and phone number and post updates as that agent.' }));
+  return c.node;
+}
+
+/* A key is shown once. It is generated in the browser from crypto.getRandomValues,
+   never sent anywhere by this tool, and only its last four characters are kept. */
+function agentKeyNew() {
+  const name = el('input', { class: 'inp', placeholder: 'Calling agent' });
+  const scopes = [
+    ['leads:read',   'Read the call queue — name, phone, emirate, language, what they asked for'],
+    ['leads:write',  'Post call outcomes, notes and stage changes on a lead'],
+    ['leads:create', 'Create a new lead, which opens a contact and a deal'],
+    ['deals:read',   'Read the deal a lead opened — stage, owner, next step'],
+    ['deals:write',  'Add a note to that deal']
+  ];
+  const boxes = scopes.map(([k, d]) => {
+    const cb = el('input', { type: 'checkbox', checked: true, style: 'margin-top:3px' });
+    return { k, cb, node: el('label', { style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:6px 0' },
+      [cb, el('div', {}, [ el('div', { style: 'font-weight:600' , text: k }), el('div', { class: 'sub', text: d }) ])]) };
+  });
+  const out = el('div');
+  modal('Register a calling agent', el('div', {}, [
+    fld('Name', name, 'Just a label, so you can tell one agent from another later'),
+    el('div', { class: 'fl', style: 'margin-top:var(--sp-3)', text: 'What it may do' }),
+    el('div', {}, boxes.map(b => b.node)),
+    out
+  ]), [
+    el('button', { class: 'btn', text: 'Close', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Generate key', onclick: () => {
+      const picked = boxes.filter(b => b.cb.checked).map(b => b.k);
+      if (!picked.length) { toast('Pick at least one thing it may do', 'err'); return; }
+      const raw = new Uint8Array(32);
+      (window.crypto || window.msCrypto).getRandomValues(raw);
+      const key = 'cv_' + Array.from(raw).map(b => b.toString(16).padStart(2, '0')).join('');
+      const rec = { name: name.value.trim() || 'Calling agent', hint: key.slice(-4),
+        scopes: picked, at: new Date().toISOString() };
+      DB.config.agentApi = Object.assign({ keys: [] }, DB.config.agentApi);
+      DB.config.agentApi.keys = (DB.config.agentApi.keys || []).concat([rec]);
+      DB.config._v = now(); touch('config');
+      out.innerHTML = '';
+      const ta = el('textarea', { class: 'inp mono', rows: 3, readonly: true, value: key,
+        style: 'margin-top:var(--sp-3)' });
+      out.appendChild(el('div', { class: 'keynote', style: 'margin-top:var(--sp-4)', html:
+        '<b>Copy this now.</b> It is not stored and cannot be shown again. ' +
+        'Paste it into the Function app setting <span class="mono">AGENT_KEYS</span> as ' +
+        '<span class="mono">' + esc(rec.name) + ':' + esc(picked.join('|')) + ':&lt;key&gt;</span>, ' +
+        'and into the agent platform as the <span class="mono">X-API-Key</span> header.' }));
+      out.appendChild(ta);
+      ta.select();
+      out.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-2)',
+        html: ico('clip', 14) + ' Copy', onclick: () => {
+          ta.select(); try { document.execCommand('copy'); toast('Copied', 'ok'); }
+          catch (e) { toast('Select it and copy by hand', 'err'); } } }));
     } })
   ], true);
 }
