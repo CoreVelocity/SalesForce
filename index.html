@@ -1121,6 +1121,15 @@ a.mfact:hover b{text-decoration:underline}
 .qbth{font-weight:700;font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin:var(--sp-2) 0 4px}
 .qbtrm{display:flex;gap:var(--sp-3);padding:4px 0;font-size:.85rem;line-height:1.5}
 .qbtrm b{width:11rem;flex:none}
+.qbfind{margin-top:var(--sp-2);border:1px solid var(--line);border-radius:var(--r-md);max-height:17rem;overflow:auto;background:var(--surface-2)}
+.qbfh{display:flex;justify-content:space-between;gap:var(--sp-2);padding:5px var(--sp-3);background:var(--surface-3,var(--surface-2));position:sticky;top:0;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
+.qbfr{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;padding:6px var(--sp-3);background:none;border:0;border-bottom:1px solid var(--line);color:var(--ink);cursor:pointer;font:inherit;font-size:.85rem}
+.qbfr:last-child{border-bottom:0}
+.qbfr:hover,.qbfr:focus{background:var(--surface-3,rgba(127,127,127,.12))}
+.qbfr .mono{flex:none;min-width:11rem;color:var(--accent)}
+.qbfr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.qbfr .pr{flex:none;font-variant-numeric:tabular-nums;color:var(--ink-3)}
+@media(max-width:620px){.qbfr{flex-wrap:wrap;gap:2px var(--sp-2)}.qbfr .mono{min-width:0}.qbfr .nm{flex:1 1 100%}}
 .qblink{display:flex;align-items:center;gap:var(--sp-2);padding:3px 0;font-size:.85rem;cursor:pointer}
 .qbsku{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:3px}
 .inp.sm{height:1.6rem;padding:0 6px;font-size:.78rem;width:auto;min-width:8rem}
@@ -1396,7 +1405,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.28.0';
+const VERSION = '1.29.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -6731,8 +6740,14 @@ function editProduct(p, after) {
     category: el('input', { class: 'inp', value: p.category || '', list: 'prod-cat',
       placeholder: 'Hardware · Subscription · Installation · Accessory' }),
     listPrice: el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: p.listPrice == null ? '' : p.listPrice }),
-    notes: el('input', { class: 'inp', value: p.notes || '' })
+    notes: el('input', { class: 'inp', value: p.notes || '' }),
+    termsType: el('input', { class: 'inp', value: p.termsType || '', list: 'prod-terms',
+      placeholder: p.category || 'follows the category' })
   };
+  /* What a rep is looking for when they scan the quote picker. */
+  const kind = el('select', { class: 'inp' });
+  QUOTE_KINDS.forEach(([v, l]) => kind.appendChild(el('option', { value: v, text: l,
+    selected: quoteKind(p) === v || null })));
   const bill = el('select', { class: 'inp' });
   BILLING.forEach(b => bill.appendChild(el('option', { value: b.id, text: b.label, selected: (p.billing || 'once') === b.id || null })));
   const act = el('select', { class: 'inp' });
@@ -6744,13 +6759,20 @@ function editProduct(p, after) {
     .filter((v, i, a) => a.indexOf(v) === i).sort()
     .forEach(v => cats.appendChild(el('option', { value: v })));
 
+  const tts = el('datalist', { id: 'prod-terms' });
+  (typeof quoteTermTypes === 'function' ? quoteTermTypes() : [])
+    .forEach(v => tts.appendChild(el('option', { value: v })));
   const body = el('div');
-  body.appendChild(cats);
+  body.appendChild(cats); body.appendChild(tts);
   body.appendChild(fld('Product name *', f.name));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('SKU', f.sku), fld('Category', f.category) ]));
   body.appendChild(el('div', { class: 'field-row' }, [
     fld(`List price (${CFG.currency})`, f.listPrice, 'The default a rep sees. They can still change it per deal.'),
     fld('Billing', bill, 'One-time feeds the deal value directly; recurring is multiplied by the contract term.') ]));
+  body.appendChild(el('div', { class: 'field-row' }, [
+    fld('Kind', kind, 'How it is grouped in the quote picker: a machine, something that is not stock ' +
+      '(a membership or a licence), work, or freight.'),
+    fld('Terms type', f.termsType, 'Which purchase terms it carries on a quote. Blank follows the category.') ]));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('Status', act), fld('Note', f.notes) ]));
   modal(isNew ? 'New product' : 'Edit product', body, [
     isNew ? null : el('button', { class: 'btn danger', html: ico('trash',14) + ' Delete',
@@ -6769,6 +6791,7 @@ function editProduct(p, after) {
       p.category = f.category.value.trim() || null;
       p.listPrice = f.listPrice.value === '' ? null : Number(f.listPrice.value);
       p.billing = bill.value; p.active = act.value === '1';
+      p.kind = kind.value; p.termsType = f.termsType.value.trim() || null;
       p.notes = f.notes.value.trim() || null; p.currency = CFG.currency;
       upsert('products', p);
       closeAll(); productManager(); toast(isNew ? 'Product added' : 'Saved', 'ok');
@@ -14806,6 +14829,79 @@ function quotePayTermsLib() {
     return { full: c.full || [], installment: c.installment || [] };
   return QUOTE_PAYTERMS_SEED;
 }
+/* WHAT KIND OF THING IS BEING SOLD.
+
+   A rep picking lines off a list of a hundred SKUs is looking for one of four
+   things: a machine, something that is not stock (a membership, a licence, a
+   warranty), work (installation, training), or freight. Grouping the picker
+   that way is the difference between scrolling and finding.
+
+   A product says which it is; where nobody has said, it is worked out from
+   the category, the billing and the words in the name, which is right often
+   enough to be useful and is corrected in one click when it is not. */
+const QUOTE_KINDS = [['inventory', 'Inventory'], ['noninventory', 'Non-inventory'],
+                     ['service', 'Services'], ['shipping', 'Shipping']];
+const QUOTE_KIND_LABEL = k => (QUOTE_KINDS.find(x => x[0] === k) || [, 'Inventory'])[1];
+function quoteKind(p) {
+  const k = String((p && p.kind) || '').toLowerCase();
+  if (QUOTE_KINDS.some(x => x[0] === k)) return k;
+  const cat = String((p && p.category) || '').toLowerCase();
+  const name = [p && p.name, p && p.sku].filter(Boolean).join(' ').toLowerCase();
+  /* \bship, not ship: "membership" is not freight, and that one missing word
+     boundary put every membership in with the sea containers. */
+  const SHIP = /\bship(ping|ment|s)?\b|\bfreight\b|courier|logistic|customs|clearance|carriage/;
+  const SERV = /\binstall|training|onboard|\bservice|support|labou?r|consult|commission|maintenance/;
+  const NONINV = /member|subscription|licen|software|cloud|renewal|warrant|\bmem\b|\bplan\b/;
+  const INV = /hardware|platform|machine|equipment|accessor|device|\bunit\b|\bxs1\b|\bxp1\b|peak|flow/;
+  /* The category is a deliberate statement, so it is read first. */
+  if (SHIP.test(cat)) return 'shipping';
+  if (SERV.test(cat)) return 'service';
+  if (NONINV.test(cat)) return 'noninventory';
+  if (INV.test(cat)) return 'inventory';
+  /* Nothing to go on: read the name, and let the machine win — an XP1 sold
+     with three years of membership on it is still an XP1 on the floor. */
+  if (SHIP.test(name)) return 'shipping';
+  if (INV.test(name)) return 'inventory';
+  if (NONINV.test(name)) return 'noninventory';
+  if (SERV.test(name)) return 'service';
+  if (p && p.billing && p.billing !== 'once') return 'noninventory';
+  return 'inventory';
+}
+/* Rank by what somebody typing into the box meant: the SKU they know, then
+   the SKU they half-remember, then the words in the name. */
+function quoteProductSearch(q, opt) {
+  const o = opt || {};
+  const s = String(q || '').trim().toLowerCase();
+  const terms = s.split(/\s+/).filter(Boolean);
+  const rows = live('products').filter(p => p.active !== false);
+  const scored = [];
+  rows.forEach(p => {
+    const sku = String(p.sku || '').toLowerCase(), name = String(p.name || '').toLowerCase();
+    const cat = String(p.category || '').toLowerCase();
+    if (!terms.length) { scored.push([0, p]); return; }
+    let score = 0, all = true;
+    terms.forEach(t => {
+      if (sku.startsWith(t)) score += 100;
+      else if (sku.includes(t)) score += 60;
+      else if (name.startsWith(t)) score += 40;
+      else if (name.includes(t)) score += 25;
+      else if (cat.includes(t)) score += 10;
+      else all = false;
+    });
+    if (all) scored.push([score, p]);
+  });
+  scored.sort((a, b) => b[0] - a[0] ||
+    String(a[1].sku || a[1].name).localeCompare(String(b[1].sku || b[1].name)));
+  const list = scored.map(x => x[1]);
+  return o.limit ? list.slice(0, o.limit) : list;
+}
+/* The same list, in the four groups, empty groups dropped. */
+function quoteProductGroups(q, limit) {
+  const found = quoteProductSearch(q, { limit: limit || 60 });
+  return QUOTE_KINDS.map(([k, label]) => ({ kind: k, label, rows: found.filter(p => quoteKind(p) === k) }))
+    .filter(g => g.rows.length);
+}
+
 /* WHAT LINKS A TERM SET TO A PRODUCT.
 
    Terms hang off a product's terms type. A product carries one explicitly
@@ -15855,26 +15951,66 @@ function quoteBuild(q) {
       ? 'A discount needs ' + quoteApprover() + ' to agree before it can go out'
       : 'Nothing to decide, so it is approved the moment you press it';
   };
-  const prods = live('products').filter(p => p.active !== false)
-    .sort((a, b) => String(a.sku || a.name).localeCompare(String(b.sku || b.name)));
-  const pick = el('select', { class: 'inp' });
-  pick.appendChild(el('option', { value: '', text: 'Add a product from the catalogue…' }));
-  prods.forEach(p => pick.appendChild(el('option', { value: p.id,
-    text: [p.sku, p.name, p.listPrice ? CFG.currency + ' ' + money(p.listPrice) : 'no price set'].filter(Boolean).join(' · ') })));
-  pick.addEventListener('change', () => {
-    const p = prods.find(x => x.id === pick.value); pick.value = '';
+  /* THE PICKER.
+
+     A hundred SKUs in a dropdown is a scroll, not a choice. So: type a few
+     letters and the list narrows as you type — SKU first, then the name —
+     and what is left is grouped the way a rep thinks about it: machines,
+     the things that are not stock, work, freight. Enter takes the top one. */
+  const find = el('input', { class: 'inp', placeholder: 'Type a few letters — SKU or name — to find a product' });
+  const results = el('div', { class: 'qbfind' });
+  const addProduct = p => {
     if (!p) return;
     const raw = Number(p.listPrice) || 0;
     w.items.push({ productId: p.id, sku: p.sku || '', desc: p.name || '',
       lineType: quoteLineType(p), qty: 1,
       unitPrice: w.international ? Math.round(raw * USD_PER_AED * 100) / 100 : raw });
-    paint(); recalc(); paintTerms();
+    find.value = ''; paintFind(); paint(); recalc(); paintTerms();
+    toast(p.sku || p.name, 'ok');
+  };
+  let topHit = null;
+  const paintFind = () => {
+    results.innerHTML = '';
+    const q = find.value.trim();
+    const groups = quoteProductGroups(q, 60);
+    topHit = groups.length ? groups[0].rows[0] : null;
+    if (!groups.length) {
+      results.appendChild(el('p', { class: 'sub', style: 'margin:0;padding:var(--sp-2)',
+        text: live('products').filter(p => p.active !== false).length
+          ? 'Nothing matches “' + q + '”. Try part of the SKU, or add a line of your own.'
+          : 'The catalogue is empty — an admin adds products in Settings.' }));
+      return;
+    }
+    groups.forEach(g => {
+      results.appendChild(el('div', { class: 'qbfh' }, [
+        el('span', { text: g.label }),
+        el('span', { class: 'sub', text: g.rows.length + '' })]));
+      g.rows.forEach(p => {
+        const row = el('button', { class: 'qbfr', type: 'button', onclick: () => addProduct(p) }, [
+          el('span', { class: 'mono', text: p.sku || '(no sku)' }),
+          el('span', { class: 'nm', text: p.name || '' }),
+          el('span', { class: 'pr', text: p.listPrice
+            ? (w.international ? 'USD ' + money(Math.round(raw2(p.listPrice) * 100) / 100, { dash: false })
+                               : CFG.currency + ' ' + money(p.listPrice))
+            : 'no price' })
+        ]);
+        results.appendChild(row);
+      });
+    });
+  };
+  const raw2 = n => (Number(n) || 0) * USD_PER_AED;
+  find.addEventListener('input', debounce(() => paintFind(), 120));
+  find.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addProduct(topHit); }
   });
   const free = el('button', { class: 'btn sm', text: '+ A line of my own', onclick: () => {
-    w.items.push({ productId: '', sku: '', desc: '', lineType: '', qty: 1, unitPrice: 0 }); paint(); recalc(); } });
+    w.items.push({ productId: '', sku: '', desc: '', lineType: '', qty: 1, unitPrice: 0 });
+    paint(); recalc(); paintTerms(); } });
+
   s4.appendChild(lines);
-  s4.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
-    el('div', { style: 'flex:1;min-width:14rem' }, [pick]), free]));
+  s4.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);align-items:flex-start;margin-top:var(--sp-3)' }, [
+    el('div', { style: 'flex:1;min-width:14rem' }, [find]), free]));
+  s4.appendChild(results);
   s4.appendChild(el('div', { class: 'field-row', style: 'margin-top:var(--sp-3)' }, [
     fld('Discount (' + (w.international ? 'USD' : 'AED') + ')', disc,
       'One amount off the whole quote. Anything above zero needs ' + quoteApprover() + ' to approve it.'),
@@ -16004,8 +16140,7 @@ function quoteBuild(q) {
     if (after) after(getQuote(w.id));
     return w;
   };
-  paint(); recalc(); paintSched(); paintTotalPct(); paintTerms();
-  pick.addEventListener('change', paintTerms);
+  paint(); recalc(); paintSched(); paintTotalPct(); paintTerms(); paintFind();
 
   submit.addEventListener('click', () => save(q2 => { if (q2) quoteSubmit(q2); }));
   modal(isNew ? (w.international ? 'New international quote' : 'New quote') : 'Edit ' + (w.name || 'quote'), body, [
