@@ -1092,6 +1092,65 @@ a.mfact:hover b{text-decoration:underline}
 }
 
 /* bringing leads across from the tracker — the column mapper */
+/* ---- quotes: the list and the builder ---- */
+.quotelist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.quoterow{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3);border-bottom:1px solid var(--line);cursor:pointer}
+.quoterow:last-child{border-bottom:0}
+.quoterow:hover{background:var(--surface-2)}
+.quoterow .nm{font-weight:600}
+.quoterow .amt{font-variant-numeric:tabular-nums;font-weight:650;white-space:nowrap}
+.qhead{display:flex;gap:var(--sp-4);align-items:flex-start;flex-wrap:wrap}
+.qtotal{font-size:1.6rem;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.qacts{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+.qlines{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.qline{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--line);font-size:.9rem}
+.qline:last-child{border-bottom:0}
+.qline span:not(:first-child){width:7rem;text-align:right;font-variant-numeric:tabular-nums}
+.qline.qhead2{background:var(--surface-2);font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.qb .qbh{margin:var(--sp-5) 0 var(--sp-2);font-size:.95rem}
+.qb .qbh:first-child{margin-top:0}
+.qblines{display:flex;flex-direction:column;gap:var(--sp-2)}
+.qbline{display:flex;gap:var(--sp-2);align-items:flex-end}
+.qbqty{width:6.5rem;flex:none}
+.qbqty .sub{display:block;font-size:.72rem;margin-bottom:2px}
+.inp.num{text-align:right;font-variant-numeric:tabular-nums}
+.qbtot{border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-3)}
+.qbtr{display:flex;justify-content:space-between;gap:var(--sp-3);font-size:.9rem;padding:2px 0}
+.qbtr.big{font-weight:650;font-size:1.05rem;border-top:1px solid var(--line);margin-top:6px;padding-top:8px}
+.qbterms{border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-3);max-height:16rem;overflow:auto;background:var(--surface-2)}
+.qbth{font-weight:700;font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin:var(--sp-2) 0 4px}
+.qbtrm{display:flex;gap:var(--sp-3);padding:4px 0;font-size:.85rem;line-height:1.5}
+.qbtrm b{width:11rem;flex:none}
+@media(max-width:700px){.qbtrm{flex-direction:column;gap:2px}.qbtrm b{width:auto}}
+/* ---- quotes: the document, as the tracker drew it ---- */
+.qp-wrap{background:#eef2f7;padding:var(--sp-3);border-radius:var(--r-md);max-height:70vh;overflow:auto}
+.qp-doc{background:#fff;color:#1a202c;width:100%;max-width:794px;margin:0 auto;padding:44px 46px;font-family:Inter,Arial,sans-serif;font-size:12.5px;line-height:1.5;box-sizing:border-box}
+.qp-doc .qp-logo-img{height:46px;width:auto;display:block;margin:0 0 22px}
+.qp-doc .qp-title{text-align:center;font-size:30px;font-weight:800;color:#334155;margin:10px 0 30px}
+.qp-doc .qp-cols{display:flex;gap:40px;margin-bottom:26px}
+.qp-doc .qp-col{flex:1;min-width:0}
+.qp-doc .qp-col h5{margin:0 0 6px;font-size:13px;font-weight:800;color:#0f172a}
+.qp-doc .qp-muted{color:#475569}
+.qp-doc .qp-total-line{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid #1e3a8a;border-bottom:2px solid #1e3a8a;padding:10px 0;margin:0 0 18px}
+.qp-doc .qp-tl-label{font-size:13px;font-weight:800;letter-spacing:.5px;color:#1e3a8a}
+.qp-doc .qp-tl-val{font-size:20px;font-weight:800;color:#0f172a}
+.qp-doc .qp-item-sku{font-weight:700;font-size:11px;color:#1e3a8a;letter-spacing:.3px}
+.qp-doc .qp-section-h{font-size:11px;font-weight:800;letter-spacing:.6px;color:#1e3a8a;text-transform:uppercase;margin:22px 0 6px}
+.qp-doc .qp-summary{border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px}
+.qp-doc .qp-srow{display:flex;justify-content:space-between;padding:3px 0;font-size:12.5px}
+.qp-doc .qp-sgrand{border-top:1px solid #e2e8f0;margin-top:6px;padding-top:8px;font-weight:800;font-size:14px}
+.qp-doc table.qp-table{width:100%;border-collapse:collapse;margin:6px 0 20px;table-layout:fixed}
+.qp-doc table.qp-table th{background:#dbeafe;color:#1e3a8a;text-align:left;font-size:10px;font-weight:800;padding:8px 10px;letter-spacing:.3px}
+.qp-doc table.qp-table td{padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:12px;vertical-align:top}
+.qp-doc .qp-r{text-align:right}
+.qp-doc .qp-accept{margin:18px 0;padding:10px 12px;background:#f8fafc;border-left:3px solid #1e3a8a;font-size:11.5px;color:#334155}
+.qp-doc .qp-bank-grid{font-size:12px;line-height:1.7;color:#334155}
+.qp-doc .qp-runhead{display:flex;align-items:center;justify-content:flex-end;gap:12px;border-bottom:1.5px solid #1e3a8a;padding-bottom:6px}
+.qp-doc .qp-runhead-meta{font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px}
+.qp-doc .qp-runfoot{border-top:1px solid #e2e8f0;padding-top:6px;font-size:8.5px;color:#94a3b8;text-align:center}
+.qp-doc .qp-pt{padding:1px 0}
+.qp-offscreen{position:fixed;left:-10000px;top:0;width:794px}
+@media print{body.qp-printmode>*{display:none!important}body.qp-printmode .qp-offscreen{display:block!important;position:static!important;left:0!important;width:100%!important}}
 /* new leads today, on the dashboard */
 .leadday{display:flex;gap:var(--sp-4);align-items:flex-start;flex-wrap:wrap;margin-bottom:var(--sp-3)}
 .leadday .big{display:flex;align-items:baseline;gap:8px}
@@ -1324,7 +1383,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.26.1';
+const VERSION = '1.27.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1722,7 +1781,7 @@ document.addEventListener('keydown', e => {
 const DB = {
   companies: [], contacts: [], deals: [], tasks: [],
   commitments: [], reviews: [], activities: [], attachments: [], products: [],
-  demos: [], demoRequests: [], leads: [],
+  demos: [], demoRequests: [], leads: [], quotes: [],
   owners: [], stages: [], lossReasons: [],
   config: { widgets: null, targets: {}, theme: 'dark' },
   meta: { exportedAt: null, homeCurrency: CFG.currency }
@@ -2085,7 +2144,7 @@ const FLAT_KEYS = ['owners', 'stages', 'lossReasons', 'config', 'meta'];
    of blank screen, and an empty CRM if the sync does not land. So the cache is
    now shed in priority order rather than written all-or-nothing, and the
    result is reported instead of swallowed. */
-const CACHE_SHED = ['activities', 'attachments', 'reviews', 'leads', 'contacts', 'companies'];
+const CACHE_SHED = ['activities', 'attachments', 'reviews', 'leads', 'contacts', 'companies', 'quotes'];
 let CACHE_STATE = { ok: true, dropped: [], bytes: 0, compacted: 0 };
 
 /* THE CACHE MUST LEAVE ROOM FOR THE SIGN-IN.
@@ -2532,7 +2591,7 @@ function mergeRecords(mine, theirs) {
   });
   return Array.from(out.values());
 }
-const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads'];
+const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads','quotes'];
 
 async function syncNow(opt) {
   const o = opt || {};
@@ -3373,6 +3432,8 @@ const NAV = [
   { id: 'deals',     label: 'Deals',     icon: 'list',  count: () => scopedDeals().length },
   { id: 'tasks',     label: 'Tasks',     icon: 'check',
     count: () => openTasks().filter(t => t.dueDate && dnum(t.dueDate) <= dnum(TODAY())).length, alert: true },
+  { id: 'quotes',    label: 'Quotes',     icon: 'clip',
+    count: () => quoteScope().filter(q => q.status === 'Pending Approval').length, alert: true },
   { id: 'review',    label: 'Sales Commitment', icon: 'flag' },
   { id: 'demos',     label: 'Demo Tracker', icon: 'board',
     count: () => live('demos').filter(demoNeedsOutcome).length, alert: true },
@@ -3470,10 +3531,14 @@ function applyRoute() {
   if (r.args.l && typeof getLead === 'function' && getLead(r.args.l)) {
     VIEW.leadOpen = r.args.l; render();
   }
+  /* #quotes?q=<id> — what the approval mail links to. */
+  if (r.args.q && typeof getQuote === 'function' && getQuote(r.args.q)) {
+    VIEW.quoteOpen = r.args.q; render();
+  }
 }
 addEventListener('hashchange', () => {
   const r = routeOf(location.hash);
-  if (r.name !== VIEW.name || r.args.r || r.args.l) applyRoute();
+  if (r.name !== VIEW.name || r.args.r || r.args.l || r.args.q) applyRoute();
 });
 
 /* ------------------------------------------------------- scoping */
@@ -5240,6 +5305,7 @@ function openDeal(id, tab) {
     { label: 'Products', count: (d.items || []).length, render: () => dealProducts(d) },
     { label: 'Contact', count: (d.contactIds || []).length, render: () => dealPeople(d) },
     { label: 'Tasks', count: live('tasks').filter(t => t.dealId === d.id && t.status !== 'done').length, render: () => dealTasks(d) },
+    { label: 'Quotes', count: quotesForDeal(d.id).length, render: () => dealQuotes(d) },
     { label: 'Attachments', count: attachmentsFor(d.id).length, render: () => dealFiles(d) },
     { label: 'Activity', render: () => dealActivity(d) }
   ];
@@ -9630,7 +9696,7 @@ function requestText(r) {
     `\nApprove or decline here:\n${requestLink(r)}\n`;
 }
 
-async function graphSendMail(to, subject, html, cc) {
+async function graphSendMail(to, subject, html, cc, files) {
   const tok = await mailToken();
   const addr = a => ({ emailAddress: { address: String(a).trim() } });
   const toList = (to || []).filter(Boolean);
@@ -9643,6 +9709,12 @@ async function graphSendMail(to, subject, html, cc) {
     toRecipients: toList.map(addr)
   };
   if (ccList.length) message.ccRecipients = ccList.map(addr);
+  /* A quote the customer has to open a tool to read is not a quote they
+     read. Graph takes the PDF inline, up to a few megabytes, which a
+     quote never is. */
+  if ((files || []).length) message.attachments = files.map(f => ({
+    '@odata.type': '#microsoft.graph.fileAttachment',
+    name: f.name, contentType: f.contentType || 'application/pdf', contentBytes: f.bytes }));
   const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
@@ -14534,6 +14606,1318 @@ function mediaSettingsCard() {
   return c.node;
 }
 /* ================================================================
+   QUOTES — the quotation module, carried over from the Sales Tracker
+
+   A quote is a record like any other here: it lives in its own shard,
+   syncs through the same OneDrive folder, and carries tombstones, so a
+   quote deleted on one machine stays deleted — which the old tool could
+   not do.
+
+   Three things are kept exactly as they were, because they are the
+   parts people depend on:
+     · the document — same layout, same logo, same wording, one
+       generator used for the preview, the PDF and the copy that goes
+       to the customer, so what a rep sees is what the buyer gets;
+     · the approval rule — a quote with no discount approves itself,
+       any discount at all needs a human, and approval is bound to a
+       signature of the pricing rather than a flag, so saving, syncing
+       or fixing a typo never silently un-approves it while a changed
+       price always does;
+     · the terms library — purchase terms per product type, common
+       terms deduped across types, payment terms by schedule shape.
+
+   What is different: the approver is one named address rather than a
+   role, the PDF is emailed to the customer as an attachment instead of
+   being downloaded and sent by hand, and "publish" attaches it to the
+   deal in this CRM instead of pushing it to HubSpot.
+   ================================================================ */
+
+const QUOTE_LOGO_URI = 'data:image/jpeg;base64,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';
+
+/* ---------------------------------------------------- the fixed blocks */
+const QUOTE_SELLER = {
+  name: 'Core Velocity Sport Machine Trading L.L.C',
+  vat: '104796789600003',
+  addrLines: ['Court Tower, Office 403', 'Business Bay', 'Dubai / UAE']
+};
+const QUOTE_BANK_DEFAULT = {
+  customer: 'CORE VELOCITY SPORT MACHINE TRADING L.L.C',
+  bank: 'Emirates NBD',
+  account: '1015908678801',
+  iban: 'AE410260001015908678801',
+  currency: 'AED'
+};
+const USD_PER_AED = 1 / 3.67;          /* 1 USD = 3.67 AED */
+const QUOTE_VAT = 5;                   /* the UAE rate; an export quote is zero-rated */
+const QUOTE_APPROVER_DEFAULT = 'ahmed@core-velocity.com';
+const quoteSeller = () => Object.assign({}, QUOTE_SELLER, (DB.config || {}).quoteSeller || {});
+const quoteBank   = () => Object.assign({}, QUOTE_BANK_DEFAULT, (DB.config || {}).quoteBank || {});
+/* Who signs off. One address, not a role: a quote is money, and "whoever
+   happens to be an admin" is not the same question as "did Ahmed agree". */
+const quoteApprover = () => String((DB.config || {}).quoteApprover || QUOTE_APPROVER_DEFAULT).trim().toLowerCase();
+const myEmail = () => String((AUTH.user && AUTH.user.username) || '').trim().toLowerCase();
+const canApproveQuotes = () => !!myEmail() && myEmail() === quoteApprover();
+
+const INTL_TERM_CURRENCY = { label: 'Currency', detail: 'All prices are quoted in US Dollars (USD) and are exclusive of destination duties, import taxes and customs clearance charges.' };
+const INTL_TERM_DELIVERY = { label: 'Delivery', detail: 'Estimated delivery within 1-2 weeks via Air Freight to the stated final destination, subject to stock and carrier availability.' };
+const INTL_TERM_DUTIES   = { label: 'Duties & Taxes', detail: 'All import duties, VAT/GST and customs clearance at the destination country are the responsibility of the buyer.' };
+
+/* ---------------------------------------------------- money and dates */
+const qMoney = (n, q) => ((q && q.international) ? 'USD ' : 'AED ') + money(Number(n) || 0, { dash: false });
+const q2 = n => Math.round((Number(n) || 0) * 100) / 100;
+function qDate(v) {
+  const s = String(v || '');
+  if (!s) return '—';
+  const d = new Date(s.length <= 10 ? s + 'T00:00:00' : s);
+  return isNaN(d) ? s : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+/* The reference the tracker used, to the millisecond. Imported quotes keep
+   their own, and a new one here looks the same as one made over there. */
+function quoteRef() {
+  const d = new Date(), p = (n, w) => String(n).padStart(w || 2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${p(d.getMilliseconds(), 3)}`;
+}
+
+/* ---------------------------------------------------- the records */
+const quotesAll = () => live('quotes');
+const getQuote = id => quotesAll().find(q => q.id === id) || null;
+/* A rep sees their own; everyone else's is the office's business. */
+function quoteScope() {
+  const all = quotesAll().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  if (isAdmin() || myRole() === 'office' || canApproveQuotes()) return all;
+  const me = currentOwnerId();
+  return all.filter(q => String(q.ownerId) === me);
+}
+const quotesForDeal = id => quotesAll().filter(q => q.dealId === id)
+  .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+function quoteNew(seed) {
+  const s = seed || {};
+  const intl = !!s.international;
+  const exp = new Date(); exp.setDate(exp.getDate() + 14);
+  const me = DB.owners.find(o => o.id === currentOwnerId()) || {};
+  return {
+    id: uid('Q'), ref: quoteRef(),
+    name: s.name || '', dealId: s.dealId || '', companyId: s.companyId || '', contactId: s.contactId || '',
+    buyer: Object.assign({ name: '', email: '', phone: '', address: '', vat: '' }, s.buyer || {}),
+    sender: { name: me.name || (AUTH.user && AUTH.user.name) || '', email: me.email || myEmail() || '',
+      phone: me.phone || '+971', title: me.title || 'Sales Executive' },
+    items: [], discount: 0, vatRate: intl ? 0 : QUOTE_VAT,
+    schedule: [{ pct: 100, when: 'On placing the order' }],
+    payBank: true, bank: Object.assign(quoteBank(), { currency: intl ? 'USD' : 'AED' }),
+    payLink: false, paymentLink: '',
+    comments: intl ? 'Thank you for your business! This is an international quotation — prices are in USD and exclude destination duties and taxes.'
+                   : 'Thank you for your business!',
+    status: 'Draft', ownerId: currentOwnerId(),
+    createdAt: new Date().toISOString(), expiresAt: exp.toISOString().slice(0, 10),
+    shipDate: intl ? '1-2 weeks via Air Freight' : '1-2 days',
+    international: intl, currency: intl ? 'USD' : 'AED', fx: intl ? USD_PER_AED : 1,
+    destination: ''
+  };
+}
+function quoteSave(q) {
+  q.updatedAt = new Date().toISOString();
+  quoteTotals(q);
+  return upsert('quotes', q);
+}
+
+/* ---------------------------------------------------- the arithmetic
+   One overall discount as an amount, VAT on what is left, and nothing
+   rounded until it is written down — the same order the tracker used, so
+   an imported quote recomputes to the figure it was approved at. */
+function quoteTotals(q) {
+  const sub = (q.items || []).reduce((a, it) => a + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
+  const disc = Math.max(0, Number(q.discount) || 0);
+  const rate = q.international ? 0 : (q.vatRate == null ? QUOTE_VAT : Number(q.vatRate) || 0);
+  const taxable = Math.max(0, sub - disc);
+  q.subtotal = q2(sub);
+  q.vatRate = rate;
+  q.vatAmount = q2(taxable * rate / 100);
+  q.total = q2(taxable + taxable * rate / 100);
+  return q;
+}
+
+/* ---------------------------------------------------- approval
+   The signature is the whole idea. Approval is given to a set of prices,
+   not to a record: discount, and every line's sku, quantity and unit
+   price. Re-saving, syncing, fixing a typo in the comments or emailing it
+   leaves the signature alone; changing what it costs does not, and the
+   quote says so instead of going out at a price nobody agreed. */
+function quoteSig(q) {
+  return q2(q.discount) + '~' + (q.items || [])
+    .map(it => (it.sku || it.desc || '') + ':' + q2(it.qty) + ':' + q2(it.unitPrice)).join('|');
+}
+const quoteApproved = q => ['Approved', 'Published', 'Booked'].includes(q.status);
+function quoteChangedSinceApproval(q) {
+  if (!quoteApproved(q)) return false;
+  if (!q.approvedSig) return false;              /* imported without one — trusted */
+  return quoteSig(q) !== q.approvedSig;
+}
+const quoteNeedsApproval = q => (Number(q.discount) || 0) > 0;
+const quotePrintAllowed = q => quoteApproved(q) && !quoteChangedSinceApproval(q);
+function quoteStatusLabel(q) {
+  if (quoteChangedSinceApproval(q)) return 'Changed · needs re-approval';
+  return q.status;
+}
+const QUOTE_STATUS_TAG = { Draft: '', 'Pending Approval': 'warn', Approved: 'good',
+  Rejected: 'bad', Published: 'info', Booked: 'good' };
+
+/* ================================================================
+   THE TERMS LIBRARY
+   Purchase terms belong to a product type, not to a quote: the same
+   XFIT-PEAK sells on the same terms whoever is selling it. A quote picks
+   up the terms of every type on it — common ones once, each type's own
+   underneath — so nobody is retyping legal text into a quote at 7pm.
+   ================================================================ */
+const QUOTE_TERMS_SEED = {
+  'XFIT-FLOW': [
+    { label: 'CONSUMER AGREEMENT', scope: 'common', detail: 'This quotation is subject to the Terms & Conditions of Sale & Terms of Service located at: https://www.core-velocity.com/terms-policies' },
+    { label: 'PRICE INCLUDES', scope: 'unique', detail: '1 Year of OXEFIT Consumer Membership (7 Family Profiles) and White Glove Delivery Services' },
+    { label: 'CONSUMER MEMBERSHIP RENEWAL', scope: 'unique', detail: 'After the 1st Year, Annual Renewal of OxeFit Membership is AED 2,752.50, subject to change' },
+    { label: 'LIMITED WARRANTY', scope: 'unique', detail: '36 MONTHS WARRANTY ON FRAME + 12 MONTHS WARRANTY ON MOVING PARTS, ACCESSORIES, ELECTRONICS, LABOR' },
+    { label: 'ADDITIONAL NOTE', scope: 'common', detail: '- Delivery To Customer Address within 1-2 Days\n- Any of the offered Training session must be scheduled within 14 days from the installation date.' }
+  ]
+};
+const QUOTE_PAYTERMS_SEED = {
+  full: [{ label: 'PAYMENT TERMS', detail: '100% on placement of order. All payments via bank transfer. Order is non-refundable and non-cancellable.' }],
+  installment: [{ label: 'PAYMENT TERMS', detail: 'Payable by installments as per the Payment Schedule above. Each milestone is due on its stated date/event. All payments via bank transfer. Order is non-refundable and non-cancellable.' }]
+};
+function quoteTermsLib() {
+  const c = DB.config || {};
+  if (c.quoteTerms && typeof c.quoteTerms === 'object' && Object.keys(c.quoteTerms).length) return c.quoteTerms;
+  return QUOTE_TERMS_SEED;
+}
+function quotePayTermsLib() {
+  const c = (DB.config || {}).quotePayTerms;
+  if (c && (Array.isArray(c.full) || Array.isArray(c.installment)))
+    return { full: c.full || [], installment: c.installment || [] };
+  return QUOTE_PAYTERMS_SEED;
+}
+/* A single milestone is "paid in full"; more than one is an installment
+   plan, and the two carry different payment terms. */
+const quotePayMode = q => ((q && q.schedule) || []).length > 1 ? 'installment' : 'full';
+const quotePayTerms = q => (quotePayTermsLib()[quotePayMode(q)] || []).filter(r => r.label || r.detail);
+/* The product types on the quote, first seen first. */
+const quoteTypes = q => [...new Set(((q && q.items) || []).map(it => it.lineType).filter(Boolean))];
+function quoteTermRows(q) {
+  const lib = quoteTermsLib();
+  const groups = quoteTypes(q).map(t => ({ type: t, rows: (lib[t] || []).filter(r => r.label || r.detail) }))
+    .filter(g => g.rows.length);
+  if (!groups.length) return [];
+  if (groups.length === 1) return groups[0].rows.map(r => ({ label: r.label, detail: r.detail }));
+  /* Several types on one quote: the terms they share are stated once under
+     a general heading, then each type's own under its own. */
+  const out = [], seen = new Set(), common = [];
+  groups.forEach(g => g.rows.forEach(r => {
+    if (r.scope !== 'common') return;
+    const k = String(r.label || '').toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k); common.push({ label: r.label, detail: r.detail });
+  }));
+  if (common.length) { out.push({ isHeader: true, label: 'General Terms' }); common.forEach(r => out.push(r)); }
+  groups.forEach(g => {
+    const own = g.rows.filter(r => r.scope !== 'common');
+    if (!own.length) return;
+    out.push({ isHeader: true, label: g.type });
+    own.forEach(r => out.push({ label: r.label, detail: r.detail }));
+  });
+  return out;
+}
+/* An export quote: prices in USD, three terms of its own, and any AED
+   figure written into the other terms restated in USD rather than left
+   to contradict the prices above it. */
+function qAedToUsd(str) {
+  return String(str || '').replace(/AED\s*([\d][\d,]*(?:\.\d+)?)/gi, (m, num) =>
+    'USD ' + money(((parseFloat(String(num).replace(/,/g, '')) || 0) * USD_PER_AED), { dash: false }));
+}
+function quoteTermsFor(q) {
+  let rows = quoteTermRows(q);
+  if (!q.international) return rows;
+  rows = rows.map(r => r.isHeader ? r : { label: r.label, detail: qAedToUsd(r.detail) });
+  const at = lbl => rows.findIndex(r => !r.isHeader && String(r.label || '').toLowerCase() === lbl);
+  const di = at('delivery');
+  if (di >= 0) rows[di] = Object.assign({}, INTL_TERM_DELIVERY); else rows.push(Object.assign({}, INTL_TERM_DELIVERY));
+  if (at('currency') < 0) rows.splice(0, 0, Object.assign({}, INTL_TERM_CURRENCY));
+  if (rows.findIndex(r => !r.isHeader && String(r.label || '').toLowerCase().indexOf('duties') === 0) < 0) {
+    const d2 = at('delivery');
+    rows.splice(d2 >= 0 ? d2 + 1 : rows.length, 0, Object.assign({}, INTL_TERM_DUTIES));
+  }
+  return rows;
+}
+
+/* ================================================================
+   THE DOCUMENT
+   One generator for the preview, the PDF, the copy attached to the deal
+   and the copy emailed to the buyer — so there is only ever one version
+   of what was quoted.
+
+   The line items and the terms are laid out as divs rather than table
+   rows on purpose: html2pdf cannot keep a tall <tr> whole across a page
+   break, and a term split down the middle of a sentence is how a quote
+   stops looking like it came from a company.
+   ================================================================ */
+function quoteDocHTML(q) {
+  const M = n => qMoney(n, q);
+  const S = quoteSeller();
+  const itemRow = it => `<div style="display:flex;border-bottom:1px solid #eef2f7;page-break-inside:avoid;break-inside:avoid">` +
+    `<div style="width:54%;padding:9px 10px;font-size:12px;color:#1a202c;overflow-wrap:anywhere"><div class="qp-item-sku">${esc(it.sku || '')}</div>${esc(it.desc || '')}</div>` +
+    `<div style="width:18%;padding:9px 10px;font-size:12px;text-align:right">${M(it.unitPrice || 0)}</div>` +
+    `<div style="width:10%;padding:9px 10px;font-size:12px;text-align:right">${esc(String(it.qty || 0))}</div>` +
+    `<div style="width:18%;padding:9px 10px;font-size:12px;text-align:right">${M((it.qty || 0) * (it.unitPrice || 0))}</div>` +
+  `</div>`;
+  const itemsBlock = `<div style="border:1px solid #e2e8f0;border-radius:4px;overflow:hidden">` +
+    `<div style="display:flex;background:#dbeafe;color:#1e3a8a;font-size:10px;font-weight:800;letter-spacing:.3px">` +
+      `<div style="width:54%;padding:8px 10px">PRODUCTS &amp; SERVICES</div>` +
+      `<div style="width:18%;padding:8px 10px;text-align:right">UNIT PRICE</div>` +
+      `<div style="width:10%;padding:8px 10px;text-align:right">QTY</div>` +
+      `<div style="width:18%;padding:8px 10px;text-align:right">AMOUNT</div></div>` +
+    ((q.items || []).length ? (q.items || []).map(itemRow).join('')
+      : `<div style="padding:9px 10px;color:#94a3b8;font-size:12px">No line items</div>`) +
+  `</div>`;
+
+  const co = q.companyId ? getCo(q.companyId) : null;
+  const coName = (co && co.name) || q.companyName || '';
+  const buyerBlock =
+    `<h5>${esc(coName || q.buyer.name || '—')}</h5>` +
+    (coName && q.buyer.name ? `<div><strong>${esc(q.buyer.name)}</strong></div>` : '') +
+    (q.buyer.email ? `<div class="qp-muted">${esc(q.buyer.email)}</div>` : '') +
+    (q.buyer.phone ? `<div class="qp-muted">${esc(q.buyer.phone)}</div>` : '') +
+    (q.buyer.address ? `<div class="qp-muted">${esc(q.buyer.address)}</div>` : '') +
+    (q.buyer.vat ? `<div class="qp-muted">VAT ID: ${esc(q.buyer.vat)}</div>` : '') +
+    `<div class="qp-muted" style="margin-top:12px">Reference: ${esc(q.ref || '')}</div>` +
+    `<div class="qp-muted">Quote created: ${esc(qDate(q.createdAt))}</div>` +
+    `<div class="qp-muted">Quote expires: ${esc(qDate(q.expiresAt))}</div>` +
+    (q.international && q.destination ? `<div class="qp-muted" style="margin-top:8px"><strong>Final destination:</strong> ${esc(q.destination)}</div>` : '') +
+    (q.shipDate ? `<div class="qp-muted">${q.international ? 'Delivery' : 'Ship date'}: ${esc(q.shipDate)}</div>` : '') +
+    (q.international ? `<div class="qp-muted"><strong>Currency: USD</strong> · duties &amp; import taxes excluded</div>` : '');
+  const sellerBlock =
+    `<h5>${esc(S.name)}</h5>` +
+    (S.addrLines || []).map(l => `<div class="qp-muted">${esc(l)}</div>`).join('') +
+    `<div class="qp-muted"><strong>VAT Reg. No: ${esc(S.vat)}</strong></div>` +
+    `<div style="margin-top:12px"><strong>Prepared by: ${esc(q.sender.name || '')}</strong></div>` +
+    (q.sender.title ? `<div class="qp-muted">${esc(q.sender.title)}</div>` : '') +
+    (q.sender.email ? `<div class="qp-muted">${esc(q.sender.email)}</div>` : '') +
+    (q.sender.phone ? `<div class="qp-muted">${esc(q.sender.phone)}</div>` : '');
+
+  const schedTable = `<table class="qp-table"><colgroup><col style="width:74%"><col style="width:26%"></colgroup>` +
+    `<thead><tr><th>PAYMENT MILESTONE</th><th class="qp-r">PERCENTAGE</th></tr></thead><tbody>` +
+    (q.schedule || []).map(s => `<tr><td>${esc(s.when || '—')}</td><td class="qp-r">${esc(String(s.pct))}%</td></tr>`).join('') +
+    `</tbody></table>`;
+
+  const lines = d => String(d || '').split(/\n/).filter(s => s.trim() !== '');
+  const isLong = t => { const d = String(t.detail || ''); return lines(d).length >= 3 || d.length > 320; };
+  const detailHtml = d => { const l = lines(d);
+    return l.length <= 1 ? esc(String(d || ''))
+      : l.map(x => `<div class="qp-pt" style="page-break-inside:avoid;break-inside:avoid">${esc(x)}</div>`).join(''); };
+  const termRows = rows => rows.map(r => {
+    if (r.isHeader) return `<div style="background:#eef2ff;color:#1e3a8a;font-weight:800;font-size:11px;letter-spacing:.5px;padding:7px 10px;border-bottom:1px solid #dbe3f4;page-break-inside:avoid">${esc(r.label || '')}</div>`;
+    const long = isLong(r);
+    return `<div style="display:flex;border-bottom:1px solid #eef2f7;${long ? '' : 'page-break-inside:avoid;break-inside:avoid;'}">` +
+      `<div style="width:26%;padding:7px 10px;font-weight:700;color:#0f172a;font-size:11.5px;overflow-wrap:anywhere">${esc(r.label || '')}</div>` +
+      `<div style="width:74%;padding:7px 10px;color:#334155;font-size:11.5px;white-space:pre-line;overflow-wrap:anywhere">${long ? detailHtml(r.detail) : esc(String(r.detail || ''))}</div>` +
+    `</div>`;
+  }).join('');
+  const termsBlock = (rows, t1, t2) => rows.length
+    ? `<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-top:6px">` +
+      `<div style="display:flex;background:#122036;color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px">` +
+      `<div style="width:26%;padding:7px 10px">${t1}</div><div style="width:74%;padding:7px 10px">${t2}</div></div>` +
+      termRows(rows) + `</div>` : '';
+
+  let payBlock = '';
+  if (q.payBank && q.bank) payBlock += `<div class="qp-bank-grid"><b>Bank Transfer</b><br>` +
+    `Customer Name: ${esc(q.bank.customer || '')}<br>Bank: ${esc(q.bank.bank || '')}<br>` +
+    `Account: ${esc(q.bank.account || '')}<br>IBAN: ${esc(q.bank.iban || '')}<br>` +
+    `Currency: ${esc(q.bank.currency || 'AED')}</div>`;
+  if (q.payLink && q.paymentLink) payBlock += `<div style="margin-top:8px"><b>Payment link:</b> ` +
+    `<a href="${esc(q.paymentLink)}">${esc(q.paymentLink)}</a></div>`;
+
+  return `
+    <div class="qp-runhead"><span class="qp-runhead-meta">QUOTE · ${esc(q.ref || '')} · VAT ${esc(S.vat)}</span></div>
+    <img class="qp-logo-img" src="${QUOTE_LOGO_URI}" alt="OXEFIT by CORE">
+    <div class="qp-title">${esc(q.name || 'Quote')}</div>
+    ${q.international ? `<div style="text-align:center;margin:-22px 0 26px;font-size:12px;font-weight:700;letter-spacing:1px;color:#0e7490">INTERNATIONAL QUOTATION · PRICES IN USD${q.destination ? ' · ' + esc(q.destination) : ''}</div>` : ''}
+    <div class="qp-cols"><div class="qp-col">${buyerBlock}</div><div class="qp-col">${sellerBlock}</div></div>
+    <div class="qp-total-line"><span class="qp-tl-label">Total</span><span class="qp-tl-val">${M(q.total || 0)}</span></div>
+    ${itemsBlock}
+    <div class="qp-keep"><div class="qp-section-h">Summary</div><div class="qp-summary">
+      <div class="qp-srow"><span>One-time subtotal</span><span>${M(q.subtotal || 0)}</span></div>
+      ${(q.discount || 0) > 0 ? `<div class="qp-srow"><span>One-time discount</span><span>(${M(q.discount || 0)})</span></div>` : ''}
+      ${(q.vatRate || 0) > 0 ? `<div class="qp-srow"><span>VAT (${esc(String(q.vatRate))}%)</span><span>${M(q.vatAmount || 0)}</span></div>` : ''}
+      <div class="qp-srow qp-sgrand"><span>Total</span><span>${M(q.total || 0)}</span></div>
+    </div></div>
+    <div class="qp-page2">
+      <div class="qp-keep"><div class="qp-section-h">Payment Schedule</div>${schedTable}
+      ${termsBlock(quotePayTerms(q), 'PAYMENT TERM', 'DETAIL')}</div>
+      ${(() => { const t = termsBlock(quoteTermsFor(q), 'TERM', 'DETAIL');
+        return t ? `<div class="qp-terms-block"><div class="qp-section-h">Purchase Terms</div>${t}</div>` : ''; })()}
+      <div class="qp-accept">By issuing a PO, signing this quote or paying an invoice related to this quote, you are accepting the purchase terms &amp; conditions on behalf of your organization.</div>
+      ${payBlock ? `<div class="qp-keep"><div class="qp-section-h">Payment Details</div>${payBlock}</div>` : ''}
+      ${q.comments ? `<div class="qp-keep"><div class="qp-section-h">Comments</div><div class="qp-muted">${esc(q.comments)}</div></div>` : ''}
+    </div>
+    <div class="qp-runfoot" style="margin-top:26px">${esc(S.name)} · VAT ${esc(S.vat)} · ${esc((S.addrLines || []).join(', '))}</div>`;
+}
+const quoteFileName = q => (String(q.name || 'Quote').replace(/[\\/:*?"<>|]+/g, '-').trim() + ' - ' +
+  String(q.createdAt || '').slice(0, 10) + '.pdf');
+
+/* ================================================================
+   THE PDF
+   html2pdf renders the same markup the preview shows. The library is
+   fetched the first time somebody needs it rather than carried in the
+   page, and if it cannot be fetched the browser's own print dialog is
+   the fallback — a quote that will not print is worse than one that
+   prints through a dialog.
+   ================================================================ */
+const QUOTE_PDF_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+let QPDF = null;
+function quotePdfLib() {
+  if (window.html2pdf) return Promise.resolve(window.html2pdf);
+  if (QPDF) return QPDF;
+  QPDF = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = QUOTE_PDF_LIB;
+    s.onload = () => window.html2pdf ? res(window.html2pdf) : rej(new Error('the PDF library did not load'));
+    s.onerror = () => { QPDF = null; rej(new Error('the PDF library could not be reached')); };
+    document.head.appendChild(s);
+  });
+  return QPDF;
+}
+/* An off-screen copy of the document at A4 width, which is what the
+   renderer measures. Rendering the on-screen preview instead picks up
+   whatever width the window happens to be. */
+function quoteDocHost(q) {
+  const host = el('div', { class: 'qp-doc qp-offscreen' });
+  host.innerHTML = quoteDocHTML(q);
+  document.body.appendChild(host);
+  return host;
+}
+const QUOTE_PDF_OPTS = {
+  margin: [12, 0, 14, 0],
+  image: { type: 'jpeg', quality: 0.95 },
+  html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+  jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  pagebreak: { mode: ['css', 'legacy'],
+    avoid: ['.qp-keep', '.qp-summary', '.qp-srow', '.qp-cols', '.qp-total-line', '.qp-accept',
+            '.qp-bank-grid', '.qp-section-h', '.qp-table thead', '.qp-item-sku', '.qp-pt'] }
+};
+async function quotePdfBlob(q) {
+  const lib = await quotePdfLib();
+  const host = quoteDocHost(q);
+  try {
+    return await lib().set(Object.assign({ filename: quoteFileName(q) }, QUOTE_PDF_OPTS))
+      .from(host).outputPdf('blob');
+  } finally { host.remove(); }
+}
+async function quoteDownload(q) {
+  if (!quotePrintAllowed(q)) return toast(quoteChangedSinceApproval(q)
+    ? 'The pricing changed since it was approved — submit it again first'
+    : 'A quote can be downloaded once it is approved', 'err');
+  toast('Building the PDF…');
+  try {
+    const blob = await quotePdfBlob(q);
+    const a = el('a', { href: URL.createObjectURL(blob), download: quoteFileName(q) });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+    toast('Downloaded', 'ok');
+  } catch (e) {
+    /* No library, no network to the CDN: print it instead. */
+    const host = quoteDocHost(q);
+    host.classList.add('qp-printing');
+    document.body.classList.add('qp-printmode');
+    const title = document.title; document.title = quoteFileName(q).replace(/\.pdf$/, '');
+    setTimeout(() => { window.print(); document.title = title;
+      document.body.classList.remove('qp-printmode'); host.remove(); }, 120);
+    toast('Could not build a PDF here (' + String(e.message || e).slice(0, 60) + ') — printing it instead', 'warn');
+  }
+}
+
+/* ================================================================
+   APPROVAL
+   No discount and the quote approves itself — there is nothing for a
+   human to decide. Any discount at all goes to one named person, and
+   nobody else can decide it, whatever role they hold here.
+   ================================================================ */
+async function quoteSubmit(q) {
+  if (!q.name || !(q.items || []).length) return toast('A quote needs a name and at least one line', 'err');
+  if (!q.buyer.email) return toast('The buyer needs an email address — that is where it goes', 'err');
+  quoteTotals(q);
+  q.submittedAt = new Date().toISOString();
+  q.submittedBy = (AUTH.user && AUTH.user.name) || ownerName(q.ownerId);
+  q.submittedByEmail = myEmail();
+  if (!quoteNeedsApproval(q)) {
+    q.status = 'Approved';
+    q.approvedBy = 'Auto-approved (no discount)';
+    q.approvedAt = q.submittedAt;
+    q.approvedDiscount = 0;
+    q.approvedSig = quoteSig(q);
+    q.rejectedReason = null;
+    quoteSave(q); render();
+    toast('No discount on it, so it is approved — attach it to the deal or send it', 'ok');
+    return true;
+  }
+  q.status = 'Pending Approval';
+  q.approvedBy = null; q.approvedAt = null; q.rejectedReason = null;
+  quoteSave(q); render();
+  const ok = await quoteMailApproval(q).catch(() => false);
+  toast(ok ? 'Sent to ' + quoteApprover() + ' for approval'
+           : 'Marked as pending — the email could not be sent, tell ' + quoteApprover() + ' directly', ok ? 'ok' : 'warn');
+  return true;
+}
+function quoteDecide(q, decision, reason) {
+  if (!canApproveQuotes()) return toast('Only ' + quoteApprover() + ' can approve a quote', 'err');
+  q.status = decision === 'approve' ? 'Approved' : 'Rejected';
+  q.approvedBy = (AUTH.user && AUTH.user.name) || myEmail();
+  q.approvedAt = new Date().toISOString();
+  if (decision === 'approve') {
+    q.approvedDiscount = Number(q.discount) || 0;
+    q.approvedSig = quoteSig(q);
+    q.rejectedReason = null;
+  } else {
+    q.rejectedReason = String(reason || '').trim() || null;
+    q.approvedSig = null;
+  }
+  quoteSave(q); render();
+  quoteMailDecision(q, decision).catch(() => {});
+  toast(decision === 'approve' ? 'Approved' : 'Rejected — the rep has been told', decision === 'approve' ? 'ok' : 'warn');
+}
+
+/* ================================================================
+   EMAIL
+   Three mails, all sent from whoever is signed in, through the same
+   Graph call the rest of the tool uses:
+     · to the approver, when a discount needs a decision;
+     · back to the rep, when the decision is made;
+     · to the customer, with the PDF actually attached — the old tool
+       downloaded it and left the rep to find it and attach it by hand,
+       which is where quotes went quiet for a day.
+   ================================================================ */
+const quoteLink = q => location.origin + location.pathname + '#quotes?q=' + encodeURIComponent(q.id);
+function quoteMailRows(q) {
+  return [['Quote', q.name], ['Reference', q.ref],
+    ['Buyer', [q.buyer.name, q.buyer.email].filter(Boolean).join(' · ')],
+    ['Prepared by', q.sender.name],
+    q.international ? ['Destination', q.destination] : null,
+    (Number(q.discount) || 0) > 0 ? ['Discount', qMoney(q.discount, q)] : null,
+    ['Total', qMoney(q.total, q)], ['Expires', qDate(q.expiresAt)]
+  ].filter(Boolean).filter(([, v]) => v);
+}
+function quoteMailHtml(q, lead, cta) {
+  const rows = quoteMailRows(q).map(([k, v]) =>
+    `<tr><td style="padding:6px 14px 6px 0;color:#5b6474;white-space:nowrap">${esc(k)}</td>` +
+    `<td style="padding:6px 0;color:#11151c"><b>${esc(String(v))}</b></td></tr>`).join('');
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#11151c;max-width:640px">
+  <p style="margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#5b6474">CoreV Sales CRM · quote</p>
+  <h2 style="margin:0 0 6px;font-size:21px">${esc(q.name || 'Quote')}</h2>
+  <p style="margin:0 0 16px;font-size:16px"><b>${esc(lead)}</b></p>
+  <table style="border-collapse:collapse;margin:0 0 18px">${rows}</table>
+  ${cta ? `<p style="margin:0 0 20px"><a href="${esc(quoteLink(q))}" style="background:#2f6df6;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-weight:600">${esc(cta)}</a></p>` : ''}
+  <p style="margin:0;color:#5b6474;font-size:13px"><a href="${esc(quoteLink(q))}" style="color:#2f6df6">${esc(quoteLink(q))}</a></p></div>`;
+}
+async function quoteMailApproval(q) {
+  const cc = [q.submittedByEmail].filter(Boolean);
+  await graphSendMail([quoteApprover()],
+    `Quote approval needed (discount ${qMoney(q.discount, q)}): ${q.name} · ${q.ref}`,
+    quoteMailHtml(q, `${q.sender.name || 'A rep'} is asking for ${qMoney(q.discount, q)} off this quote. It cannot be sent until you decide.`,
+      'Open it in the CRM to approve or reject'), cc);
+  q.approvalMailedAt = new Date().toISOString(); quoteSave(q);
+  return true;
+}
+async function quoteMailDecision(q, decision) {
+  const rep = DB.owners.find(o => o.id === String(q.ownerId));
+  const to = [q.submittedByEmail || (rep && rep.email)].filter(Boolean);
+  if (!to.length) return false;
+  await graphSendMail(to, (decision === 'approve' ? 'Approved' : 'Rejected') + `: ${q.name} · ${q.ref}`,
+    quoteMailHtml(q, decision === 'approve'
+      ? 'Approved. You can send it to the customer and attach it to the deal.'
+      : 'Not approved' + (q.rejectedReason ? ' — ' + q.rejectedReason : '') + '. Change it and submit it again.',
+      'Open the quote'), [quoteApprover()]);
+  return true;
+}
+/* To the customer, with the PDF on it. */
+async function quoteSendToBuyer(q, opt) {
+  const o = opt || {};
+  if (!quotePrintAllowed(q)) return toast(quoteChangedSinceApproval(q)
+    ? 'The pricing changed since it was approved — it needs approving again before it goes out'
+    : 'It has to be approved before it goes to the customer', 'err');
+  const to = [String(o.to || q.buyer.email || '').trim()].filter(Boolean);
+  if (!to.length) return toast('No email address for the buyer', 'err');
+  if (SYNC.mode !== 'onedrive') return toast('Sign in with Microsoft to send it from here', 'err');
+  toast('Building the PDF…');
+  try {
+    const blob = await quotePdfBlob(q);
+    const bytes = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result).split(',')[1]);
+      fr.onerror = () => rej(new Error('could not read the PDF back'));
+      fr.readAsDataURL(blob);
+    });
+    const cc = [q.sender.email, quoteApprover()].filter(Boolean)
+      .filter((x, i, a) => a.indexOf(x) === i && x.toLowerCase() !== to[0].toLowerCase());
+    const body = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;color:#11151c;max-width:640px">
+      <p>Dear ${esc((q.buyer.name || '').split(' ')[0] || 'Sir/Madam')},</p>
+      <p>${esc(o.message || 'Please find our quotation attached. It is valid until ' + qDate(q.expiresAt) + '.')}</p>
+      <p><b>${esc(q.name)}</b> · ${esc(q.ref)}<br>Total: <b>${esc(qMoney(q.total, q))}</b>${(q.vatRate || 0) > 0 ? ' (incl. VAT)' : ''}</p>
+      <p>Happy to walk you through it or adjust anything.</p>
+      <p>${esc(q.sender.name || '')}<br>${esc(q.sender.title || '')}<br>${esc(quoteSeller().name)}<br>${esc(q.sender.phone || '')}</p></div>`;
+    await graphSendMail(to, `${quoteSeller().name} — quotation ${q.ref}`, body, cc,
+      [{ name: quoteFileName(q), contentType: 'application/pdf', bytes }]);
+    q.sentAt = new Date().toISOString(); q.sentTo = to[0];
+    q.sentBy = (AUTH.user && AUTH.user.name) || myEmail();
+    quoteSave(q);
+    if (q.dealId) logAct({ dealId: q.dealId, ownerId: q.ownerId, kind: 'note',
+      html: `Quote <b>${esc(q.ref)}</b> emailed to ${esc(to[0])} · ${esc(qMoney(q.total, q))}` });
+    render();
+    toast('Sent to ' + to[0] + (cc.length ? ' · copied to ' + cc.join(', ') : ''), 'ok');
+    return true;
+  } catch (e) {
+    toast('Could not send it: ' + String(e.message || e).slice(0, 120), 'err');
+    return false;
+  }
+}
+
+/* ================================================================
+   ONTO THE DEAL
+   What the old tool pushed to HubSpot — the PDF on the record and a note
+   saying what it was — happens here instead: the file goes into the
+   deal's own attachments in the shared OneDrive folder, and the deal's
+   activity carries the reference, the total and who sent it.
+   ================================================================ */
+async function quotePushToDeal(q, opt) {
+  const o = opt || {};
+  if (!q.dealId) return toast('This quote is not on a deal yet — pick one first', 'err');
+  const d = getDl(q.dealId);
+  if (!d) return toast('That deal is no longer here', 'err');
+  if (!quotePrintAllowed(q)) return toast(quoteChangedSinceApproval(q)
+    ? 'The pricing changed since it was approved — submit it again first'
+    : 'It has to be approved before it goes on the deal', 'err');
+  if (SYNC.mode !== 'onedrive') return toast('Sign in with Microsoft — the file goes into the shared folder', 'err');
+  toast('Building the PDF…');
+  try {
+    const blob = await quotePdfBlob(q);
+    const file = new File([blob], quoteFileName(q), { type: 'application/pdf' });
+    const att = await uploadAttachment(d.id, file);
+    q.status = q.status === 'Booked' ? q.status : 'Published';
+    q.publishedAt = new Date().toISOString();
+    q.attachmentId = att && att.id;
+    quoteSave(q);
+    logAct({ dealId: d.id, ownerId: q.ownerId, kind: 'note',
+      html: `Quote <b>${esc(q.ref)}</b> — ${esc(q.name)} (${esc(qMoney(q.total, q))}) attached to this deal` });
+    /* The deal's value and the quote's total disagreeing is how a forecast
+       quietly goes wrong, so it is offered rather than done behind anyone. */
+    if (o.setAmount && !q.international) { d.amount = q.total; d.amountMode = 'manual'; upsert('deals', d); }
+    render();
+    toast('On the deal' + (o.setAmount && !q.international ? ' · deal value set to ' + qMoney(q.total, q) : ''), 'ok');
+    return true;
+  } catch (e) {
+    toast('Could not attach it: ' + String(e.message || e).slice(0, 120), 'err');
+    return false;
+  }
+}
+
+/* ================================================================
+   BRINGING THE OLD QUOTES ACROSS
+   The tracker kept everything in one file next to this one —
+   OXEFIT/sales-tracker.json — with the quotes, the product catalogue and
+   the terms library in it. This reads that file, once, and brings them
+   over: every quote with the status, the approval, the dates and the
+   person who raised it intact, matched onto this CRM's deals and
+   companies where the names line up.
+
+   It writes nothing back, and a quote already here is left alone, so it
+   can be run twice without making a mess.
+   ================================================================ */
+const QUOTE_SRC_FILE = 'sales-tracker.json';
+async function quoteSourceRead() {
+  await resolveDrive();
+  const me = await graph(`/drives/${DRIVE.id}/items/${DRIVE.folderId}?$select=id,name,parentReference`);
+  const parent = me && me.parentReference && me.parentReference.id;
+  if (!parent) throw new Error('could not find the folder this one sits in');
+  const kids = await graph(`/drives/${DRIVE.id}/items/${parent}/children?$top=200&$select=id,name,size,file`);
+  const hit = ((kids && kids.value) || []).find(x => x.file && x.name.toLowerCase() === QUOTE_SRC_FILE);
+  if (!hit) throw new Error(QUOTE_SRC_FILE + ' is not in the folder beside this one');
+  const r = await graph(`/drives/${DRIVE.id}/items/${hit.id}/content`, { raw: true });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch (e) { throw new Error('that file is not readable JSON'); }
+  return data;
+}
+/* The tracker's quote shape, in this CRM's words. */
+function quoteFromTracker(o) {
+  const items = (o.lineItems || []).map(it => ({
+    sku: it.sku || '', desc: it.desc || '', lineType: it.lineType || '',
+    qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0,
+    productId: (live('products').find(p => p.sku && it.sku && p.sku === it.sku) || {}).id || ''
+  }));
+  const q = {
+    id: uid('Q'), ref: o.reference || quoteRef(), srcId: o.id || null, srcTool: 'Sales Tracker',
+    name: o.name || '(unnamed quote)',
+    dealId: '', companyId: '', contactId: '',
+    srcDealId: o.dealId || '', dealName: o.dealName || '',
+    companyName: (o.company && o.company.name) || '',
+    buyer: Object.assign({ name: '', email: '', phone: '', address: '', vat: '' }, o.buyer || {}),
+    sender: Object.assign({ name: '', email: '', phone: '', title: '' }, o.sender || {}),
+    items, discount: Number(o.discount) || 0,
+    vatRate: Number(o.vatRate) || 0,
+    schedule: Array.isArray(o.schedule) && o.schedule.length ? o.schedule : [{ pct: 100, when: 'On placing the order' }],
+    payBank: o.payBank !== false, bank: o.bank || quoteBank(),
+    payLink: !!o.payLink, paymentLink: o.paymentLink || '',
+    comments: o.comments || '',
+    status: ['Draft', 'Pending Approval', 'Approved', 'Rejected', 'Published', 'Booked'].includes(o.status) ? o.status : 'Draft',
+    createdAt: o.createdAt || new Date().toISOString(),
+    updatedAt: o.updatedAt || o.createdAt || new Date().toISOString(),
+    expiresAt: o.expiresAt || '', shipDate: o.shipDate || '',
+    international: !!o.international, currency: o.currency || (o.international ? 'USD' : 'AED'),
+    fx: Number(o.fxRate) || (o.international ? USD_PER_AED : 1), destination: o.destination || '',
+    submittedBy: o.submittedBy || null, submittedByEmail: o.submittedByEmail || null, submittedAt: o.submittedAt || null,
+    approvedBy: o.approvedBy || null, approvedAt: o.approvedAt || null,
+    approvedDiscount: o.approvedDiscount == null ? null : Number(o.approvedDiscount),
+    approvedSig: o.approvedSig || null,
+    publishedAt: o.publishedAt || null
+  };
+  /* Who owned it over there, matched by name against this team. */
+  const owner = (DB.owners || []).find(x => !x._del &&
+    String(x.name || '').toLowerCase().split(' ')[0] === String(o.ownerUser || '').toLowerCase());
+  q.ownerId = owner ? owner.id : currentOwnerId();
+  /* The company and the deal, by name — the ids over there mean nothing here. */
+  const coName = String(q.companyName || '').trim().toLowerCase();
+  if (coName) {
+    const co = live('companies').find(c => String(c.name || '').trim().toLowerCase() === coName);
+    if (co) q.companyId = co.id;
+  }
+  const dName = String(q.dealName || '').trim().toLowerCase();
+  if (dName) {
+    const dl = live('deals').find(x => String(x.name || '').trim().toLowerCase() === dName);
+    if (dl) q.dealId = dl.id;
+  }
+  if (!q.dealId && q.companyId) {
+    const open = live('deals').filter(x => x.companyId === q.companyId && isOpen(x));
+    if (open.length === 1) q.dealId = open[0].id;
+  }
+  quoteTotals(q);
+  /* Totals are recomputed rather than trusted, but if that disagrees with
+     what the tracker stored, the stored figure is what the customer was
+     actually sent — so it is kept and the difference is noted. */
+  if (o.total != null && Math.abs(q2(o.total) - q.total) > 0.01) {
+    q.importedTotal = q2(o.total);
+    q.importNote = 'The tracker stored ' + qMoney(o.total, q) + ' for this; recomputed here as ' + qMoney(q.total, q) + '.';
+  }
+  return q;
+}
+async function quoteImport(opt) {
+  const o = opt || {};
+  if (SYNC.mode !== 'onedrive') return toast('Sign in with Microsoft first — the file is in the shared folder', 'err');
+  toast('Looking for the tracker’s file…');
+  let data;
+  try { data = await quoteSourceRead(); }
+  catch (e) { return toast('Could not read it: ' + String(e.message || e).slice(0, 130), 'err'); }
+  const rows = Array.isArray(data.quotes) ? data.quotes : [];
+  if (!rows.length) return toast('That file has no quotes in it', 'err');
+  const have = new Set(quotesAll().map(q => String(q.ref || '')).filter(Boolean));
+  const haveSrc = new Set(quotesAll().map(q => String(q.srcId || '')).filter(Boolean));
+  const fresh = rows.filter(r => !have.has(String(r.reference || '')) && !haveSrc.has(String(r.id || '')));
+  const made = [];
+  if (fresh.length) batch(() => fresh.forEach(r => {
+    try { const q = quoteFromTracker(r); upsert('quotes', q); made.push(q); } catch (e) { console.error(e); }
+  }));
+  /* The terms library and the product types come across too — a quote
+     without its terms is not the quote that was sent. */
+  let terms = 0, pay = 0;
+  if (o.terms !== false && data.termTemplates && typeof data.termTemplates === 'object') {
+    const lib = Object.assign({}, quoteTermsLib());
+    Object.keys(data.termTemplates).forEach(k => {
+      const rowsIn = (data.termTemplates[k] || []).filter(r => r && (r.label || r.detail));
+      if (rowsIn.length) { lib[k] = rowsIn.map(r => ({ label: r.label || '', detail: r.detail || '', scope: r.scope || 'unique' })); terms++; }
+    });
+    DB.config.quoteTerms = lib;
+  }
+  if (o.terms !== false && data.paymentTerms && typeof data.paymentTerms === 'object') {
+    const p = quotePayTermsLib();
+    ['full', 'installment'].forEach(k => {
+      const rowsIn = (data.paymentTerms[k] || []).filter(r => r && (r.label || r.detail));
+      if (rowsIn.length) { p[k] = rowsIn.map(r => ({ label: r.label || '', detail: r.detail || '' })); pay++; }
+    });
+    DB.config.quotePayTerms = p;
+  }
+  DB.config.quoteImportAt = new Date().toISOString();
+  DB.config.quoteImportCount = (DB.config.quoteImportCount || 0) + made.length;
+  DB.config._v = now(); touch('config');
+  render();
+  const onDeals = made.filter(q => q.dealId).length;
+  toast(made.length
+    ? `${made.length} quote${made.length === 1 ? '' : 's'} brought across · ${onDeals} matched to a deal` +
+      (terms ? ` · ${terms} term set${terms === 1 ? '' : 's'}` : '') +
+      (rows.length - fresh.length ? ` · ${rows.length - fresh.length} already here` : '')
+    : `Nothing new — all ${rows.length} quotes in that file are already here`, 'ok');
+  return { added: made.length, seen: rows.length, onDeals, terms, pay };
+}
+/* ================================================================
+   QUOTES — the screens
+   A list that answers "where is that quote", a builder that is one long
+   form rather than a seven-step wizard (a rep writing their fourth quote
+   of the day does not want to be walked through it), and the document
+   itself with the actions that are allowed on it at that moment.
+   ================================================================ */
+const QUOTE_FILTERS = ['all', 'Draft', 'Pending Approval', 'Approved', 'Published', 'Booked', 'Rejected'];
+
+function viewQuotes(root) {
+  if (VIEW.quoteOpen) { const q = getQuote(VIEW.quoteOpen); if (q) return quoteDetail(root, q); VIEW.quoteOpen = null; }
+  const all = quoteScope();
+  const f = VIEW.quoteF = VIEW.quoteF || {};
+
+  root.appendChild(viewHead(null, [
+    isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus', 14) + ' New quote',
+      onclick: () => quoteBuild(quoteNew()) }),
+    isReadOnly() ? null : el('button', { class: 'btn', html: ico('link', 14) + ' International (USD)',
+      title: 'Prices in USD, zero-rated, with the export terms on it',
+      onclick: () => quoteBuild(quoteNew({ international: true })) }),
+    isAdmin() ? el('button', { class: 'btn', html: ico('dl', 14) + ' Bring the old quotes across',
+      title: 'Reads the Sales Tracker’s file in the folder beside this one',
+      onclick: quoteImportAsk }) : null
+  ]));
+
+  /* ---- the numbers across the top ---- */
+  const pend = all.filter(q => q.status === 'Pending Approval');
+  const t = el('div', { class: 'tiles' });
+  t.appendChild(quoteTile('Open quotes', all.filter(q => ['Draft', 'Pending Approval', 'Approved', 'Published'].includes(q.status)).length,
+    { icon: 'clip', foot: 'not yet booked or rejected' }, f, ''));
+  t.appendChild(quoteTile('Waiting on approval', pend.length,
+    { icon: 'warn', tag: pend.length ? 'warn' : '', foot: pend.length ? 'with ' + quoteApprover() : 'nothing pending' }, f, 'Pending Approval'));
+  t.appendChild(quoteTile('Approved', all.filter(q => q.status === 'Approved').length,
+    { icon: 'check', foot: 'ready to send' }, f, 'Approved'));
+  t.appendChild(tile('Value out there', money(all.filter(q => ['Approved', 'Published'].includes(q.status) && !q.international)
+    .reduce((a, q) => a + (Number(q.total) || 0), 0)), { cur: true, icon: 'chart', foot: 'approved or sent, AED quotes' }));
+  root.appendChild(t);
+
+  /* ---- filters ---- */
+  const bar = el('div', { class: 'leadfilters' });
+  const q0 = el('input', { class: 'inp', placeholder: 'Search a quote, a reference, a buyer…', value: f.q || '' });
+  q0.addEventListener('input', debounce(e => { f.q = e.target.value; render(); }, 250));
+  bar.appendChild(q0);
+  bar.appendChild(selectFilter('Status', f.status || '',
+    QUOTE_FILTERS.map(s => [s === 'all' ? '' : s, s === 'all' ? 'All statuses' : s]),
+    v => { f.status = v || null; render(); }, 185));
+  if (isAdmin() || myRole() === 'office' || canApproveQuotes()) {
+    const reps = activeOwners().filter(o => all.some(q => String(q.ownerId) === o.id));
+    bar.appendChild(selectFilter('Rep', f.rep || '',
+      [['', 'All reps']].concat(reps.map(o => [o.id, o.name])),
+      v => { f.rep = v || null; render(); }, 165));
+  }
+  if (f.q || f.status || f.rep) bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear',
+    onclick: () => { VIEW.quoteF = {}; render(); } }));
+  root.appendChild(bar);
+
+  let rows = all.slice();
+  if (f.status) rows = rows.filter(q => q.status === f.status);
+  if (f.rep) rows = rows.filter(q => String(q.ownerId) === f.rep);
+  if (f.q) { const s = f.q.toLowerCase();
+    rows = rows.filter(q => [q.name, q.ref, q.buyer && q.buyer.name, q.buyer && q.buyer.email, q.dealName]
+      .some(v => String(v || '').toLowerCase().includes(s))); }
+
+  const c = card('Quotes', `${rows.length} of ${all.length} · newest first`);
+  if (!rows.length) {
+    c.body.appendChild(el('div', { class: 'empty', html: ico('clip', 34) +
+      '<h4>No quotes here</h4><p>' + (all.length ? 'Nothing matches these filters.'
+        : 'Start one with <b>New quote</b>, or bring the ones made in the old tool across.') + '</p>' }));
+  } else {
+    const list = el('div', { class: 'quotelist' });
+    rows.slice(0, 300).forEach(q => list.appendChild(quoteRow(q)));
+    c.body.appendChild(list);
+  }
+  root.appendChild(c.node);
+}
+function quoteTile(label, n, o, f, status) {
+  const node = tile(label, n, o);
+  node.classList.add('tapme');
+  node.addEventListener('click', () => { f.status = status || null; render(); });
+  return node;
+}
+function quoteRow(q) {
+  const n = el('div', { class: 'quoterow', onclick: () => { VIEW.quoteOpen = q.id; render(); } });
+  const changed = quoteChangedSinceApproval(q);
+  n.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+    el('div', { class: 'nm', html: esc(q.name || '(unnamed)') +
+      (q.international ? ' <span class="tag info">USD</span>' : '') +
+      (q.dealId ? '' : ' <span class="tag warn">no deal</span>') }),
+    el('div', { class: 'sub', text: [q.ref, (q.buyer && (q.buyer.name || q.buyer.email)) || '',
+      ownerName(q.ownerId), q.sentAt ? 'sent ' + fdate(String(q.sentAt).slice(0, 10)) : '',
+      'expires ' + qDate(q.expiresAt)].filter(Boolean).join(' · ') })
+  ]));
+  if ((Number(q.discount) || 0) > 0) n.appendChild(el('span', { class: 'tag',
+    title: 'Discount on this quote', text: '−' + qMoney(q.discount, q) }));
+  n.appendChild(el('span', { class: 'amt', text: qMoney(q.total, q) }));
+  n.appendChild(el('span', { class: 'tag ' + (changed ? 'warn' : (QUOTE_STATUS_TAG[q.status] || '')),
+    text: quoteStatusLabel(q) }));
+  return n;
+}
+
+/* ---------------------------------------------------- one quote */
+function quoteDetail(root, q) {
+  const mine = !isReadOnly() && (isAdmin() || canApproveQuotes() || String(q.ownerId) === currentOwnerId());
+  const changed = quoteChangedSinceApproval(q);
+  root.appendChild(viewHead(null, [
+    el('button', { class: 'btn', html: ico('right', 14) + ' All quotes',
+      onclick: () => { VIEW.quoteOpen = null; render(); } }),
+    mine && !['Booked'].includes(q.status) ? el('button', { class: 'btn', html: ico('edit', 14) + ' Edit',
+      onclick: () => quoteBuild(q) }) : null,
+    el('button', { class: 'btn', html: ico('clip', 14) + ' Preview', onclick: () => quotePreview(q) })
+  ]));
+
+  const head = card(null, null);
+  head.body.appendChild(el('div', { class: 'qhead' }, [
+    el('div', { style: 'flex:1;min-width:0' }, [
+      el('h3', { style: 'margin:0', html: esc(q.name || '(unnamed)') +
+        ` <span class="tag ${changed ? 'warn' : (QUOTE_STATUS_TAG[q.status] || '')}">${esc(quoteStatusLabel(q))}</span>` +
+        (q.international ? ' <span class="tag info">International · USD</span>' : '') }),
+      el('div', { class: 'sub', style: 'margin-top:4px', text: [q.ref,
+        'raised by ' + ownerName(q.ownerId), 'created ' + qDate(q.createdAt), 'expires ' + qDate(q.expiresAt)].join(' · ') })
+    ]),
+    el('div', { style: 'text-align:right' }, [
+      el('div', { class: 'qtotal', text: qMoney(q.total, q) }),
+      el('div', { class: 'sub', text: (q.items || []).length + ' line' + ((q.items || []).length === 1 ? '' : 's') +
+        ((Number(q.discount) || 0) > 0 ? ' · ' + qMoney(q.discount, q) + ' off' : '') })
+    ])
+  ]));
+  if (changed) head.body.appendChild(el('div', { class: 'alert', style: 'margin-top:var(--sp-3);border-color:var(--warning)' }, [
+    el('span', { class: 'ic', html: ico('warn', 16) }),
+    el('div', { style: 'flex:1;line-height:1.55', text:
+      'The pricing has changed since ' + (q.approvedBy || 'it was approved') + ' signed it off, so it cannot be sent or ' +
+      'attached until it is approved again. Nothing else about it needs re-approving — only quantities, unit prices and the discount do.' })
+  ]));
+  if (q.status === 'Rejected' && q.rejectedReason) head.body.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;line-height:1.55;color:var(--critical-ink)', text: 'Not approved: ' + q.rejectedReason }));
+  if (q.importNote) head.body.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;line-height:1.55', text: q.importNote }));
+  root.appendChild(head.node);
+
+  /* ---- what can be done with it, right now ---- */
+  const acts = el('div', { class: 'qacts' });
+  if (mine && ['Draft', 'Rejected'].includes(q.status) || (mine && changed))
+    acts.appendChild(el('button', { class: 'btn primary', html: ico('check', 14) + ' ' +
+      (quoteNeedsApproval(q) ? (changed ? 'Submit the new price for approval' : 'Submit for approval')
+                             : 'Approve it (no discount on it)'),
+      onclick: () => quoteSubmit(q) }));
+  if (q.status === 'Pending Approval' && canApproveQuotes()) {
+    acts.appendChild(el('button', { class: 'btn primary', html: ico('check', 14) + ' Approve',
+      onclick: () => confirmDo('Approve this quote',
+        `${qMoney(q.discount, q)} off, total ${qMoney(q.total, q)}. The rep is told and can send it.`,
+        'Approve', () => quoteDecide(q, 'approve')) }));
+    acts.appendChild(el('button', { class: 'btn', html: ico('x', 14) + ' Reject', onclick: () => quoteReject(q) }));
+  }
+  if (q.status === 'Pending Approval' && !canApproveQuotes())
+    acts.appendChild(el('span', { class: 'sub', text: 'Waiting on ' + quoteApprover() }));
+  if (quotePrintAllowed(q)) {
+    acts.appendChild(el('button', { class: 'btn', html: ico('dl', 14) + ' Download the PDF', onclick: () => quoteDownload(q) }));
+    if (mine) acts.appendChild(el('button', { class: 'btn', html: ico('mail', 14) + ' Send it to the customer',
+      onclick: () => quoteSendAsk(q) }));
+    if (mine) acts.appendChild(el('button', { class: 'btn', html: ico('link', 14) + ' ' +
+      (q.attachmentId ? 'Attach it again to the deal' : 'Put it on the deal'), onclick: () => quotePushAsk(q) }));
+  }
+  if (mine && q.status !== 'Booked') acts.appendChild(el('div', { style: 'flex:1' }));
+  if (mine && q.status !== 'Booked') acts.appendChild(el('button', { class: 'btn ghost', style: 'color:var(--critical-ink)',
+    text: 'Delete', onclick: () => confirmDo('Delete this quote',
+      'It goes for everyone on the next sync. The PDF already on the deal stays where it is.',
+      'Delete', () => { remove('quotes', q.id); VIEW.quoteOpen = null; render(); toast('Deleted'); }) }));
+  root.appendChild(el('div', { class: 'card' }, [acts]));
+
+  /* ---- the facts ---- */
+  const g = el('div', { class: 'grid2' });
+  const info = card('Who it is for', null);
+  const kv = el('dl', { class: 'kvs' });
+  const row = (k, v) => { if (!v) return; kv.appendChild(el('dt', { text: k })); kv.appendChild(el('dd', { html: v })); };
+  const d = q.dealId ? getDl(q.dealId) : null;
+  row('Buyer', esc(q.buyer.name || '—'));
+  row('Email', esc(q.buyer.email || '—'));
+  row('Phone', esc(q.buyer.phone || '—'));
+  row('Company', esc((q.companyId && (getCo(q.companyId) || {}).name) || q.companyName || '—'));
+  row('Deal', d ? `<a href="#" class="lnk">${esc(d.name)}</a>` : '<span class="tag warn">not on a deal</span>');
+  row('Prepared by', esc(q.sender.name || '') + (q.sender.title ? ' · ' + esc(q.sender.title) : ''));
+  if (q.international) row('Destination', esc(q.destination || '—'));
+  row('Ship / delivery', esc(q.shipDate || '—'));
+  info.body.appendChild(kv);
+  if (d) kv.querySelector('.lnk').addEventListener('click', e => { e.preventDefault(); openDeal(d.id); });
+  g.appendChild(info.node);
+
+  const hist = card('What has happened to it', null);
+  const h = el('dl', { class: 'kvs' });
+  const hrow = (k, v) => { if (!v) return; h.appendChild(el('dt', { text: k })); h.appendChild(el('dd', { text: v })); };
+  hrow('Created', qDate(q.createdAt) + ' · ' + ownerName(q.ownerId));
+  if (q.submittedAt) hrow('Submitted', qDate(q.submittedAt) + (q.submittedBy ? ' · ' + q.submittedBy : ''));
+  if (q.approvedAt) hrow(q.status === 'Rejected' ? 'Rejected' : 'Approved',
+    qDate(q.approvedAt) + (q.approvedBy ? ' · ' + q.approvedBy : ''));
+  if (q.publishedAt) hrow('Put on the deal', qDate(q.publishedAt));
+  if (q.sentAt) hrow('Emailed', qDate(q.sentAt) + ' · ' + (q.sentTo || '') + (q.sentBy ? ' by ' + q.sentBy : ''));
+  if (q.srcTool) hrow('Came from', q.srcTool);
+  hist.body.appendChild(h);
+  g.appendChild(hist.node);
+  root.appendChild(g);
+
+  /* ---- the lines ---- */
+  const lc = card('What is on it', null);
+  const tb = el('div', { class: 'qlines' });
+  tb.appendChild(el('div', { class: 'qline qhead2' }, [
+    el('span', { style: 'flex:1', text: 'Product' }), el('span', { text: 'Unit' }),
+    el('span', { text: 'Qty' }), el('span', { text: 'Amount' })]));
+  (q.items || []).forEach(it => tb.appendChild(el('div', { class: 'qline' }, [
+    el('span', { style: 'flex:1;min-width:0' }, [
+      el('div', { class: 'mono', text: it.sku || '' }),
+      el('div', { class: 'sub', text: it.desc || '' })]),
+    el('span', { text: qMoney(it.unitPrice, q) }),
+    el('span', { text: String(it.qty) }),
+    el('span', { text: qMoney((it.qty || 0) * (it.unitPrice || 0), q) })])));
+  lc.body.appendChild(tb);
+  const sums = el('dl', { class: 'kvs', style: 'margin-top:var(--sp-3)' });
+  [['Subtotal', qMoney(q.subtotal, q)],
+   (Number(q.discount) || 0) > 0 ? ['Discount', '(' + qMoney(q.discount, q) + ')'] : null,
+   (q.vatRate || 0) > 0 ? ['VAT ' + q.vatRate + '%', qMoney(q.vatAmount, q)] : null,
+   ['Total', qMoney(q.total, q)]].filter(Boolean).forEach(([k, v]) => {
+    sums.appendChild(el('dt', { text: k })); sums.appendChild(el('dd', { text: v })); });
+  lc.body.appendChild(sums);
+  root.appendChild(lc.node);
+}
+
+function quoteReject(q) {
+  const why = el('textarea', { class: 'inp', rows: 3, placeholder: 'What has to change before this can go out' });
+  modal('Not approved', el('div', {}, [
+    el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6',
+      text: 'The rep gets this back with your reason on it. The quote stays where it is so they can change it and submit it again.' }),
+    fld('Reason', why)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn danger', text: 'Reject it', onclick: () => { const r = why.value; closeAll(); quoteDecide(q, 'reject', r); } })
+  ]);
+}
+function quoteSendAsk(q) {
+  const to = el('input', { class: 'inp', value: q.buyer.email || '' });
+  const msg = el('textarea', { class: 'inp', rows: 3,
+    value: 'Please find our quotation attached. It is valid until ' + qDate(q.expiresAt) + '.' });
+  modal('Send the quote', el('div', {}, [
+    el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6',
+      html: 'The PDF goes <b>attached</b>, from your own mailbox, copied to you and to ' + esc(quoteApprover()) + '.' }),
+    fld('To', to), fld('Message', msg)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Send it', onclick: () => {
+      const t = to.value.trim(), m = msg.value; closeAll(); quoteSendToBuyer(q, { to: t, message: m }); } })
+  ]);
+}
+function quotePushAsk(q) {
+  const d = q.dealId ? getDl(q.dealId) : null;
+  if (!d) return toast('Put it on a deal first — open Edit and pick one', 'err');
+  const setAmt = el('input', { type: 'checkbox', checked: (!d.amount || Math.abs((d.amount || 0) - q.total) > 0.5) && !q.international ? true : null });
+  const body = el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.65', html:
+      `The PDF goes into <b>${esc(d.name)}</b>&rsquo;s attachments in the shared folder, and the deal&rsquo;s activity records ` +
+      `what was quoted. Every rep who can see that deal can open it.` }),
+    q.international ? el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3)',
+      text: 'This quote is in USD, so the deal value is left alone.' })
+      : el('label', { class: 'tgl-row', style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer' }, [
+        setAmt, el('div', {}, [
+          el('div', { text: 'Set the deal value to ' + qMoney(q.total, q) }),
+          el('div', { class: 'sub', style: 'white-space:normal;line-height:1.5',
+            text: 'Currently ' + (d.amount ? CFG.currency + ' ' + money(d.amount) : 'not set') +
+              '. A deal and its quote disagreeing is how a forecast goes quietly wrong.' })])])
+  ]);
+  modal('Put the quote on the deal', body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Attach it', onclick: () => {
+      const s = !q.international && setAmt.checked; closeAll(); quotePushToDeal(q, { setAmount: s }); } })
+  ]);
+}
+function quoteImportAsk() {
+  modal('Bring the old quotes across', el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.65', html:
+      'This reads <span class="mono">sales-tracker.json</span> in the folder beside this one and brings over every quote in it — ' +
+      'the lines, the totals, the status, who approved it and when — matched onto this CRM&rsquo;s deals and companies by name. ' +
+      'The terms library comes with it.' }),
+    el('p', { class: 'sub', style: 'margin:0;line-height:1.6', text:
+      'Nothing is written back to that file, and a quote already here is left alone, so this is safe to run more than once.' })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Read it', onclick: () => { closeAll(); quoteImport(); } })
+  ]);
+}
+
+/* ---------------------------------------------------- the preview */
+function quotePreview(q) {
+  const doc = el('div', { class: 'qp-doc' });
+  doc.innerHTML = quoteDocHTML(q);
+  const foot = [el('button', { class: 'btn', text: 'Close', onclick: closeAll })];
+  if (quotePrintAllowed(q)) foot.push(el('button', { class: 'btn primary', html: ico('dl', 14) + ' Download',
+    onclick: () => quoteDownload(q) }));
+  else foot.push(el('span', { class: 'sub', style: 'align-self:center',
+    text: quoteChangedSinceApproval(q) ? 'The price changed — it needs approving again before it can be sent'
+                                       : 'Download and sending open up once it is approved' }));
+  modal('Quote ' + (q.ref || ''), el('div', { class: 'qp-wrap' }, [doc]), foot, true);
+}
+
+/* ================================================================
+   THE BUILDER
+   One form, in the order a quote is actually written: who it is for,
+   what is on it, what it costs, how they pay, what the terms are. The
+   total and the submit button update as you type, so nobody has to
+   guess what pressing it will do.
+   ================================================================ */
+function quoteBuild(q) {
+  if (isReadOnly()) return toast('You have read-only access', 'err');
+  if (q.status === 'Booked') return toast('A booked quote cannot be changed', 'err');
+  const w = JSON.parse(JSON.stringify(q));          /* work on a copy — leaving the form drops it */
+  const isNew = !getQuote(q.id);
+  const body = el('div', { class: 'qb' });
+  const sec = (title, hint) => { body.appendChild(el('h4', { class: 'qbh', text: title }));
+    if (hint) body.appendChild(el('p', { class: 'sub', style: 'margin:-4px 0 var(--sp-3);line-height:1.5', text: hint }));
+    const d = el('div', {}); body.appendChild(d); return d; };
+
+  /* ---- details ---- */
+  const s1 = sec('What it is');
+  const nm = el('input', { class: 'inp', value: w.name || '', placeholder: 'e.g. Platinum Fitness — 2 × XS1 Peak' });
+  const deals = live('deals').filter(d => isOpen(d) || d.id === w.dealId)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const dl = el('select', { class: 'inp' });
+  dl.appendChild(el('option', { value: '', text: 'No deal yet' }));
+  deals.forEach(d => dl.appendChild(el('option', { value: d.id, text: d.name + ' · ' + ((getCo(d.companyId) || {}).name || ''),
+    selected: w.dealId === d.id || null })));
+  const exp = el('input', { class: 'inp', type: 'date', value: w.expiresAt || '' });
+  const shp = el('input', { class: 'inp', value: w.shipDate || '', placeholder: '1-2 days' });
+  const dest = el('input', { class: 'inp', value: w.destination || '', placeholder: 'City, country' });
+  s1.appendChild(fld('Quote name *', nm));
+  s1.appendChild(el('div', { class: 'field-row' }, [fld('On which deal', dl), fld('Expires *', exp)]));
+  s1.appendChild(el('div', { class: 'field-row' }, [
+    fld(w.international ? 'Delivery' : 'Ship date', shp),
+    w.international ? fld('Final destination *', dest) : el('div', {})]));
+
+  /* ---- buyer ---- */
+  const s2 = sec('Who it is for', 'Picking a contact fills the rest in; anything can be typed over.');
+  const contacts = live('contacts').sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const ct = el('select', { class: 'inp' });
+  ct.appendChild(el('option', { value: '', text: 'Not from the contact list' }));
+  contacts.slice(0, 2000).forEach(c => ct.appendChild(el('option', { value: c.id,
+    text: c.name + (c.companyId ? ' · ' + ((getCo(c.companyId) || {}).name || '') : ''), selected: w.contactId === c.id || null })));
+  const bn = el('input', { class: 'inp', value: w.buyer.name || '' });
+  const be = el('input', { class: 'inp', type: 'email', value: w.buyer.email || '' });
+  const bp = el('input', { class: 'inp', value: w.buyer.phone || '' });
+  const ba = el('input', { class: 'inp', value: w.buyer.address || '' });
+  const bv = el('input', { class: 'inp', value: w.buyer.vat || '', placeholder: 'Buyer VAT / TRN' });
+  ct.addEventListener('change', () => {
+    const c = contacts.find(x => x.id === ct.value); if (!c) return;
+    bn.value = c.name || ''; be.value = c.email || ''; bp.value = c.phone || '';
+    if (c.companyId) { const co = getCo(c.companyId); if (co) { ba.value = co.address || ba.value; w.companyId = co.id; } }
+  });
+  s2.appendChild(fld('Contact', ct));
+  s2.appendChild(el('div', { class: 'field-row' }, [fld('Buyer name *', bn), fld('Email *', be)]));
+  s2.appendChild(el('div', { class: 'field-row' }, [fld('Phone', bp), fld('VAT / TRN', bv)]));
+  s2.appendChild(fld('Address', ba));
+
+  /* ---- from ---- */
+  const s3 = sec('Who it is from');
+  const sn = el('input', { class: 'inp', value: w.sender.name || '' });
+  const st = el('input', { class: 'inp', value: w.sender.title || '' });
+  const se = el('input', { class: 'inp', type: 'email', value: w.sender.email || '' });
+  const sp = el('input', { class: 'inp', value: w.sender.phone || '' });
+  s3.appendChild(el('div', { class: 'field-row' }, [fld('Name', sn), fld('Title', st)]));
+  s3.appendChild(el('div', { class: 'field-row' }, [fld('Email', se), fld('Phone', sp)]));
+
+  /* ---- lines ---- */
+  const s4 = sec('What is on it', w.international
+    ? 'Catalogue prices are converted to USD once, when the line is added, so an old quote never reprices itself.'
+    : 'Prices come from the catalogue and can be changed on the line.');
+  const lines = el('div', { class: 'qblines' });
+  const totals = el('div', { class: 'qbtot' });
+  const disc = el('input', { class: 'inp', type: 'number', min: '0', step: '0.01', value: String(w.discount || 0) });
+  const paint = () => {
+    lines.innerHTML = '';
+    (w.items || []).forEach((it, i) => {
+      const row = el('div', { class: 'qbline' });
+      const de = el('input', { class: 'inp', value: it.desc || '' });
+      const qt = el('input', { class: 'inp num', type: 'number', min: '0', step: '1', value: String(it.qty) });
+      const up = el('input', { class: 'inp num', type: 'number', min: '0', step: '0.01', value: String(it.unitPrice) });
+      de.addEventListener('input', () => { it.desc = de.value; });
+      qt.addEventListener('input', () => { it.qty = Math.max(0, parseFloat(qt.value) || 0); recalc(); });
+      up.addEventListener('input', () => { it.unitPrice = Math.max(0, parseFloat(up.value) || 0); recalc(); });
+      row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { class: 'mono sub', text: (it.sku || '') + (it.lineType ? ' · ' + it.lineType : '') }), de]));
+      row.appendChild(el('div', { class: 'qbqty' }, [el('span', { class: 'sub', text: 'Qty' }), qt]));
+      row.appendChild(el('div', { class: 'qbqty' }, [el('span', { class: 'sub', text: 'Unit' }), up]));
+      row.appendChild(el('button', { class: 'btn sm ghost', html: ico('x', 13), title: 'Remove this line',
+        onclick: () => { w.items.splice(i, 1); paint(); recalc(); } }));
+      lines.appendChild(row);
+    });
+    if (!(w.items || []).length) lines.appendChild(el('p', { class: 'sub', style: 'margin:0',
+      text: 'Nothing on it yet — add a product below.' }));
+  };
+  const recalc = () => {
+    w.discount = Math.max(0, parseFloat(disc.value) || 0);
+    quoteTotals(w);
+    totals.innerHTML = '';
+    [['Subtotal', qMoney(w.subtotal, w)],
+     w.discount > 0 ? ['Discount', '(' + qMoney(w.discount, w) + ')'] : null,
+     (w.vatRate || 0) > 0 ? ['VAT ' + w.vatRate + '%', qMoney(w.vatAmount, w)] : null,
+     ['Total', qMoney(w.total, w)]].filter(Boolean).forEach(([k, v]) =>
+      totals.appendChild(el('div', { class: 'qbtr' + (k === 'Total' ? ' big' : '') }, [
+        el('span', { text: k }), el('span', { text: v })])));
+    submit.innerHTML = ico('check', 14) + ' ' + (w.discount > 0 ? 'Submit for approval' : 'Approve (no discount)');
+    submit.title = w.discount > 0
+      ? 'A discount needs ' + quoteApprover() + ' to agree before it can go out'
+      : 'Nothing to decide, so it is approved the moment you press it';
+  };
+  const prods = live('products').filter(p => p.active !== false)
+    .sort((a, b) => String(a.sku || a.name).localeCompare(String(b.sku || b.name)));
+  const pick = el('select', { class: 'inp' });
+  pick.appendChild(el('option', { value: '', text: 'Add a product from the catalogue…' }));
+  prods.forEach(p => pick.appendChild(el('option', { value: p.id,
+    text: [p.sku, p.name, p.listPrice ? CFG.currency + ' ' + money(p.listPrice) : 'no price set'].filter(Boolean).join(' · ') })));
+  pick.addEventListener('change', () => {
+    const p = prods.find(x => x.id === pick.value); pick.value = '';
+    if (!p) return;
+    const raw = Number(p.listPrice) || 0;
+    w.items.push({ productId: p.id, sku: p.sku || '', desc: p.name || '',
+      lineType: p.category || '', qty: 1,
+      unitPrice: w.international ? Math.round(raw * USD_PER_AED * 100) / 100 : raw });
+    paint(); recalc();
+  });
+  const free = el('button', { class: 'btn sm', text: '+ A line of my own', onclick: () => {
+    w.items.push({ productId: '', sku: '', desc: '', lineType: '', qty: 1, unitPrice: 0 }); paint(); recalc(); } });
+  s4.appendChild(lines);
+  s4.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
+    el('div', { style: 'flex:1;min-width:14rem' }, [pick]), free]));
+  s4.appendChild(el('div', { class: 'field-row', style: 'margin-top:var(--sp-3)' }, [
+    fld('Discount (' + (w.international ? 'USD' : 'AED') + ')', disc,
+      'One amount off the whole quote. Anything above zero needs ' + quoteApprover() + ' to approve it.'),
+    el('div', {}, [totals])]));
+  disc.addEventListener('input', recalc);
+
+  /* ---- payment ---- */
+  const s5 = sec('How they pay');
+  const sched = el('div', {});
+  const paintSched = () => {
+    sched.innerHTML = '';
+    (w.schedule || []).forEach((m, i) => {
+      const pc = el('input', { class: 'inp num', type: 'number', min: '0', max: '100', value: String(m.pct) });
+      const wn = el('input', { class: 'inp', value: m.when || '' });
+      pc.addEventListener('input', () => { m.pct = Math.max(0, Math.min(100, parseFloat(pc.value) || 0)); paintTotalPct(); });
+      wn.addEventListener('input', () => { m.when = wn.value; });
+      sched.appendChild(el('div', { class: 'qbline' }, [
+        el('div', { style: 'flex:1' }, [wn]),
+        el('div', { class: 'qbqty' }, [el('span', { class: 'sub', text: '%' }), pc]),
+        (w.schedule.length > 1 ? el('button', { class: 'btn sm ghost', html: ico('x', 13),
+          onclick: () => { w.schedule.splice(i, 1); paintSched(); paintTotalPct(); } }) : el('span', { style: 'width:2rem' }))]));
+    });
+  };
+  const pctNote = el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0' });
+  const paintTotalPct = () => {
+    const t = (w.schedule || []).reduce((a, m) => a + (Number(m.pct) || 0), 0);
+    pctNote.textContent = t === 100 ? 'Adds up to 100%.' : `Adds up to ${t}% — it has to be 100% before this can go out.`;
+    pctNote.style.color = t === 100 ? '' : 'var(--warning)';
+  };
+  s5.appendChild(sched);
+  s5.appendChild(pctNote);
+  s5.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)', text: '+ Another milestone',
+    onclick: () => { w.schedule.push({ pct: 0, when: '' }); paintSched(); paintTotalPct(); } }));
+  const bankOn = el('input', { type: 'checkbox', checked: w.payBank ? true : null });
+  const iban = el('input', { class: 'inp', value: (w.bank || {}).iban || '' });
+  const acct = el('input', { class: 'inp', value: (w.bank || {}).account || '' });
+  const linkOn = el('input', { type: 'checkbox', checked: w.payLink ? true : null });
+  const link = el('input', { class: 'inp', value: w.paymentLink || '', placeholder: 'https://…' });
+  s5.appendChild(el('label', { class: 'tgl-row', style: 'display:flex;gap:10px;align-items:center;margin-top:var(--sp-4)' },
+    [bankOn, el('div', { text: 'Show the bank details on the quote' })]));
+  s5.appendChild(el('div', { class: 'field-row' }, [fld('Account', acct), fld('IBAN', iban)]));
+  s5.appendChild(el('label', { class: 'tgl-row', style: 'display:flex;gap:10px;align-items:center;margin-top:var(--sp-3)' },
+    [linkOn, el('div', { text: 'Show a payment link' })]));
+  s5.appendChild(fld('Payment link', link));
+
+  /* ---- terms ---- */
+  const s6 = sec('Terms', 'Set by the product types on the quote, from the terms library — not typed per quote.');
+  const termsBox = el('div', { class: 'qbterms' });
+  const paintTerms = () => {
+    termsBox.innerHTML = '';
+    const rows = quoteTermsFor(w);
+    if (!rows.length) { termsBox.appendChild(el('p', { class: 'sub', style: 'margin:0',
+      text: 'No terms are set for these product types yet — an admin adds them in Settings.' })); return; }
+    rows.forEach(r => termsBox.appendChild(r.isHeader
+      ? el('div', { class: 'qbth', text: r.label })
+      : el('div', { class: 'qbtrm' }, [el('b', { text: r.label }), el('span', { text: r.detail })])));
+  };
+  s6.appendChild(termsBox);
+  const cmt = el('textarea', { class: 'inp', rows: 2, value: w.comments || '' });
+  s6.appendChild(fld('Comments on the quote', cmt));
+
+  const submit = el('button', { class: 'btn primary' });
+  const collect = () => {
+    w.name = nm.value.trim(); w.dealId = dl.value || '';
+    const d = w.dealId ? getDl(w.dealId) : null;
+    w.dealName = d ? d.name : ''; if (d && d.companyId) w.companyId = d.companyId;
+    w.contactId = ct.value || '';
+    w.expiresAt = exp.value; w.shipDate = shp.value.trim(); w.destination = dest.value.trim();
+    w.buyer = { name: bn.value.trim(), email: be.value.trim(), phone: bp.value.trim(),
+      address: ba.value.trim(), vat: bv.value.trim() };
+    w.sender = { name: sn.value.trim(), title: st.value.trim(), email: se.value.trim(), phone: sp.value.trim() };
+    w.discount = Math.max(0, parseFloat(disc.value) || 0);
+    w.payBank = bankOn.checked; w.payLink = linkOn.checked; w.paymentLink = link.value.trim();
+    w.bank = Object.assign({}, w.bank || quoteBank(), { iban: iban.value.trim(), account: acct.value.trim() });
+    w.comments = cmt.value.trim();
+    quoteTotals(w);
+    return w;
+  };
+  const problems = () => {
+    const p = [];
+    if (!w.name) p.push('a name');
+    if (!w.expiresAt) p.push('an expiry date');
+    if (!w.buyer.name) p.push('the buyer’s name');
+    if (!w.buyer.email) p.push('the buyer’s email');
+    if (!(w.items || []).length) p.push('at least one line');
+    if ((w.schedule || []).reduce((a, m) => a + (Number(m.pct) || 0), 0) !== 100) p.push('a payment schedule adding to 100%');
+    if (w.international && !w.destination) p.push('a destination');
+    return p;
+  };
+  const save = after => {
+    collect();
+    const p = problems();
+    if (p.length) { toast('Still needs ' + p.join(', '), 'err'); return null; }
+    /* Changing the price of something already approved is exactly what the
+       signature is for: it drops back to Draft rather than going out at a
+       figure nobody agreed to. */
+    const stored = getQuote(w.id);
+    if (stored && quoteApproved(stored) && stored.approvedSig && quoteSig(w) !== stored.approvedSig) {
+      w.status = 'Draft'; w.approvedBy = null; w.approvedAt = null; w.approvedSig = null;
+    }
+    quoteSave(w);
+    closeAll(); VIEW.name = 'quotes'; VIEW.quoteOpen = w.id; render();
+    if (after) after(getQuote(w.id));
+    return w;
+  };
+  paint(); recalc(); paintSched(); paintTotalPct(); paintTerms();
+  pick.addEventListener('change', paintTerms);
+
+  submit.addEventListener('click', () => save(q2 => { if (q2) quoteSubmit(q2); }));
+  modal(isNew ? (w.international ? 'New international quote' : 'New quote') : 'Edit ' + (w.name || 'quote'), body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn', text: 'Save as draft', onclick: () => save(null) }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn', html: ico('clip', 14) + ' Preview', onclick: () => { collect(); quotePreview(w); } }),
+    submit
+  ], true);
+}
+
+/* ---------------------------------------------------- on the deal */
+function dealQuotes(d) {
+  const wrap = el('div', {});
+  const rows = quotesForDeal(d.id);
+  if (!isReadOnly()) wrap.appendChild(el('button', { class: 'btn primary', style: 'margin-bottom:var(--sp-3)',
+    html: ico('plus', 14) + ' Quote for this deal',
+    onclick: () => { closeAll(); quoteBuild(quoteNew({ dealId: d.id, companyId: d.companyId,
+      name: d.name, buyer: quoteBuyerFromDeal(d) })); } }));
+  if (!rows.length) { wrap.appendChild(el('p', { class: 'sub', style: 'margin:0;line-height:1.6',
+    text: 'No quote on this deal yet.' })); return wrap; }
+  const list = el('div', { class: 'quotelist' });
+  rows.forEach(q => { const r = quoteRow(q);
+    r.addEventListener('click', () => { closeAll(); VIEW.name = 'quotes'; VIEW.quoteOpen = q.id; render(); });
+    list.appendChild(r); });
+  wrap.appendChild(list);
+  return wrap;
+}
+function quoteBuyerFromDeal(d) {
+  const c = (d.contactIds || []).map(id => getCt(id)).filter(Boolean)[0];
+  if (!c) return {};
+  return { name: c.name || '', email: c.email || '', phone: c.phone || '' };
+}
+/* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
    ================================================================ */
 function viewSettings(root) {
@@ -14712,6 +16096,9 @@ function viewSettings(root) {
 
   /* ---- marketing leads: the media that goes with the follow-ups ---- */
   g.appendChild(mediaSettingsCard());
+
+  /* ---- quotes ---- */
+  g.appendChild(quoteSettingsCard());
 
   /* ---- marketing leads: Claude ---- */
   /* ---- marketing-lead notifications and showrooms ---- */
@@ -15855,6 +17242,122 @@ function sheetSettingsCard() {
     're-reading never duplicates a lead.' }));
   return c.node;
 }
+
+
+/* ================================================================
+   QUOTES — who signs them off, and what is printed on them
+   ================================================================ */
+function quoteSettingsCard() {
+  const c = card('Quotes', 'Who approves a discount, and the blocks printed on every quote');
+  const ap = el('input', { class: 'inp', value: quoteApprover(), placeholder: QUOTE_APPROVER_DEFAULT });
+  c.body.appendChild(fld('Only this address can approve a quote', ap,
+    'A quote with no discount approves itself. Any discount at all waits for this person — not for a role, ' +
+    'and not for whoever happens to be an admin. They are also copied on every quote sent to a customer.'));
+  c.body.appendChild(el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+    const v = ap.value.trim();
+    if (v && !v.includes('@')) return toast('That needs to be an email address', 'err');
+    DB.config.quoteApprover = v.toLowerCase(); DB.config._v = now(); touch('config'); render();
+    toast('Saved — ' + (v || QUOTE_APPROVER_DEFAULT) + ' approves quotes', 'ok');
+  } }));
+
+  const S = quoteSeller(), B = quoteBank();
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Seller block' }));
+  const sn = el('input', { class: 'inp', value: S.name });
+  const sv = el('input', { class: 'inp', value: S.vat });
+  const sa = el('textarea', { class: 'inp', rows: 3, value: (S.addrLines || []).join('\n') });
+  c.body.appendChild(el('div', { class: 'field-row' }, [fld('Legal name', sn), fld('VAT registration', sv)]));
+  c.body.appendChild(fld('Address', sa, 'One line each.'));
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Bank details' }));
+  const bc = el('input', { class: 'inp', value: B.customer });
+  const bb = el('input', { class: 'inp', value: B.bank });
+  const bac = el('input', { class: 'inp', value: B.account });
+  const bi = el('input', { class: 'inp', value: B.iban });
+  c.body.appendChild(el('div', { class: 'field-row' }, [fld('Account name', bc), fld('Bank', bb)]));
+  c.body.appendChild(el('div', { class: 'field-row' }, [fld('Account number', bac), fld('IBAN', bi)]));
+  c.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)', text: 'Save the blocks', onclick: () => {
+    DB.config.quoteSeller = { name: sn.value.trim(), vat: sv.value.trim(),
+      addrLines: sa.value.split('\n').map(x => x.trim()).filter(Boolean) };
+    DB.config.quoteBank = { customer: bc.value.trim(), bank: bb.value.trim(),
+      account: bac.value.trim(), iban: bi.value.trim(), currency: B.currency || 'AED' };
+    DB.config._v = now(); touch('config'); render(); toast('Saved — new quotes carry these', 'ok');
+  } }));
+
+  /* ---- the terms library ---- */
+  const lib = quoteTermsLib();
+  const types = Object.keys(lib);
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Terms library' }));
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.55', text:
+    'Purchase terms belong to a product type — every quote with that type on it carries them, and nobody retypes them. ' +
+    'A term marked common is stated once when a quote mixes types.' }));
+  const list = el('div', { class: 'medialist' });
+  types.forEach(t => {
+    list.appendChild(el('div', { class: 'mediaitem' }, [
+      el('span', { class: 'ic', html: ico('clip', 15) }),
+      el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', {}, [el('b', { text: t }),
+          el('span', { class: 'sub', text: ' · ' + (lib[t] || []).length + ' term' + ((lib[t] || []).length === 1 ? '' : 's') })]),
+        el('div', { class: 'cellsub', text: (lib[t] || []).map(r => r.label).join(' · ') })]),
+      el('button', { class: 'btn sm ghost', text: 'Edit', onclick: () => quoteTermsEdit(t) })
+    ]));
+  });
+  if (!types.length) list.appendChild(el('p', { class: 'sub', style: 'margin:0',
+    text: 'Nothing here yet — bring them across from the old tool on the Quotes screen, or add a type.' }));
+  c.body.appendChild(list);
+  c.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)', html: ico('plus', 13) + ' Add a product type',
+    onclick: () => quoteTermsEdit('') }));
+  if ((DB.config || {}).quoteImportAt) c.body.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    text: (DB.config.quoteImportCount || 0) + ' quote(s) brought across from the Sales Tracker, last on ' +
+      fdate(String(DB.config.quoteImportAt).slice(0, 10), 'long') + '.' }));
+  return c.node;
+}
+function quoteTermsEdit(type) {
+  const lib = JSON.parse(JSON.stringify(quoteTermsLib()));
+  let rows = (lib[type] || []).map(r => Object.assign({ scope: 'unique' }, r));
+  if (!rows.length) rows = [{ label: '', detail: '', scope: 'unique' }];
+  const name = el('input', { class: 'inp', value: type || '', placeholder: 'e.g. XFIT-PEAK' });
+  const host = el('div', {});
+  const paint = () => {
+    host.innerHTML = '';
+    rows.forEach((r, i) => {
+      const lb = el('input', { class: 'inp', value: r.label || '', placeholder: 'PAYMENT TERMS' });
+      const dt = el('textarea', { class: 'inp', rows: 2, value: r.detail || '' });
+      const sc = el('select', { class: 'inp' });
+      [['unique', 'Only this type'], ['common', 'Shared — state it once']].forEach(([v, t]) =>
+        sc.appendChild(el('option', { value: v, text: t, selected: (r.scope || 'unique') === v || null })));
+      lb.addEventListener('input', () => { r.label = lb.value; });
+      dt.addEventListener('input', () => { r.detail = dt.value; });
+      sc.addEventListener('change', () => { r.scope = sc.value; });
+      host.appendChild(el('div', { class: 'sheettab' }, [
+        el('div', { class: 'field-row' }, [fld('Label', lb), fld('Where it applies', sc)]),
+        fld('Detail', dt),
+        el('button', { class: 'btn sm ghost', text: 'Remove this term',
+          onclick: () => { rows.splice(i, 1); if (!rows.length) rows.push({ label: '', detail: '', scope: 'unique' }); paint(); } })
+      ]));
+    });
+  };
+  paint();
+  modal(type ? 'Terms for ' + type : 'A product type and its terms', el('div', {}, [
+    fld('Product type', name, 'It has to match the product’s category in the catalogue — that is how a quote picks these up.'),
+    host,
+    el('button', { class: 'btn', style: 'margin-top:var(--sp-2)', text: '+ Another term',
+      onclick: () => { rows.push({ label: '', detail: '', scope: 'unique' }); paint(); } })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    type ? el('button', { class: 'btn ghost', style: 'color:var(--critical-ink)', text: 'Delete this type',
+      onclick: () => { delete lib[type]; DB.config.quoteTerms = lib; DB.config._v = now(); touch('config');
+        closeAll(); render(); toast('Removed'); } }) : null,
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      const t = name.value.trim();
+      if (!t) return toast('The product type is what links these to a quote', 'err');
+      const keep = rows.filter(r => (r.label || '').trim() || (r.detail || '').trim());
+      if (type && type !== t) delete lib[type];
+      lib[t] = keep.map(r => ({ label: (r.label || '').trim(), detail: (r.detail || '').trim(), scope: r.scope || 'unique' }));
+      DB.config.quoteTerms = lib; DB.config._v = now(); touch('config');
+      closeAll(); render(); toast('Saved — quotes with ' + t + ' on them carry these', 'ok');
+    } })
+  ], true);
+}
 /* ================================================================
    RENDER + BOOT
    ================================================================ */
@@ -15863,13 +17366,13 @@ const VIEWS = {
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
   review: viewReview, demos: viewDemos, requests: viewRequests,
   monthly: viewMonthly, forecast: viewForecast, settings: viewSettings,
-  perf: viewPerf, leads: viewLeads
+  perf: viewPerf, leads: viewLeads, quotes: viewQuotes
 };
 const TITLES = {
   dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
   review: 'Sales Commitment', demos: 'Demo Tracker', requests: 'Demo Requests',
-  perf: 'Rep Performance', leads: 'Marketing Leads',
+  perf: 'Rep Performance', leads: 'Marketing Leads', quotes: 'Quotes',
   monthly: 'Per Month Commit vs. Forecast',
   forecast: 'Forecast & analytics', settings: 'Settings'
 };
