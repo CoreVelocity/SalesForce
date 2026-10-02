@@ -1321,6 +1321,539 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
   #app.on{grid-template-columns:1fr;grid-template-areas:"brand" "main"}
   main{overflow:visible;padding:0}
   .card,.tile,.tw{break-inside:avoid}}
+
+/* ====================== Info pages (Deal Rules / Guidelines) ======================
+   Ported from the old Sales Tracker. Those two documents were written against that
+   tool's palette, so rather than rewrite 19KB of CSS by hand the old token names are
+   defined here on .infodoc only and pointed at the CRM's own tokens. Nothing leaks
+   out: --text, --border, --card, --navy-* exist nowhere else in this file. */
+.infodoc{
+  --card:var(--surface-2);
+  --navy:var(--surface-1);
+  --navy-mid:var(--surface-2);
+  --navy-light:var(--surface-3);
+  --text:var(--ink-1);
+  --text-muted:var(--ink-2);
+  --border:var(--line);
+  --accent2:var(--accent);
+  --accent-glow:var(--focus);
+  --teal2:var(--s3);
+  --input-bg:var(--surface-1);
+  font-size:13.5px;
+}
+.infodoc,.infodoc *{scrollbar-width:thin}
+.infobar{display:flex;align-items:center;gap:var(--sp-3);margin:0 0 var(--sp-4);
+  padding:9px var(--sp-4);border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--surface-1)}
+.infobar .sub{color:var(--ink-3);font-size:var(--fs-sm)}
+/* printing hands a new rep the whole document and nothing else */
+body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{display:none !important}
+/* The contents strip sticks to the top of the scrolling pane. main carries 24px
+   of padding, and sticky measures from the padding edge, so content used to show
+   through the gap above the strip. Paint over it, opaquely. */
+.infodoc .gd-toc{background:var(--surface-1) !important;backdrop-filter:none}
+.infodoc .gd-toc::before{content:"";position:absolute;left:0;right:0;bottom:100%;
+  height:var(--sp-5);background:var(--surface-1)}
+@media print{
+  .infodoc{font-size:11.5px}
+  .infodoc .section,.infodoc .gd-section,.infodoc .gd-table-wrap,
+  .infodoc .rule-card,.infodoc .sla-card,.infodoc .gd-weight-card,
+  .infodoc .note-box,.infodoc .gd-callout,.infodoc .step{break-inside:avoid}
+  .infodoc .gd-toc{display:none !important}
+  .infodoc .banner,.infodoc .gd-hero{break-after:avoid}
+}
+
+/* ---- deal rules document ---- */
+  #view-deal-rules {
+    --dor-navy: #0a1628;          /* dark brand panels (banner/headers) — fixed both themes */
+    --dor-navy-mid: #112240;
+    --dor-navy-light: #1a3a6b;
+    --dor-accent: #1e5fc2;
+    --dor-accent-bright: #2d7be8;
+    --dor-gold: #c8922a;
+    --dor-white: #ffffff;         /* white text on dark/accent panels — fixed */
+    --dor-danger: #b53030;
+    --dor-surface: var(--card);   /* section "paper" — themes */
+    --dor-subtle: var(--navy-mid);/* rule cards / steps / list rows — themes */
+    --dor-text: var(--text);      /* body text on paper — themes */
+    --dor-border: var(--border);
+    --dor-muted: var(--text-muted);
+    --dor-note-bg: #fff8ec;
+  }
+  [data-theme="dark"] #view-deal-rules {
+    --dor-accent: #3b82f6;
+    --dor-accent-bright: #60a5fa;
+    --dor-gold: #e0b450;
+    --dor-danger: #f08a8a;
+    --dor-note-bg: rgba(224,180,80,0.10);
+    --dor-subtle: var(--navy-light);
+  }
+  /* keep the gold "extension" pill dark-on-gold in both themes */
+  #view-deal-rules .inactivity-card .info .extension-tag { color: var(--dor-navy); }
+  /* the document brings its own wrapper/banner, so neutralise tab-view padding */
+  #view-deal-rules { padding: 0; }
+  #view-deal-rules .banner { border-radius: 0; }
+
+#view-deal-rules *, #view-deal-rules *::before, #view-deal-rules *::after { box-sizing: border-box; margin: 0; padding: 0; }
+#view-deal-rules .banner {
+    background: var(--dor-navy);
+    color: var(--dor-white);
+    text-align: center;
+    padding: 48px 32px 36px;
+    position: relative;
+    overflow: hidden;
+  }
+#view-deal-rules .banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      120deg,
+      transparent,
+      transparent 60px,
+      rgba(255,255,255,0.02) 60px,
+      rgba(255,255,255,0.02) 61px
+    );
+  }
+#view-deal-rules .banner-eyebrow {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--dor-gold);
+    margin-bottom: 12px;
+    position: relative;
+  }
+#view-deal-rules .banner h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+    position: relative;
+  }
+#view-deal-rules .banner h1 span { color: var(--dor-accent-bright); }
+#view-deal-rules .banner-tagline {
+    margin-top: 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.06em;
+    position: relative;
+  }
+#view-deal-rules .banner-tagline strong {
+    color: var(--dor-gold);
+    font-style: italic;
+  }
+#view-deal-rules .rule-bar {
+    background: var(--dor-accent);
+    color: var(--dor-white);
+    text-align: center;
+    padding: 10px 24px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+#view-deal-rules .wrapper {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 32px 80px;
+  }
+#view-deal-rules .section {
+    margin-bottom: 40px;
+    border: 1.5px solid var(--dor-border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--dor-surface);
+    box-shadow: 0 2px 14px rgba(10,22,40,0.06);
+  }
+#view-deal-rules .section-header {
+    background: var(--dor-navy);
+    padding: 16px 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+#view-deal-rules .section-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--dor-gold);
+    min-width: 32px;
+    line-height: 1;
+  }
+#view-deal-rules .section-title {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dor-white);
+  }
+#view-deal-rules .section-body {
+    padding: 24px 28px;
+  }
+#view-deal-rules .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+@media (max-width: 600px) {#view-deal-rules .grid-2 { grid-template-columns: 1fr; }
+#view-deal-rules .wrapper { padding: 32px 18px 60px; }}
+#view-deal-rules .rule-card {
+    background: var(--dor-subtle);
+    border: 1.5px solid var(--dor-border);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+#view-deal-rules .rule-card .label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dor-accent);
+    margin-bottom: 5px;
+  }
+#view-deal-rules .rule-card .value {
+    font-size: 14.5px;
+    font-weight: 500;
+    color: var(--dor-text);
+    line-height: 1.5;
+  }
+#view-deal-rules .sla-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+#view-deal-rules .sla-card {
+    border-radius: 10px;
+    padding: 20px 18px;
+    text-align: center;
+    background: var(--dor-navy);
+    color: var(--dor-white);
+  }
+#view-deal-rules .sla-card.alt { background: var(--dor-navy-light); }
+#view-deal-rules .sla-card.warn { background: var(--dor-danger); }
+#view-deal-rules .sla-card .sla-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    font-weight: 900;
+    color: var(--dor-gold);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+#view-deal-rules .sla-card .sla-unit {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 8px;
+  }
+#view-deal-rules .sla-card .sla-label {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.85);
+  }
+#view-deal-rules .steps { display: flex; flex-direction: column; gap: 10px; }
+#view-deal-rules .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 18px;
+    background: var(--dor-subtle);
+    border-radius: 8px;
+    border-left: 3px solid var(--dor-accent);
+  }
+#view-deal-rules .step.danger { border-left-color: var(--dor-danger); }
+#view-deal-rules .step-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--dor-accent);
+    color: var(--dor-white);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+#view-deal-rules .step.danger .step-dot { background: var(--dor-danger); }
+#view-deal-rules .step-text { font-size: 14px; color: var(--dor-text); line-height: 1.5; }
+#view-deal-rules .step-text strong { color: var(--dor-accent); }
+#view-deal-rules .step.danger .step-text strong { color: var(--dor-danger); }
+#view-deal-rules .rule-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+#view-deal-rules .rule-list li {
+    padding: 12px 18px;
+    background: var(--dor-subtle);
+    border-radius: 7px;
+    border: 1px solid var(--dor-border);
+    font-size: 14px;
+    color: var(--dor-text);
+    line-height: 1.5;
+  }
+#view-deal-rules .rule-list li strong { color: var(--dor-accent); }
+#view-deal-rules .rule-list li.warn strong { color: var(--dor-danger); }
+#view-deal-rules .rule-list li.gold-label strong { color: var(--dor-gold); }
+#view-deal-rules .pipeline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-top: 4px;
+  }
+#view-deal-rules .pipe-stage {
+    background: var(--dor-navy);
+    color: var(--dor-white);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    padding: 9px 18px;
+    position: relative;
+    white-space: nowrap;
+  }
+#view-deal-rules .pipe-stage:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    top: 0;
+    width: 0;
+    height: 100%;
+    border-top: 19px solid transparent;
+    border-bottom: 19px solid transparent;
+    border-left: 10px solid var(--dor-navy);
+    z-index: 1;
+  }
+#view-deal-rules .pipe-stage:not(:first-child) { margin-left: 2px; }
+#view-deal-rules .pipe-stage.active { background: var(--dor-accent); }
+#view-deal-rules .pipe-stage.active::after { border-left-color: var(--dor-accent); }
+#view-deal-rules .pipe-stage.closed { background: var(--dor-danger); }
+#view-deal-rules .pipe-stage.closed::after { border-left-color: var(--dor-danger); }
+#view-deal-rules .note-box {
+    margin-top: 14px;
+    padding: 12px 18px;
+    background: var(--dor-note-bg);
+    border-left: 3px solid var(--dor-gold);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--dor-text);
+  }
+#view-deal-rules .inactivity-card {
+    background: var(--dor-navy);
+    border-radius: 10px;
+    padding: 20px 24px;
+    color: var(--dor-white);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+#view-deal-rules .inactivity-card .big-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 52px;
+    font-weight: 900;
+    color: var(--dor-gold);
+    line-height: 1;
+    flex-shrink: 0;
+  }
+#view-deal-rules .inactivity-card .info .main {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+#view-deal-rules .inactivity-card .info .sub {
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+  }
+#view-deal-rules .inactivity-card .info .extension-tag {
+    display: inline-block;
+    margin-top: 8px;
+    background: var(--dor-gold);
+    color: var(--dor-text);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+#view-deal-rules footer {
+    background: var(--dor-navy);
+    color: rgba(255,255,255,0.4);
+    text-align: center;
+    padding: 22px 24px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+  }
+#view-deal-rules footer strong { color: var(--dor-gold); }
+
+/* ---- guidelines document ---- */
+#view-guidelines .content { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }.infodoc .gd-toc {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--navy-mid); backdrop-filter: blur(10px);
+    margin: -24px -20px 28px; padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 6px; flex-wrap: wrap;
+    font-size: 12px;
+  }[data-theme="dark"] .infodoc .gd-toc { background: rgba(13, 22, 41, 0.92); border-bottom-color: rgba(37,99,235,0.22); }.infodoc .gd-toc a {
+    color: var(--text-muted); text-decoration: none;
+    padding: 5px 11px; border-radius: 14px;
+    border: 1px solid var(--border);
+    transition: all 0.15s ease;
+    font-weight: 500;
+  }.infodoc .gd-toc a:hover {
+    color: var(--accent2); border-color: var(--accent2);
+    background: rgba(37,99,235,0.08);
+  }.infodoc .gd-hero {
+    display: flex; align-items: center; gap: 22px;
+    background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(13,148,136,0.08));
+    border: 1px solid rgba(37,99,235,0.25);
+    padding: 24px 28px; border-radius: 14px; margin-bottom: 32px;
+  }.infodoc .gd-hero-icon {
+    font-size: 44px; line-height: 1;
+    background: var(--input-bg);
+    width: 72px; height: 72px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 14px; flex-shrink: 0;
+  }.infodoc .gd-hero h1 {
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 28px; font-weight: 800; letter-spacing: 1.5px;
+    margin: 0 0 6px; color: var(--text);
+  }.infodoc .gd-hero p { margin: 0; font-size: 14px; color: var(--text-muted); line-height: 1.6; }.infodoc .gd-section {
+    background: var(--navy-light);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 30px;
+    margin-bottom: 22px;
+    scroll-margin-top: 70px;
+  }[data-theme="dark"] .infodoc .gd-section { border-color: rgba(255,255,255,0.06); }.infodoc .gd-section h2 {
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 22px; font-weight: 700; letter-spacing: 1px;
+    color: var(--text);
+    margin: 0 0 16px;
+    display: flex; align-items: center; gap: 12px;
+  }.infodoc .gd-section h2 .gd-num {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    width: 32px; height: 32px; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 800;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0;
+  }.infodoc .gd-section p { font-size: 13.5px; color: var(--text-muted); line-height: 1.7; margin: 0 0 12px; }.infodoc .gd-section p strong { color: var(--text); }.infodoc .gd-section ul, .infodoc .gd-section ol { font-size: 13px; color: var(--text-muted); line-height: 1.8; padding-left: 22px; margin: 8px 0; }.infodoc .gd-section ul li strong, .infodoc .gd-section ol li strong { color: var(--text); }.infodoc .gd-section code {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12.5px;
+    background: rgba(37,99,235,0.10);
+    color: var(--accent-glow);
+    padding: 2px 7px; border-radius: 4px;
+    border: 1px solid rgba(37,99,235,0.18);
+  }
+
+  /* Pill row */
+  .infodoc .gd-pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }.infodoc .gd-pill {
+    padding: 6px 14px; border-radius: 16px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+    border: 1px solid;
+  }.infodoc .gd-pill.commit { background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.35); color: #6ee7b7; }.infodoc .gd-pill.best { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.35); color: #fcd34d; }.infodoc .gd-pill.pipe { background: rgba(13,148,136,0.10); border-color: rgba(13,148,136,0.35); color: var(--teal2); }.infodoc .gd-pill.closed { background: rgba(37,99,235,0.10); border-color: rgba(37,99,235,0.35); color: var(--accent-glow); }
+
+  /* Callout */
+  .infodoc .gd-callout {
+    margin: 14px 0;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.6;
+    border-left: 3px solid;
+  }.infodoc .gd-callout.info { background: rgba(37,99,235,0.06); border-left-color: #2563eb; color: #c7d2fe; }.infodoc .gd-callout strong { color: var(--text); }
+
+  /* Tables */
+  .infodoc .gd-table-wrap {
+    width: 100%; overflow-x: auto;
+    margin: 14px 0 8px;
+    border-radius: 8px;
+    -webkit-overflow-scrolling: touch;
+  }.infodoc .gd-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px; margin: 0;
+    table-layout: fixed;
+  }
+  /* 3-column tables: Field | Meaning | Used by */
+  .infodoc .gd-table th:first-child, .infodoc .gd-table td:first-child { width: 20%; min-width: 140px; }.infodoc .gd-table th:nth-child(2), .infodoc .gd-table td:nth-child(2) { width: 55%; }.infodoc .gd-table th:last-child, .infodoc .gd-table td:last-child { width: 25%; min-width: 140px; }.infodoc .gd-table td, .infodoc .gd-table th {
+    word-wrap: break-word; overflow-wrap: anywhere;
+    hyphens: auto;
+  }
+  /* "Field" cell: tag should drop to its own line so the heading doesn't get
+     squeezed against the badge in narrow viewports */
+  .infodoc .gd-table td:first-child .gd-tag { margin-left: 0; margin-top: 4px; display: inline-block; }
+  @media (max-width: 900px) {.infodoc .gd-table { font-size: 12.5px; }.infodoc .gd-table td, .infodoc .gd-table th { padding: 9px 8px; }
+  }.infodoc .gd-table th {
+    text-align: left; padding: 10px 12px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text); font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    font-size: 11.5px; letter-spacing: 0.5px; text-transform: uppercase;
+  }.infodoc .gd-table td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted); vertical-align: top;
+    line-height: 1.6;
+  }.infodoc .gd-table td strong { color: var(--text); display: block; margin-bottom: 2px; }.infodoc .gd-tag {
+    display: inline-block; font-size: 10px; padding: 2px 8px;
+    border-radius: 10px; margin-left: 6px;
+    font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    vertical-align: middle;
+  }.infodoc .gd-tag.commit { background: rgba(16,185,129,0.15); color: #6ee7b7; }.infodoc .gd-tag.best { background: rgba(251,191,36,0.15); color: #fcd34d; }.infodoc .gd-tag.pipe { background: rgba(13,148,136,0.15); color: var(--teal2); }.infodoc .gd-tag.closed { background: rgba(37,99,235,0.15); color: var(--accent-glow); }.infodoc .gd-tag.blocked { background: rgba(239,68,68,0.15);  color: #fca5a5; }
+
+  /* Stage weight cards */
+  .infodoc .gd-weight-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin: 16px 0;
+  }.infodoc .gd-weight-grid.score-weights { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }.infodoc .gd-weight-card {
+    background: var(--navy-mid);
+    border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px;
+    text-align: center;
+  }.infodoc .gd-weight-card.stage-qualified { border-top: 3px solid #f87171; }.infodoc .gd-weight-card.stage-proposal { border-top: 3px solid #fcd34d; }.infodoc .gd-weight-card.stage-negotiation { border-top: 3px solid #34d399; }.infodoc .gd-weight-stage {
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 6px;
+  }.infodoc .gd-weight-val {
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 38px; font-weight: 800; color: var(--text);
+    line-height: 1;
+  }.infodoc .gd-weight-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  /* Formula box */
+  .infodoc .gd-formula {
+    background: var(--navy);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12.5px;
+    line-height: 1.9;
+    color: var(--text);
+    overflow-x: auto;
+  }[data-theme="dark"] .infodoc .gd-formula { background: rgba(13,22,41,0.6); border-color: rgba(37,99,235,0.20); color: #cbd5e1; }.infodoc .gd-formula-lbl {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px; font-weight: 600;
+  }.infodoc .gd-formula code {
+    background: transparent !important; border: none !important;
+    color: inherit !important; padding: 0 !important;
+    font-size: inherit; font-family: inherit;
+  }.infodoc .gd-formula-side {
+    color: #64748b; font-family: 'Inter', sans-serif;
+    font-size: 11px; margin-left: 6px;
+  }
+
+  /* v19.1 — light-theme contrast overrides for guideline accents
+     (the base values are tuned for the dark surface) */
+  [data-theme="light"] .infodoc .gd-pill.commit { color: #047857; }[data-theme="light"] .infodoc .gd-pill.best { color: #b45309; }[data-theme="light"] .infodoc .gd-pill.pipe { color: var(--teal2); }[data-theme="light"] .infodoc .gd-pill.closed { color: var(--accent2); }[data-theme="light"] .infodoc .gd-tag.commit { color: #047857; }[data-theme="light"] .infodoc .gd-tag.best { color: #b45309; }[data-theme="light"] .infodoc .gd-tag.pipe { color: var(--teal2); }[data-theme="light"] .infodoc .gd-tag.closed { color: var(--accent2); }[data-theme="light"] .infodoc .gd-tag.blocked { color: #b91c1c; }[data-theme="light"] .infodoc .gd-callout.info { color: var(--text-muted); }[data-theme="light"] .infodoc .gd-section code { color: var(--accent2); }[data-theme="light"] .infodoc .gd-formula-side { color: #94a3b8; }
 </style>
 </head>
 <body>
@@ -1405,7 +1938,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.29.0';
+const VERSION = '1.31.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -3471,6 +4004,9 @@ const NAV = [
   { id: 'perf',      label: 'Rep Performance', icon: 'target' },
   { id: 'monthly',   label: 'Per Month Commit vs. Forecast', icon: 'cal' },
   { id: 'forecast',  label: 'Forecast & analytics', icon: 'chart' },
+  { g: 'Info' },
+  { id: 'rules',     label: 'Deal Rules', icon: 'flag' },
+  { id: 'guide',     label: 'Guidelines', icon: 'note' },
   { g: 'Setup', admin: true },
   { id: 'settings',  label: 'Settings',  icon: 'cog', admin: true }
 ];
@@ -14693,6 +15229,10 @@ const quoteBank   = () => Object.assign({}, QUOTE_BANK_DEFAULT, (DB.config || {}
 const quoteApprover = () => String((DB.config || {}).quoteApprover || QUOTE_APPROVER_DEFAULT).trim().toLowerCase();
 const myEmail = () => String((AUTH.user && AUTH.user.username) || '').trim().toLowerCase();
 const canApproveQuotes = () => !!myEmail() && myEmail() === quoteApprover();
+/* An export quote is priced in USD at a pegged rate, zero-rated, and carries
+   terms about duties somebody has to stand behind. It is raised by the person
+   who approves quotes and nobody else; everyone can still read one. */
+const canQuoteIntl = () => canApproveQuotes();
 
 const INTL_TERM_CURRENCY = { label: 'Currency', detail: 'All prices are quoted in US Dollars (USD) and are exclusive of destination duties, import taxes and customs clearance charges.' };
 const INTL_TERM_DELIVERY = { label: 'Delivery', detail: 'Estimated delivery within 1-2 weeks via Air Freight to the stated final destination, subject to stock and carrier availability.' };
@@ -15217,6 +15757,8 @@ async function quoteSubmit(q) {
     q.approvedSig = quoteSig(q);
     q.rejectedReason = null;
     quoteSave(q); render();
+    /* No decision to make, but the approver still hears about it. */
+    quoteAnnounce(q, 'auto').then(ok => { if (ok) toast('Approved · ' + quoteApprover() + ' has been told', 'ok'); });
     toast('No discount on it, so it is approved — attach it to the deal or send it', 'ok');
     return true;
   }
@@ -15278,6 +15820,36 @@ function quoteMailHtml(q, lead, cta) {
   ${cta ? `<p style="margin:0 0 20px"><a href="${esc(quoteLink(q))}" style="background:#2f6df6;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-weight:600">${esc(cta)}</a></p>` : ''}
   <p style="margin:0;color:#5b6474;font-size:13px"><a href="${esc(quoteLink(q))}" style="color:#2f6df6">${esc(quoteLink(q))}</a></p></div>`;
 }
+/* EVERY QUOTE REACHES THE APPROVER.
+
+   Not only the ones needing a decision: a quote with no discount on it still
+   commits the company to a price, a delivery window and a set of terms, and
+   the person who signs those off should know it exists without being asked.
+   One mail per event, each flagged on the quote so a re-save does not send it
+   twice: raised, approved by itself, waiting for a decision, decided. */
+const QUOTE_MAIL_EVENTS = {
+  raised:   { flag: 'raisedMailAt',   subject: q => `Quote raised: ${q.name} · ${q.ref}`,
+    lead: q => `${q.sender.name || ownerName(q.ownerId)} has raised this quote. It is a draft — nothing has gone to the customer yet.` },
+  auto:     { flag: 'autoMailAt',     subject: q => `Quote approved automatically (no discount): ${q.name} · ${q.ref}`,
+    lead: q => `${q.sender.name || ownerName(q.ownerId)} raised this at full price, so it approved itself and can go to the customer. Nothing is needed from you — this is so you know it exists.` },
+  sent:     { flag: 'sentMailAt',     subject: q => `Quote sent to the customer: ${q.name} · ${q.ref}`,
+    lead: q => `${q.sentBy || q.sender.name || 'The rep'} has emailed this to ${q.sentTo || 'the customer'}.` }
+};
+async function quoteAnnounce(q, kind) {
+  const ev = QUOTE_MAIL_EVENTS[kind];
+  if (!ev || !quoteApprover()) return false;
+  if (q[ev.flag]) return false;                       /* already told them */
+  if (SYNC.mode !== 'onedrive') return false;         /* nothing to send with */
+  /* No point mailing yourself about your own quote. */
+  if (myEmail() && myEmail() === quoteApprover()) { q[ev.flag] = new Date().toISOString(); quoteSave(q); return false; }
+  try {
+    await graphSendMail([quoteApprover()], ev.subject(q),
+      quoteMailHtml(q, ev.lead(q), 'Open it in the CRM'), [q.submittedByEmail].filter(Boolean));
+    q[ev.flag] = new Date().toISOString(); quoteSave(q);
+    return true;
+  } catch (e) { console.error(e); return false; }
+}
+
 async function quoteMailApproval(q) {
   const cc = [q.submittedByEmail].filter(Boolean);
   await graphSendMail([quoteApprover()],
@@ -15329,6 +15901,7 @@ async function quoteSendToBuyer(q, opt) {
     q.sentAt = new Date().toISOString(); q.sentTo = to[0];
     q.sentBy = (AUTH.user && AUTH.user.name) || myEmail();
     quoteSave(q);
+    if (!cc.some(x => x.toLowerCase() === quoteApprover())) quoteAnnounce(q, 'sent').catch(() => {});
     if (q.dealId) logAct({ dealId: q.dealId, ownerId: q.ownerId, kind: 'note',
       html: `Quote <b>${esc(q.ref)}</b> emailed to ${esc(to[0])} · ${esc(qMoney(q.total, q))}` });
     render();
@@ -15531,9 +16104,10 @@ function viewQuotes(root) {
   root.appendChild(viewHead(null, [
     isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus', 14) + ' New quote',
       onclick: () => quoteBuild(quoteNew()) }),
-    isReadOnly() ? null : el('button', { class: 'btn', html: ico('link', 14) + ' International (USD)',
+    /* Export quotes are raised by whoever approves quotes, and by nobody else. */
+    !isReadOnly() && canQuoteIntl() ? el('button', { class: 'btn', html: ico('link', 14) + ' International (USD)',
       title: 'Prices in USD, zero-rated, with the export terms on it',
-      onclick: () => quoteBuild(quoteNew({ international: true })) }),
+      onclick: () => quoteBuild(quoteNew({ international: true })) }) : null,
     isAdmin() ? el('button', { class: 'btn', html: ico('dl', 14) + ' Bring the old quotes across',
       title: 'Reads the Sales Tracker’s file in the folder beside this one',
       onclick: quoteImportAsk }) : null
@@ -15824,6 +16398,8 @@ function quotePreview(q) {
 function quoteBuild(q) {
   if (isReadOnly()) return toast('You have read-only access', 'err');
   if (q.status === 'Booked') return toast('A booked quote cannot be changed', 'err');
+  if (q.international && !getQuote(q.id) && !canQuoteIntl())
+    return toast('An international quote is raised by ' + quoteApprover() + ' \u2014 ask for one, or raise it in AED', 'err');
   const w = JSON.parse(JSON.stringify(q));          /* work on a copy — leaving the form drops it */
   const isNew = !getQuote(q.id);
   const body = el('div', { class: 'qb' });
@@ -16135,9 +16711,14 @@ function quoteBuild(q) {
     if (stored && quoteApproved(stored) && stored.approvedSig && quoteSig(w) !== stored.approvedSig) {
       w.status = 'Draft'; w.approvedBy = null; w.approvedAt = null; w.approvedSig = null;
     }
+    const isNewOne = !getQuote(w.id);
     quoteSave(w);
     closeAll(); VIEW.name = 'quotes'; VIEW.quoteOpen = w.id; render();
     if (after) after(getQuote(w.id));
+    /* A quote saved and left as a draft still gets announced — the submit
+       path sends its own, so this only fires when nothing follows it. */
+    else if (isNewOne) quoteAnnounce(getQuote(w.id), 'raised')
+      .then(ok => { if (ok) toast(quoteApprover() + ' has been told it exists', 'ok'); });
     return w;
   };
   paint(); recalc(); paintSched(); paintTotalPct(); paintTerms(); paintFind();
@@ -16189,6 +16770,53 @@ function ctLabel(c) {
      name, and on a quote it would be printed as one. */
   if (!/[\p{L}\p{N}]/u.test(n)) n = '';
   return n || String(c.email || '').trim();
+}
+/* ================================================================
+   INFO — the two reference pages from the old tracker
+   The deal-ownership policy and the methodology behind the numbers.
+   They are documents, not screens: nothing here reads or writes a
+   record, which is why they live in their own part of the file and
+   are carried across as they were written rather than rebuilt.
+   The only edit is the one the move forces — the policy said HubSpot,
+   and the CRM it now describes is this one.
+   ================================================================ */
+const INFO_RULES_HTML = "<div class=\"banner\">\n  <div class=\"banner-eyebrow\">Internal Policy Document</div>\n  <h1>CoreV \u2013 <span>B2B Sales</span><br/>Ownership & CRM Rules</h1>\n  <div class=\"banner-tagline\"><strong>\"If it's not in the CRM, it does not exist.\"</strong></div>\n</div>\n<div class=\"rule-bar\">Single Source of Truth &nbsp;|&nbsp; CoreV Sales CRM &nbsp;|&nbsp; Effective Immediately</div>\n\n<div class=\"wrapper\">\n\n  <!-- 1. OWNERSHIP PRINCIPLES -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">01</div>\n      <div class=\"section-title\">Ownership Principles</div>\n    </div>\n    <div class=\"section-body\">\n      <div class=\"grid-2\" style=\"margin-bottom:14px;\">\n        <div class=\"rule-card\">\n          <div class=\"label\">Definition</div>\n          <div class=\"value\">Territory + CRM Deal Registration in the CRM</div>\n        </div>\n        <div class=\"rule-card\">\n          <div class=\"label\">First Entry Rule</div>\n          <div class=\"value\">First qualified deal entry (time-stamped) = Ownership</div>\n        </div>\n        <div class=\"rule-card\">\n          <div class=\"label\">Commission</div>\n          <div class=\"value\">No Deal in CRM = No Ownership = No Commission</div>\n        </div>\n        <div class=\"rule-card\">\n          <div class=\"label\">Conflicts</div>\n          <div class=\"value\">Cross-territory work requires written management approval \u2014 resolved strictly via CRM data</div>\n        </div>\n      </div>\n\n      <!-- INACTIVITY HIGHLIGHT CARD -->\n      <div class=\"inactivity-card\">\n        <div class=\"big-num\">3M</div>\n        <div class=\"info\">\n          <div class=\"main\">Inactivity Period \u2014 Loss of Ownership</div>\n          <div class=\"sub\">No activity for 3 months triggers account reassignment. CRM timestamp is final.</div>\n          <span class=\"extension-tag\">Extensible with Management Approval</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- 2. TERRITORY RULES -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">02</div>\n      <div class=\"section-title\">Territory Rules</div>\n    </div>\n    <div class=\"section-body\">\n      <div class=\"grid-2\">\n        <div class=\"rule-card\">\n          <div class=\"label\">Northern Emirates Team</div>\n          <div class=\"value\">Covers all Northern Emirates accounts</div>\n        </div>\n        <div class=\"rule-card\">\n          <div class=\"label\">Southern Emirates Team</div>\n          <div class=\"value\">Covers all Southern Emirates accounts</div>\n        </div>\n      </div>\n      <div class=\"note-box\" style=\"margin-top:14px;\">\n        <strong>Default Rule:</strong> No management approval = NO GO. No cross-territory engagement without written sign-off.\n      </div>\n    </div>\n  </div>\n\n  <!-- 3. LEAD REGISTRATION -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">03</div>\n      <div class=\"section-title\">Lead Registration \u2014 Mandatory Steps</div>\n    </div>\n    <div class=\"section-body\">\n      <div class=\"steps\">\n        <div class=\"step\">\n          <div class=\"step-dot\">1</div>\n          <div class=\"step-text\"><strong>Search First</strong> \u2014 Always check the CRM for existing records before any outreach.</div>\n        </div>\n        <div class=\"step\">\n          <div class=\"step-dot\">2</div>\n          <div class=\"step-text\"><strong>New Record?</strong> \u2014 Create Company (public name + URL), Contact, and Deal. All three are mandatory.</div>\n        </div>\n        <div class=\"step\">\n          <div class=\"step-dot\">3</div>\n          <div class=\"step-text\"><strong>Existing Record \u2014 Active Deal?</strong> \u2014 STOP. No engagement permitted.</div>\n        </div>\n        <div class=\"step danger\">\n          <div class=\"step-dot\">4</div>\n          <div class=\"step-text\"><strong>Existing Record \u2014 No Recent Activity?</strong> \u2014 May proceed ONLY by creating a Deal. No Deal = You do NOT own the account.</div>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- 4. DEAL QUALIFICATION -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">04</div>\n      <div class=\"section-title\">Deal Qualification \u2014 Required for Ownership</div>\n    </div>\n    <div class=\"section-body\">\n      <ul class=\"rule-list\">\n        <li><strong>Decision-Maker Identified</strong> \u2014 A decision-maker or key influencer must be confirmed.</li>\n        <li><strong>Clear Need / Use Case</strong> \u2014 A defined business need or use case must be documented.</li>\n        <li><strong>Meeting or Demo</strong> \u2014 A meeting or demo must be scheduled or completed.</li>\n      </ul>\n    </div>\n  </div>\n\n  <!-- 5. PIPELINE RULES -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">05</div>\n      <div class=\"section-title\">Pipeline Rules</div>\n    </div>\n    <div class=\"section-body\">\n      <div class=\"rule-card\" style=\"margin-bottom:16px;\">\n        <div class=\"label\">B2B Pipeline</div>\n        <div class=\"value\" style=\"margin-bottom:12px;\">No \"Cold Calls\" stage in B2B pipeline.</div>\n        <div class=\"pipeline\">\n          <div class=\"pipe-stage\">Identify</div>\n          <div class=\"pipe-stage active\">Qualified</div>\n          <div class=\"pipe-stage active\">Demo</div>\n          <div class=\"pipe-stage active\">Proposal</div>\n          <div class=\"pipe-stage closed\">Closed / Lost</div>\n        </div>\n      </div>\n      <div class=\"rule-card\">\n        <div class=\"label\">Consumer Pipeline</div>\n        <div class=\"value\">Cold Calls stage is permitted for consumer-facing sales only.</div>\n      </div>\n    </div>\n  </div>\n\n  <!-- 6. ACTIVITY & SLA -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">06</div>\n      <div class=\"section-title\">Activity & SLA</div>\n    </div>\n    <div class=\"section-body\">\n      <div class=\"sla-grid\" style=\"margin-bottom:16px;\">\n        <div class=\"sla-card\">\n          <div class=\"sla-num\">48</div>\n          <div class=\"sla-unit\">Hours</div>\n          <div class=\"sla-label\">First Contact SLA</div>\n        </div>\n        <div class=\"sla-card alt\">\n          <div class=\"sla-num\">21</div>\n          <div class=\"sla-unit\">Days</div>\n          <div class=\"sla-label\">Meeting / Demo Window</div>\n        </div>\n        <div class=\"sla-card alt\">\n          <div class=\"sla-num\">30</div>\n          <div class=\"sla-unit\">Days</div>\n          <div class=\"sla-label\">Activity Update Cycle</div>\n        </div>\n        <div class=\"sla-card warn\">\n          <div class=\"sla-num\">3</div>\n          <div class=\"sla-unit\">Months</div>\n          <div class=\"sla-label\">Inactivity = Reassignment Risk</div>\n        </div>\n      </div>\n      <div class=\"note-box\">\n        <strong>Consequence:</strong> SLA failure = Deal marked at risk. Inactivity beyond 3 months triggers reassignment unless extended with management approval.\n      </div>\n    </div>\n  </div>\n\n  <!-- 7. CONFLICT RULES -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">07</div>\n      <div class=\"section-title\">Conflict Rules</div>\n    </div>\n    <div class=\"section-body\">\n      <ul class=\"rule-list\">\n        <li class=\"warn\"><strong>No Duplicate Outreach</strong> \u2014 No parallel proposals or duplicate engagement on the same account.</li>\n        <li class=\"warn\"><strong>No Unauthorized Engagement</strong> \u2014 If a conflict exists, no engagement is permitted without prior approval.</li>\n        <li class=\"gold-label\"><strong>CRM is Final</strong> \u2014 the CRM data is the single and absolute source of truth for all disputes.</li>\n      </ul>\n    </div>\n  </div>\n\n  <!-- 8. COMMISSION RULES -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">08</div>\n      <div class=\"section-title\">Commission Rules</div>\n    </div>\n    <div class=\"section-body\">\n      <ul class=\"rule-list\">\n        <li class=\"gold-label\"><strong>Criteria:</strong> Deal must be registered in the CRM and assigned to you as the owner.</li>\n        <li class=\"warn\"><strong>Outside CRM:</strong> Any deal closed outside CRM = No commission, no exceptions.</li>\n        <li class=\"warn\"><strong>Poaching:</strong> Engaging another rep's account = Commission voided immediately.</li>\n      </ul>\n    </div>\n  </div>\n\n  <!-- 9. DEAL AGING & CLEANUP -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">09</div>\n      <div class=\"section-title\">Deal Aging & Cleanup</div>\n    </div>\n    <div class=\"section-body\">\n      <ul class=\"rule-list\">\n        <li><strong>Reassignment Trigger:</strong> No progress for 3 months = Deal reassigned (extensible with management approval).</li>\n        <li><strong>Quarterly Cleanup:</strong> Mandatory pipeline cleanup every quarter.</li>\n        <li class=\"warn\"><strong>Cold Status:</strong> All \"Cold\" deals must move to Identify or Lost \u2014 no exceptions.</li>\n      </ul>\n    </div>\n  </div>\n\n  <!-- 10. IMMEDIATE ACTIONS -->\n  <div class=\"section\">\n    <div class=\"section-header\">\n      <div class=\"section-num\">10</div>\n      <div class=\"section-title\">Immediate Actions \u2014 Within 7 Days</div>\n    </div>\n    <div class=\"section-body\">\n      <div class=\"steps\">\n        <div class=\"step\">\n          <div class=\"step-dot\">A</div>\n          <div class=\"step-text\">Convert all Cold Leads to <strong>Identify</strong> or <strong>Lost</strong> in the CRM.</div>\n        </div>\n        <div class=\"step\">\n          <div class=\"step-dot\">B</div>\n          <div class=\"step-text\">Close all inactive deals (stagnant 6\u20139 months) to <strong>Lost</strong> status.</div>\n        </div>\n        <div class=\"step\">\n          <div class=\"step-dot\">C</div>\n          <div class=\"step-text\">Ensure all active opportunities are registered under a <strong>Deal record</strong>.</div>\n        </div>\n        <div class=\"step danger\">\n          <div class=\"step-dot\">D</div>\n          <div class=\"step-text\"><strong>Escalate all conflicts</strong> to management immediately for resolution via CRM data.</div>\n        </div>\n      </div>\n    </div>\n  </div>\n\n</div><!-- /wrapper -->\n\n<footer>\n  <strong>CoreV Internal Policy</strong> &nbsp;|&nbsp; Confidential &nbsp;|&nbsp; CoreV Sales CRM &nbsp;|&nbsp; All rights reserved\n</footer>\n\n  </div><!-- /#view-deal-rules -->\n\n  <!-- \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n       GUIDELINES VIEW \u2014 equations, terminology, examples\n       \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 -->";
+const INFO_GUIDE_HTML = "<div class=\"content\">\n\n      <!-- Sticky in-page navigation -->\n      <div class=\"gd-toc\">\n        <a href=\"#gd-overview\">Overview</a>\n        <a href=\"#gd-deal-entry\">Deal Entry</a>\n        <a href=\"#gd-stage-weights\">Stage Weights</a>\n        <a href=\"#gd-aging\">Aging & Stale Deals</a>\n        <a href=\"#gd-qual\">Qualification Score</a>\n        <a href=\"#gd-perf\">Performance Metrics</a>\n        <a href=\"#gd-score\">Performance Score</a>\n        <a href=\"#gd-pcr\">Pipeline Coverage</a>\n        <a href=\"#gd-period\">Period Selector</a>\n        <a href=\"#gd-colors\">Color Legend</a>\n        <a href=\"#gd-faq\">FAQ</a>\n      </div>\n\n      <!-- HERO -->\n      <section class=\"gd-hero\">\n        <div class=\"gd-hero-icon\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 6S10 4 6 4a2 2 0 0 0-2 2v11a2 2 0 0 1 2-2c4 0 6 2 6 2\"/><path d=\"M12 6s2-2 6-2a2 2 0 0 1 2 2v11a2 2 0 0 0-2-2c-4 0-6 2-6 2z\"/></svg></div>\n        <div>\n          <h1>Guidelines &amp; Methodology</h1>\n          <p>How every number on the <strong>Sales Rep Performance</strong> dashboard is calculated. Use this page as the single source of truth when reviewing a rep's scorecard, the leaderboard, or the team-level KPIs.</p>\n        </div>\n      </section>\n\n      <!-- ============== OVERVIEW ============== -->\n      <section id=\"gd-overview\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">1</span>Overview</h2>\n        <p>The CRM captures, for every rep, four pieces of weekly forecast data plus actual closed revenue:</p>\n        <div class=\"gd-pill-row\">\n          <span class=\"gd-pill commit\">Commit</span>\n          <span class=\"gd-pill best\">Best Case</span>\n          <span class=\"gd-pill pipe\">Total Pipeline</span>\n          <span class=\"gd-pill closed\">Closed Won</span>\n        </div>\n        <p>Each of these flows into one or more performance metrics. The dashboard then rolls them up per rep, per team, and aggregated across whatever <em>Period</em> you select (current month, last 3, last 6, YTD).</p>\n\n<div class=\"gd-callout info\">\n          <strong>Rule of thumb:</strong> all forecast metrics use the <em>latest week with activity</em> as a month-end snapshot. <em>Closed Won</em> uses the maximum value reported across weeks (because closed-won is cumulative \u2014 it only ever goes up within a month).\n        </div>\n      </section>\n\n      <!-- ============== DEAL ENTRY ============== -->\n      <section id=\"gd-deal-entry\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">2</span>Deal Entry Terminology</h2>\n        <div class=\"gd-table-wrap\"><table class=\"gd-table\">\n          <thead><tr><th>Field</th><th>What it means</th><th>Used by</th></tr></thead>\n          <tbody>\n            <tr>\n              <td><strong>Commit</strong><span class=\"gd-tag commit\">High Confidence</span></td>\n              <td>Deals the rep is <strong>personally committing</strong> to close this month. Enter the deal name as <code>Client \u2013 Product</code> (e.g. <code>Marina Fitness \u2013 XS1</code>), one deal per line, and the AED amount in <strong>whole dirhams, no commas</strong> (type <code>250000</code> \u2014 the field shows <code>AED 250,000</code> back to you). Also capture the next concrete action.</td>\n              <td>Forecast Accuracy, Commit Variance, Weighted Forecast</td>\n            </tr>\n            <tr>\n              <td><strong>Best Case</strong><span class=\"gd-tag best\">Upside</span></td>\n              <td>Deals that <em>could</em> close this month if everything breaks the right way. Lower probability than Commit but still in active pursuit. Same entry format as Commit \u2014 deal name <code>Client \u2013 Product</code>, AED amount in whole dirhams.</td>\n              <td>Weighted Forecast, Total Pipeline</td>\n            </tr>\n            <tr>\n              <td><strong>Total Forecast</strong><span class=\"gd-tag pipe\">Auto</span></td>\n              <td>Auto-computed inside the CRM as <code>(Commit + Best Case) \u00d7 Stage Weight</code> (\u00d7 50% if the deal is stale). Updates live as the rep edits their row \u2014 never typed manually.</td>\n              <td>Weighted Forecast, Forecast Accuracy</td>\n            </tr>\n            <tr>\n              <td><strong>True Pipeline</strong><span class=\"gd-tag pipe\">Live</span></td>\n              <td>Sum of <strong>all open deals</strong> owned by the rep this month \u2014 read straight off the pipeline, not typed by the rep, and always current. Used as the basis for Pipeline Coverage Ratio (PCR).</td>\n              <td>Pipeline Coverage Ratio</td>\n            </tr>\n            <tr>\n              <td><strong>Closed Won</strong><span class=\"gd-tag closed\">Live</span></td>\n              <td>Sum of all <strong>Closed-Won deals</strong> for the rep this month \u2014 the single source of truth for \"what did the rep deliver\". <strong>Read-only.</strong> Manual entry is disabled by design: to change this number, change the deal.</td>\n              <td>Goal Attainment, Forecast Accuracy, Commit Variance</td>\n            </tr>\n            <tr>\n              <td><strong>Blocked</strong><span class=\"gd-tag blocked\">Text only</span></td>\n              <td>Free-text note describing deals that are stuck. Not used in any calculation \u2014 purely qualitative for management review.</td>\n              <td>\u2014</td>\n            </tr>\n            <tr>\n              <td><strong>XS1 / XP1 Forecast</strong></td>\n              <td>Unit-count forecasts (not AED) for the two flagship product lines. Tracked separately from revenue.</td>\n              <td>Rep Scorecard units row</td>\n            </tr>\n            <tr>\n              <td><strong>Stage</strong></td>\n              <td>One of <code>Qualified</code>, <code>Proposal</code>, <code>Negotiation</code>. Determines the forecast weight (see \u00a73).</td>\n              <td>Weighted Forecast, Qualification Score</td>\n            </tr>\n            <tr>\n              <td><strong>Confidence</strong></td>\n              <td>Rep's self-rated probability (90 / 70 / 50 / 30%). Currently informational; not multiplied into the forecast.</td>\n              <td>Display only</td>\n            </tr>\n            <tr>\n              <td><strong>Buyer Signals</strong></td>\n              <td>7 checkboxes: Budget, Timeline, Champion, Demo Completed, Proposal Submitted, Decision-Maker, Competition Out. Drives the Qualification Score (\u00a75).</td>\n              <td>Qualification Score</td>\n            </tr>\n          </tbody>\n        </table></div>\n      </section>\n\n      <!-- ============== STAGE WEIGHTS ============== -->\n      <section id=\"gd-stage-weights\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">3</span>Stage Weights</h2>\n        <p>Every deal's forecast contribution is multiplied by a stage-based probability factor. These weights are the heart of the Weighted Forecast calculation.</p>\n        <div class=\"gd-weight-grid\">\n          <div class=\"gd-weight-card stage-qualified\">\n            <div class=\"gd-weight-stage\">Qualified</div>\n            <div class=\"gd-weight-val\">0.25</div>\n            <div class=\"gd-weight-sub\">25% probability</div>\n          </div>\n          <div class=\"gd-weight-card stage-proposal\">\n            <div class=\"gd-weight-stage\">Proposal</div>\n            <div class=\"gd-weight-val\">0.50</div>\n            <div class=\"gd-weight-sub\">50% probability</div>\n          </div>\n          <div class=\"gd-weight-card stage-negotiation\">\n            <div class=\"gd-weight-stage\">Negotiation</div>\n            <div class=\"gd-weight-val\">0.75</div>\n            <div class=\"gd-weight-sub\">75% probability</div>\n          </div>\n        </div>\n        <div class=\"gd-formula\">\n          <div class=\"gd-formula-lbl\">Weighted Forecast (per row)</div>\n          <code>weightedForecast = (Commit + BestCase) \u00d7 StageWeight \u00d7 StalePenalty</code>\n        </div>\n        <div class=\"gd-example\">\n          <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Fatima</div>\n          <ul>\n            <li>Commit AED <strong>200,000</strong>, Best Case AED <strong>100,000</strong>, Stage = <strong>Proposal</strong>, deal is fresh (not stale).</li>\n            <li><code>weightedForecast = (200,000 + 100,000) \u00d7 0.50 \u00d7 1.0 = <strong>AED 150,000</strong></code></li>\n            <li>If the same row were in Negotiation: <code>300,000 \u00d7 0.75 = AED 225,000</code></li>\n            <li>If still in Qualified: <code>300,000 \u00d7 0.25 = AED 75,000</code></li>\n          </ul>\n        </div>\n      </section>\n\n      <!-- ============== AGING ============== -->\n      <section id=\"gd-aging\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">4</span>Aging &amp; Stale-Deal Penalty</h2>\n        <p>A deal is \"stale\" when it has stayed in the same stage for the same rep across consecutive weekly submissions for too long. The CRM walks backwards through your weekly history and counts how many consecutive weeks the same <code>dealName + stage + rep</code> combination has persisted.</p>\n        <div class=\"gd-formula\">\n          <div class=\"gd-formula-lbl\">Stale thresholds (per stage)</div>\n          <code>Qualified &gt; 14 days \u00b7 Proposal &gt; 21 days \u00b7 Negotiation &gt; 30 days</code>\n        </div>\n        <p>When a row crosses its threshold:</p>\n        <ol>\n          <li>The row highlights <span class=\"gd-chip bad\">red</span> in the Sales Commitment grid.</li>\n          <li>That row's Weighted Forecast is <strong>halved</strong> (<code>StalePenalty = 0.5</code>) \u2014 penalising rep optimism on deals that aren't moving.</li>\n        </ol>\n        <div class=\"gd-example\">\n          <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Connor</div>\n          <ul>\n            <li>\"Aldar Properties\" Commit appears in Negotiation for 5 consecutive weeks \u2192 ageEstimate = 5 \u00d7 7 = 35 days &gt; 30 \u2192 <strong>stale</strong>.</li>\n            <li>Commit AED 500,000 in Negotiation: <code>500,000 \u00d7 0.75 \u00d7 <strong>0.5</strong> = AED 187,500</code> instead of AED 375,000.</li>\n          </ul>\n        </div>\n      </section>\n\n      <!-- ============== QUALIFICATION SCORE ============== -->\n      <section id=\"gd-qual\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">5</span>Qualification Score (0\u2013100)</h2>\n        <p>Shown in the Sales Commitment grid next to each deal row. Combines the buyer-signal checkboxes (60% of the score) with stage progression (40% of the score).</p>\n        <div class=\"gd-formula\">\n          <div class=\"gd-formula-lbl\">Qualification Score</div>\n          <code>signalsPart  = (checkedSignals \u00f7 7) \u00d7 60</code><br/>\n          <code>stagePart    = (StageWeight \u00f7 0.75) \u00d7 40</code><br/>\n          <code>qualScore    = round( signalsPart + stagePart )</code>\n        </div>\n        <p>There are <strong>7 buyer signals</strong> in total: Budget Confirmed, Timeline Defined, Internal Champion, Demo Completed, Proposal Submitted, Decision-Maker Engaged, Competition Eliminated.</p>\n        <p>Stage maps to: Qualified \u2192 13.3, Proposal \u2192 26.7, Negotiation \u2192 40.</p>\n        <div class=\"gd-tier-grid\">\n          <div class=\"gd-tier hot\">\n            <div class=\"gd-tier-lbl\">HOT</div>\n            <div class=\"gd-tier-range\">\u2265 70</div>\n          </div>\n          <div class=\"gd-tier warm\">\n            <div class=\"gd-tier-lbl\">WARM</div>\n            <div class=\"gd-tier-range\">40 \u2013 69</div>\n          </div>\n          <div class=\"gd-tier cold\">\n            <div class=\"gd-tier-lbl\">COLD</div>\n            <div class=\"gd-tier-range\">&lt; 40</div>\n          </div>\n        </div>\n        <div class=\"gd-example\">\n          <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Hasan</div>\n          <ul>\n            <li>Deal in <strong>Negotiation</strong>, 6 of 7 buyer signals checked (all except Proposal Submitted).</li>\n            <li><code>signalsPart = (6 \u00f7 7) \u00d7 60 \u2248 51.4</code></li>\n            <li><code>stagePart   = (0.75 \u00f7 0.75) \u00d7 40 = 40.0</code></li>\n            <li><code>qualScore   = round(51.4 + 40) = <strong>91 \u2192 HOT</strong></code></li>\n          </ul>\n        </div>\n      </section>\n\n      <!-- ============== PERFORMANCE METRICS ============== -->\n      <section id=\"gd-perf\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">6</span>Sales Rep Performance Metrics</h2>\n        <p>Every rep scorecard on the Performance tab shows four metrics. Each one answers a different question.</p>\n\n        <!-- 6.1 Forecast Accuracy -->\n        <div class=\"gd-metric-card\">\n          <div class=\"gd-metric-head\">\n            <div class=\"gd-metric-name\">6.1 \u00b7 Forecast Accuracy</div>\n            <div class=\"gd-metric-tag good\">Higher is better</div>\n          </div>\n          <p>How close the rep's <strong>Weighted Forecast</strong> ended up being to their actual <strong>Closed Won</strong>. Uses a symmetric formula so both over-forecasting and under-forecasting are penalised equally.</p>\n          <div class=\"gd-formula\">\n            <code>denom    = max(weightedForecast, closedWon)</code><br/>\n            <code>accuracy = 1 \u2212 |weightedForecast \u2212 closedWon| \u00f7 denom</code>\n          </div>\n          <div class=\"gd-thresh\">\n            <span class=\"gd-chip good\">\u2265 85% Healthy</span>\n            <span class=\"gd-chip warn\">70 \u2013 84% Watch</span>\n            <span class=\"gd-chip bad\">&lt; 70% Off-target</span>\n          </div>\n          <div class=\"gd-example\">\n            <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Marios</div>\n            <ul>\n              <li>Weighted forecast (end of May): AED 420,000 \u00b7 Closed Won: AED 380,000</li>\n              <li><code>denom = max(420k, 380k) = 420,000</code></li>\n              <li><code>accuracy = 1 \u2212 |420k \u2212 380k| \u00f7 420k = 1 \u2212 0.0952 = <strong>90.5% \u2192 Healthy</strong></code></li>\n            </ul>\n          </div>\n        </div>\n\n        <!-- 6.2 Commit Variance -->\n        <div class=\"gd-metric-card\">\n          <div class=\"gd-metric-head\">\n            <div class=\"gd-metric-name\">6.2 \u00b7 Commit Variance</div>\n            <div class=\"gd-metric-tag info\">Signed</div>\n          </div>\n          <p>The rep's actual closed revenue versus what they <strong>committed</strong> to. Positive means they beat their commit; negative means they missed it.</p>\n          <div class=\"gd-formula\">\n            <code>commitVariance = (closedWon \u2212 totalCommit) \u00f7 totalCommit</code>\n          </div>\n          <div class=\"gd-thresh\">\n            <span class=\"gd-chip good\">\u2265 0% Beat / Met</span>\n            <span class=\"gd-chip warn\">\u221215% to 0% Slight miss</span>\n            <span class=\"gd-chip bad\">&lt; \u221215% Big miss</span>\n          </div>\n          <div class=\"gd-example\">\n            <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Katy</div>\n            <ul>\n              <li>Committed AED 300,000 in week 4 \u00b7 Closed AED 345,000</li>\n              <li><code>commitVariance = (345k \u2212 300k) \u00f7 300k = +15.0%</code> \u2192 <strong>beat commit by 15%</strong></li>\n              <li>If she had closed AED 240,000: <code>(240k \u2212 300k) \u00f7 300k = \u221220%</code> \u2192 big miss</li>\n            </ul>\n          </div>\n        </div>\n\n        <!-- 6.3 Goal Attainment -->\n        <div class=\"gd-metric-card\">\n          <div class=\"gd-metric-head\">\n            <div class=\"gd-metric-name\">6.3 \u00b7 Goal Attainment</div>\n            <div class=\"gd-metric-tag info\">Vs. admin-set target</div>\n          </div>\n          <p>Closed revenue divided by the admin-set monthly goal. Goals are configured per rep per month in <em>Manage Goals</em>.</p>\n          <div class=\"gd-formula\">\n            <code>goalAttain = closedWon \u00f7 monthlyGoal</code>\n          </div>\n          <div class=\"gd-thresh\">\n            <span class=\"gd-chip good\">\u2265 100% Goal hit</span>\n            <span class=\"gd-chip warn\">85 \u2013 99% Close</span>\n            <span class=\"gd-chip bad\">&lt; 85% Behind</span>\n          </div>\n          <div class=\"gd-example\">\n            <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Wafiq</div>\n            <ul>\n              <li>Monthly goal (admin-set): AED 500,000 \u00b7 Closed Won: AED 440,000</li>\n              <li><code>goalAttain = 440k \u00f7 500k = <strong>88% \u2192 Watch</strong></code></li>\n            </ul>\n          </div>\n        </div>\n\n        <!-- 6.4 Pipeline Coverage Ratio -->\n        <div class=\"gd-metric-card\">\n          <div class=\"gd-metric-head\">\n            <div class=\"gd-metric-name\">6.4 \u00b7 Pipeline Coverage Ratio (PCR)</div>\n            <div class=\"gd-metric-tag info\">Forward-looking</div>\n          </div>\n          <p>How many times the rep's open pipeline covers their monthly goal. The classic SaaS rule of thumb is 3\u20134\u00d7 coverage for healthy quota attainment. Always uses the <strong>latest month with activity</strong>, never summed.</p>\n          <div class=\"gd-formula\">\n            <code>PCR = totalPipeline \u00f7 monthlyGoal</code>\n          </div>\n          <div class=\"gd-thresh\">\n            <span class=\"gd-chip good\">\u2265 4.0\u00d7 Healthy</span>\n            <span class=\"gd-chip warn\">2.5 \u2013 3.9\u00d7 Watch</span>\n            <span class=\"gd-chip bad\">&lt; 2.5\u00d7 At Risk</span>\n          </div>\n          <p class=\"gd-fineprint\">Thresholds are admin-configurable in <em>\u2699 Coverage Thresholds</em>.</p>\n          <div class=\"gd-example\">\n            <div class=\"gd-example-head\">\ud83d\udccc Example \u2014 Jawdat</div>\n            <ul>\n              <li>Total open pipeline: AED 1,800,000 \u00b7 Monthly goal: AED 500,000</li>\n              <li><code>PCR = 1,800k \u00f7 500k = <strong>3.6\u00d7 \u2192 Watch</strong></code> (close to but below the 4.0\u00d7 green floor)</li>\n              <li>To move into healthy: pipeline \u2265 4.0 \u00d7 500k = <strong>AED 2,000,000</strong></li>\n            </ul>\n          </div>\n        </div>\n      </section>\n\n      <!-- ============== PERFORMANCE SCORE ============== -->\n      <section id=\"gd-score\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">7</span>Composite Performance Score (0\u2013100)</h2>\n        <p>The single number in the circular badge on each rep card and the primary sort key on the Leaderboard. <strong>Demo Effectiveness is part of the formula.</strong> Goal Attainment still dominates at 55% of the base score, with Forecast Accuracy, Pipeline Coverage, and the new <em>Demo Effectiveness</em> component each weighing 15%. Reps who exceed 100% goal earn an additional <em>Closer Bonus</em> of up to +10 points \u2014 so the rep who actually brings in the AED still beats the rep with the prettiest forecast, but the rep who never runs demos no longer gets a free ride.</p>\n        <div class=\"gd-formula\">\n          <div class=\"gd-formula-lbl\">Performance Score</div>\n          <code>goalComp     = min(1, goalAttain)</code> <span class=\"gd-formula-side\">\u2014 base cap; overachievement handled by bonus</span><br/>\n          <code>accComp      = forecastAccuracy</code><br/>\n          <code>pcrComp      = min(1, PCR \u00f7 greenThreshold)</code> <span class=\"gd-formula-side\">\u2014 1.0 at 4.0\u00d7 coverage</span><br/>\n          <code>demoTarget   = max(1, monthsInPeriod \u00d7 4)</code> <span class=\"gd-formula-side\">\u2014 4 demos per active month</span><br/>\n          <code>volComp      = min(1, demosRun \u00f7 demoTarget)</code><br/>\n          <code>convComp     = convRate  (= converted \u00f7 (converted + lost), or 0 if none decided)</code><br/>\n          <code>demoComp     = volComp \u00d7 0.40 + convComp \u00d7 0.60</code> <span class=\"gd-formula-side\">\u2014 quality &gt; quantity</span><br/>\n          <code>baseScore    = (goalComp \u00d7 0.55 + accComp \u00d7 0.15 + pcrComp \u00d7 0.15 + demoComp \u00d7 0.15) \u00d7 100</code><br/>\n          <code>overGoal     = max(0, goalAttain \u2212 1)</code> <span class=\"gd-formula-side\">\u2014 fraction above 100%</span><br/>\n          <code>closerBonus  = min(10, overGoal \u00d7 50)</code> <span class=\"gd-formula-side\">\u2014 +1 pt per 2% over, capped at +10</span><br/>\n          <code>score        = min(100, round(baseScore + closerBonus))</code>\n        </div>\n        <div class=\"gd-weight-grid score-weights\">\n          <div class=\"gd-weight-card\"><div class=\"gd-weight-stage\">Goal Attainment</div><div class=\"gd-weight-val\">55%</div><div class=\"gd-weight-sub\">Did they close?</div></div>\n          <div class=\"gd-weight-card\"><div class=\"gd-weight-stage\">Forecast Accuracy</div><div class=\"gd-weight-val\">15%</div><div class=\"gd-weight-sub\">Did they call it right?</div></div>\n          <div class=\"gd-weight-card\"><div class=\"gd-weight-stage\">Pipeline Coverage</div><div class=\"gd-weight-val\">15%</div><div class=\"gd-weight-sub\">Is their future safe?</div></div>\n          <div class=\"gd-weight-card\" style=\"border-color: rgba(96, 165, 250, 0.4); background: rgba(96, 165, 250, 0.08);\"><div class=\"gd-weight-stage\">Demo Effectiveness</div><div class=\"gd-weight-val\">15%</div><div class=\"gd-weight-sub\">Are they at the front line?</div></div>\n          <div class=\"gd-weight-card\" style=\"border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.08);\"><div class=\"gd-weight-stage\">Closer Bonus</div><div class=\"gd-weight-val\">+10</div><div class=\"gd-weight-sub\">Reward for &gt;100% goal</div></div>\n        </div>\n        <div class=\"gd-thresh\">\n          <span class=\"gd-chip good\">\u2265 80 Excellent</span>\n          <span class=\"gd-chip warn\">60 \u2013 79 Solid</span>\n          <span class=\"gd-chip bad\">&lt; 60 Needs attention</span>\n        </div>\n\n<div class=\"gd-callout info\">\n          <strong>Why bring demos into the score?</strong> Demos are the leading indicator of pipeline. A rep who closes 100% of goal this month but ran zero demos is mortgaging next month's number \u2014 and a rep who runs 12 demos with a 50% conversion rate is building a pipeline the AED hasn't caught up with yet. Goal Attainment still dominates at 55%, but Demo Effectiveness (15%) now ensures the Leaderboard rewards both <em>what they closed this month</em> and <em>what they're queueing up for next month</em>.\n        </div>\n        <div class=\"gd-callout info\" style=\"border-color: rgba(0, 120, 212, 0.45); background: rgba(0, 120, 212, 0.08);\">\n          <strong>Shared demo calendar.</strong> Demos are not entered by hand. There is ONE shared Outlook calendar \u2014 <code>demo@core-velocity.com</code> \u2014 and every rep must invite that address on every demo they book. The CRM reads that shared calendar directly via Microsoft Graph and treats <em>every non-cancelled event</em> as a real demo (no keyword guessing, no false positives).\n          <div style=\"margin-top: 10px;\"><strong>Subject convention:</strong> <code>&lt;Client Name&gt; \u2014 XS1 | XP1 | XS1 + XP1 | Full Range</code>. Set the Outlook Location field for on-site addresses (or \"Microsoft Teams\" for virtual). Add any teammates running the demo as attendees \u2014 they're auto-credited as supporting reps.</div>\n          <div style=\"margin-top: 10px;\"><strong>How Gladys uses it:</strong> Demo Tracker \u2192 <span style=\"color:#60a5fa;\">\ud83d\udcc5 Sync from demo@</span> \u2192 pick a lookback window (7 / 14 / 30 / 60 / 90 days) \u2192 review the auto-mapped rows (organizer \u2192 primary rep, attendees \u2192 supporting reps, subject \u2192 client + product, event location \u2192 location, start time \u2192 date). Rows missing fields show a <span style=\"color:#fbbf24;\">Needs review</span> badge with a specific warning (\"No product in subject\", \"Organizer not a known rep\", etc.). Each imported demo carries the Outlook event ID so weekly re-syncs are idempotent.</div>\n          <div style=\"margin-top: 10px;\"><strong>Permissions:</strong> Azure AD app needs <code>Calendars.Read.Shared</code> delegated permission with admin consent. Each signed-in user must have at least Reviewer access to the demo@ mailbox calendar (configured by IT once, applied to the whole sales group).</div>\n        </div>\n        <div class=\"gd-callout info\" style=\"border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.08);\">\n          <strong>Shared demo credit.</strong> Many demos are joint efforts: one rep books the meeting, another runs the technical demonstration on-site. When Gladys logs a demo, she now picks a <em>primary rep</em> AND optionally tags <em>supporting reps</em>. Every credited rep gets the demo counted toward their Demo Effectiveness score, their Demo Tracker rep card, and the KPI strip \u2014 the demo itself is still one row in the log, but it powers multiple reps' scores. Supporting credits are shown as <span style=\"color:#0d9488;\">+ Rep Name</span> chips under the primary in the log table, and as a <span style=\"color:#0d9488;\">(+N supporting)</span> badge on the rep card. The <strong>Edit</strong> and <strong>Delete</strong> actions are now full text buttons in the Actions column (no more guessing what the \ud83d\uddd1 icon does).\n        </div>\n        <div class=\"gd-example\">\n          <div class=\"gd-example-head\">\ud83d\udccc Worked Example A \u2014 Milena (hits goal, decent demos)</div>\n          <ul>\n            <li>Goal attainment 95%, Forecast accuracy 88%, PCR 3.2\u00d7 (green 4.0\u00d7)</li>\n            <li>1-month period \u00b7 5 demos run \u00b7 3 converted \u00b7 1 lost \u00b7 1 pending</li>\n            <li><code>goalComp = min(1, 0.95) = 0.95</code></li>\n            <li><code>accComp  = 0.88</code></li>\n            <li><code>pcrComp  = min(1, 3.2 \u00f7 4.0) = 0.80</code></li>\n            <li><code>demoTarget = 1\u00d74 = 4 \u2192 volComp = min(1, 5\u00f74) = 1.00</code></li>\n            <li><code>convComp = 3 \u00f7 (3+1) = 0.75 \u2192 demoComp = 1.00\u00d70.40 + 0.75\u00d70.60 = 0.85</code></li>\n            <li><code>baseScore = (0.95\u00d70.55 + 0.88\u00d70.15 + 0.80\u00d70.15 + 0.85\u00d70.15) \u00d7 100</code></li>\n            <li><code>          = (0.5225 + 0.132 + 0.120 + 0.1275) \u00d7 100 = 90.2</code></li>\n            <li><code>closerBonus = 0</code> (didn't exceed goal)</li>\n            <li><code>score = round(90.2) = <strong>90 \u2192 Excellent</strong></code></li>\n          </ul>\n        </div>\n        <div class=\"gd-example\">\n          <div class=\"gd-example-head\">\ud83d\udccc Worked Example B \u2014 Hasan (overachieves goal, strong demos)</div>\n          <ul>\n            <li>Goal attainment 118%, Forecast accuracy 75%, PCR 2.8\u00d7</li>\n            <li>1-month period \u00b7 6 demos run \u00b7 4 converted \u00b7 1 lost \u00b7 1 pending</li>\n            <li><code>goalComp = min(1, 1.18) = 1.00</code></li>\n            <li><code>accComp  = 0.75</code> \u00b7 <code>pcrComp = 0.70</code></li>\n            <li><code>volComp = min(1, 6\u00f74) = 1.00 \u00b7 convComp = 4 \u00f7 (4+1) = 0.80</code></li>\n            <li><code>demoComp = 1.00\u00d70.40 + 0.80\u00d70.60 = 0.88</code></li>\n            <li><code>baseScore = (1.00\u00d70.55 + 0.75\u00d70.15 + 0.70\u00d70.15 + 0.88\u00d70.15) \u00d7 100</code></li>\n            <li><code>          = (0.55 + 0.1125 + 0.105 + 0.132) \u00d7 100 = 89.95</code></li>\n            <li><code>overGoal = 0.18 \u2192 closerBonus = min(10, 0.18\u00d750) = <strong>+9</strong></code></li>\n            <li><code>score = min(100, round(89.95 + 9)) = <strong>99 \u2192 Excellent</strong></code></li>\n          </ul>\n          <p class=\"gd-fineprint\" style=\"margin-top:8px;\">Hasan stays at the top \u2014 he closed past goal AND he's feeding the funnel. The Closer Bonus still does the heavy lifting that puts him over Milena.</p>\n        </div>\n        <div class=\"gd-example\">\n          <div class=\"gd-example-head\">\ud83d\udccc Worked Example C \u2014 Connor (misses goal, accurate, no demos)</div>\n          <ul>\n            <li>Goal attainment 70%, Forecast accuracy 95%, PCR 4.2\u00d7, <strong>0 demos logged</strong></li>\n            <li><code>goalComp = 0.70 \u00b7 accComp = 0.95 \u00b7 pcrComp = min(1, 4.2\u00f74.0) = 1.00</code></li>\n            <li><code>volComp = 0 \u00b7 convComp = 0 \u2192 demoComp = 0</code></li>\n            <li><code>baseScore = (0.70\u00d70.55 + 0.95\u00d70.15 + 1.00\u00d70.15 + 0.00\u00d70.15) \u00d7 100</code></li>\n            <li><code>          = (0.385 + 0.1425 + 0.150 + 0.000) \u00d7 100 = 67.75</code></li>\n            <li><code>closerBonus = 0</code></li>\n            <li><code>score = <strong>68 \u2192 Solid</strong></code></li>\n          </ul>\n          <p class=\"gd-fineprint\" style=\"margin-top:8px;\">Without the demo component Connor would have scored ~80. With it, logging zero demos costs him ~12 points \u2014 which is the point. Forecast accuracy without front-line activity is no longer enough to score Excellent.</p>\n        </div>\n      </section>\n\n      <!-- ============== PCR TEAM ============== -->\n      <section id=\"gd-pcr\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">8</span>Team-Level Roll-ups</h2>\n        <p>The KPI strip at the top of the Performance tab uses the same formulas as the rep cards, but applied to the <strong>summed totals across all reps</strong> in the current period:</p>\n        <div class=\"gd-table-wrap\"><table class=\"gd-table\">\n          <thead><tr><th>Team KPI</th><th>Formula (over all reps in period)</th></tr></thead>\n          <tbody>\n            <tr><td>Forecast Accuracy</td><td><code>1 \u2212 |\u03a3 weightedFcst \u2212 \u03a3 closed| \u00f7 max(\u03a3 weightedFcst, \u03a3 closed)</code></td></tr>\n            <tr><td>Goal Achievement</td><td><code>\u03a3 closed \u00f7 \u03a3 goals</code></td></tr>\n            <tr><td>Pipeline Coverage</td><td><code>\u03a3 pipeline \u00f7 \u03a3 goals</code></td></tr>\n          </tbody>\n        </table></div>\n      </section>\n\n      <!-- ============== PERIOD ============== -->\n      <section id=\"gd-period\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">9</span>Period Selector</h2>\n        <p>The dropdown at the top of the Performance tab controls which months are summed into every metric.</p>\n        <div class=\"gd-table-wrap\"><table class=\"gd-table\">\n          <thead><tr><th>Option</th><th>Months included</th></tr></thead>\n          <tbody>\n            <tr><td>Current Month</td><td>Just this month</td></tr>\n            <tr><td>Last 3 Months</td><td>This month + 2 prior</td></tr>\n            <tr><td>Last 6 Months</td><td>This month + 5 prior</td></tr>\n            <tr><td>Year to Date</td><td>January 1 of current year through today</td></tr>\n          </tbody>\n        </table></div>\n\n<div class=\"gd-callout info\">\n          <strong>Important:</strong> Pipeline Coverage Ratio always uses the <em>latest month with activity</em>, not summed across the period \u2014 because PCR is a forward-looking snapshot of \"is your pipe big enough for next month\".\n        </div>\n      </section>\n\n      <!-- ============== COLOR LEGEND ============== -->\n      <section id=\"gd-colors\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">10</span>Color Legend</h2>\n        <div class=\"gd-legend-grid\">\n          <div class=\"gd-legend-card good\">\n            <div class=\"gd-legend-dot\"></div>\n            <div>\n              <strong>Green / Good</strong>\n              <p>Above the healthy threshold for this metric. No action needed.</p>\n            </div>\n          </div>\n          <div class=\"gd-legend-card warn\">\n            <div class=\"gd-legend-dot\"></div>\n            <div>\n              <strong>Amber / Watch</strong>\n              <p>Within the watch range. Worth a quick conversation with the rep.</p>\n            </div>\n          </div>\n          <div class=\"gd-legend-card bad\">\n            <div class=\"gd-legend-dot\"></div>\n            <div>\n              <strong>Red / At Risk</strong>\n              <p>Below the floor. Coaching, deal review, or goal recalibration required.</p>\n            </div>\n          </div>\n        </div>\n      </section>\n\n      <!-- ============== FAQ ============== -->\n      <section id=\"gd-faq\" class=\"gd-section\">\n        <h2><span class=\"gd-num\">11</span>FAQ</h2>\n\n        <details class=\"gd-faq\" open>\n          <summary>Why doesn't my Best Case roll up into Goal Attainment?</summary>\n          <p>Goal Attainment compares <em>actual</em> Closed Won against the admin-set goal. Best Case is a forecast value \u2014 it lives in Weighted Forecast and Pipeline Coverage, not in Goal Attainment.</p>\n        </details>\n\n        <details class=\"gd-faq\">\n          <summary>Why does my Forecast Accuracy show 0% in a month I haven't started yet?</summary>\n          <p>If both Weighted Forecast and Closed Won are zero, accuracy is undefined and displays as 0% or \"\u2014\". As soon as either value moves above zero, the formula activates.</p>\n        </details>\n\n        <details class=\"gd-faq\">\n          <summary>I committed AED 200k and closed AED 350k. Why is my Forecast Accuracy below 100%?</summary>\n          <p>Because the formula is symmetric \u2014 over-forecasting <em>and</em> under-forecasting both reduce accuracy. Closing way above commit means the rep was sandbagging. The score rewards calling it correctly, not just over-delivering.</p>\n        </details>\n\n        <details class=\"gd-faq\">\n          <summary>Where do the PCR thresholds (4.0\u00d7 green, 2.5\u00d7 amber) come from?</summary>\n          <p>They're SaaS-industry defaults that have proven reliable for B2B sales teams. Admins can change them in <em>\u2699 Coverage Thresholds</em> on the Performance tab if your business model warrants different numbers.</p>\n        </details>\n\n        <details class=\"gd-faq\">\n          <summary>Why does my stale deal still appear on the scorecard?</summary>\n          <p>Stale deals stay visible \u2014 they're not deleted. The aging penalty (\u00d70.5) only reduces the Weighted Forecast contribution. The row turns red to flag it for review.</p>\n        </details>\n\n        <details class=\"gd-faq\">\n          <summary>How is my XS1 / XP1 forecast scored?</summary>\n          <p>Currently XS1 and XP1 are shown as unit totals on the scorecard but are not factored into the composite Performance Score. They're displayed for trend tracking; an XS1/XP1 actuals-vs-forecast metric is planned.</p>\n        </details>\n\n        <details class=\"gd-faq\">\n          <summary>Where do I edit my monthly goal?</summary>\n          <p>Admin opens the Performance tab \u2192 <em>\u2699 Manage Goals</em> \u2192 enter the AED target per rep per month. Reps cannot edit their own goal.</p>\n        </details>\n      </section>\n\n      <div class=\"gd-footer\">\n        <p>Last updated: <strong>May 30, 2026</strong> \u00b7 Questions or proposed changes? Message Ahmed.</p>\n      </div>\n\n    </div>";
+
+function viewRules(root) {
+  const c = el('div', { class: 'infodoc', id: 'view-deal-rules' });
+  c.innerHTML = INFO_RULES_HTML;
+  root.appendChild(c);
+  infoPrintBar(root, 'Deal ownership & CRM rules');
+}
+function viewGuide(root) {
+  const c = el('div', { class: 'infodoc', id: 'view-guidelines' });
+  c.innerHTML = INFO_GUIDE_HTML;
+  root.appendChild(c);
+  infoPrintBar(root, 'Guidelines & methodology');
+  /* The page has its own contents strip; make it scroll this view rather
+     than the window, which is what #anchors do by default. */
+  c.querySelectorAll('.gd-toc a').forEach(a => a.addEventListener('click', e => {
+    const id = String(a.getAttribute('href') || '').slice(1);
+    const t = id && c.querySelector('#' + CSS.escape(id));
+    if (!t) return;
+    e.preventDefault();
+    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+}
+/* Both are things people print and hand to a new rep. */
+function infoPrintBar(root, title) {
+  root.insertBefore(el('div', { class: 'infobar' }, [
+    el('span', { class: 'sub', text: 'Reference \u00b7 nothing here changes a record' }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn sm', html: ico('dl', 13) + ' Print or save as PDF',
+      onclick: () => {
+        const t = document.title; document.title = title;
+        document.body.classList.add('infoprint');
+        setTimeout(() => { window.print(); document.title = t;
+          document.body.classList.remove('infoprint'); }, 80);
+      } })
+  ]), root.firstChild);
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
@@ -17525,7 +18153,9 @@ function quoteSettingsCard() {
   const ap = el('input', { class: 'inp', value: quoteApprover(), placeholder: QUOTE_APPROVER_DEFAULT });
   c.body.appendChild(fld('Only this address can approve a quote', ap,
     'A quote with no discount approves itself. Any discount at all waits for this person — not for a role, ' +
-    'and not for whoever happens to be an admin. They are also copied on every quote sent to a customer.'));
+    'and not for whoever happens to be an admin. They also hear about every quote raised, whether it needed a ' +
+    'decision or not, are copied on every quote sent to a customer, and are the only person who can raise an ' +
+    'international quote in USD.'));
   c.body.appendChild(el('button', { class: 'btn primary', text: 'Save', onclick: () => {
     const v = ap.value.trim();
     if (v && !v.includes('@')) return toast('That needs to be an email address', 'err');
@@ -17774,7 +18404,8 @@ const VIEWS = {
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
   review: viewReview, demos: viewDemos, requests: viewRequests,
   monthly: viewMonthly, forecast: viewForecast, settings: viewSettings,
-  perf: viewPerf, leads: viewLeads, quotes: viewQuotes
+  perf: viewPerf, leads: viewLeads, quotes: viewQuotes,
+  rules: viewRules, guide: viewGuide
 };
 const TITLES = {
   dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
@@ -17782,7 +18413,8 @@ const TITLES = {
   review: 'Sales Commitment', demos: 'Demo Tracker', requests: 'Demo Requests',
   perf: 'Rep Performance', leads: 'Marketing Leads', quotes: 'Quotes',
   monthly: 'Per Month Commit vs. Forecast',
-  forecast: 'Forecast & analytics', settings: 'Settings'
+  forecast: 'Forecast & analytics', settings: 'Settings',
+  rules: 'Deal ownership & CRM rules', guide: 'Guidelines & methodology'
 };
 let rendering = false;
 function render() {
