@@ -1135,7 +1135,7 @@ a.mfact:hover b{text-decoration:underline}
 .qp-doc .qp-tl-label{font-size:13px;font-weight:800;letter-spacing:.5px;color:#1e3a8a}
 .qp-doc .qp-tl-val{font-size:20px;font-weight:800;color:#0f172a}
 .qp-doc .qp-item-sku{font-weight:700;font-size:11px;color:#1e3a8a;letter-spacing:.3px}
-.qp-doc .qp-section-h{font-size:11px;font-weight:800;letter-spacing:.6px;color:#1e3a8a;text-transform:uppercase;margin:22px 0 6px}
+.qp-doc .qp-section-h{font-size:11px;font-weight:800;letter-spacing:.6px;color:#1e3a8a;text-transform:uppercase;margin:22px 0 6px;break-after:avoid;page-break-after:avoid}
 .qp-doc .qp-summary{border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px}
 .qp-doc .qp-srow{display:flex;justify-content:space-between;padding:3px 0;font-size:12.5px}
 .qp-doc .qp-sgrand{border-top:1px solid #e2e8f0;margin-top:6px;padding-top:8px;font-weight:800;font-size:14px}
@@ -1149,8 +1149,16 @@ a.mfact:hover b{text-decoration:underline}
 .qp-doc .qp-runhead-meta{font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px}
 .qp-doc .qp-runfoot{border-top:1px solid #e2e8f0;padding-top:6px;font-size:8.5px;color:#94a3b8;text-align:center}
 .qp-doc .qp-pt{padding:1px 0}
-.qp-offscreen{position:fixed;left:-10000px;top:0;width:794px}
-@media print{body.qp-printmode>*{display:none!important}body.qp-printmode .qp-offscreen{display:block!important;position:static!important;left:0!important;width:100%!important}}
+/* Everything from the payment schedule on is the second page of the quote —
+   the tracker drew it that way, and it is what stops a terms table starting
+   two rows before a page break with its heading stranded above it. */
+.qp-doc .qp-page2{break-before:page;page-break-before:always}
+/* The stage is what sits off-screen; the document inside it is positioned
+   normally, because the renderer clones that element and a clone carrying an
+   offset of its own renders nothing at all. */
+.qp-stage{position:fixed;left:-10000px;top:0;width:794px;background:#fff;z-index:-1}
+.qp-stage.qp-printing{z-index:auto}
+@media print{body.qp-printmode>*{display:none!important}body.qp-printmode .qp-stage{display:block!important;position:static!important;left:0!important;width:100%!important;z-index:auto!important}}
 /* new leads today, on the dashboard */
 .leadday{display:flex;gap:var(--sp-4);align-items:flex-start;flex-wrap:wrap;margin-bottom:var(--sp-3)}
 .leadday .big{display:flex;align-items:baseline;gap:8px}
@@ -1383,7 +1391,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.27.1';
+const VERSION = '1.27.2';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -14919,7 +14927,9 @@ function quoteDocHTML(q) {
   }).join('');
   const termsBlock = (rows, t1, t2) => rows.length
     ? `<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-top:6px">` +
-      `<div style="display:flex;background:#122036;color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px">` +
+      /* The header row of a terms table is no use at the bottom of a page with
+         its rows overleaf, so it is kept with what follows it. */
+      `<div style="display:flex;background:#122036;color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px;page-break-after:avoid;break-after:avoid">` +
       `<div style="width:26%;padding:7px 10px">${t1}</div><div style="width:74%;padding:7px 10px">${t2}</div></div>` +
       termRows(rows) + `</div>` : '';
 
@@ -14981,14 +14991,25 @@ function quotePdfLib() {
   });
   return QPDF;
 }
-/* An off-screen copy of the document at A4 width, which is what the
-   renderer measures. Rendering the on-screen preview instead picks up
-   whatever width the window happens to be. */
+/* AN OFF-SCREEN COPY AT A4 WIDTH.
+
+   The renderer measures whatever it is handed, so it is handed a copy at a
+   fixed 794px rather than the preview, which is as wide as the window.
+
+   The copy is pushed off-screen by its WRAPPER, and the document element
+   itself carries no positioning at all. That is not fussiness: html2pdf
+   clones the element you give it into its own off-screen container, and a
+   clone that still says "left: -10000px" lands outside that container and
+   renders as a blank page — one page, three kilobytes, nothing on it. */
 function quoteDocHost(q) {
-  const host = el('div', { class: 'qp-doc qp-offscreen' });
+  const stage = el('div', { class: 'qp-stage' });
+  const host = el('div', { class: 'qp-doc' });
+  host.style.width = '794px';
+  host.style.background = '#ffffff';
   host.innerHTML = quoteDocHTML(q);
-  document.body.appendChild(host);
-  return host;
+  stage.appendChild(host);
+  document.body.appendChild(stage);
+  return { stage, host };
 }
 const QUOTE_PDF_OPTS = {
   margin: [12, 0, 14, 0],
@@ -14997,15 +15018,25 @@ const QUOTE_PDF_OPTS = {
   jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
   pagebreak: { mode: ['css', 'legacy'],
     avoid: ['.qp-keep', '.qp-summary', '.qp-srow', '.qp-cols', '.qp-total-line', '.qp-accept',
-            '.qp-bank-grid', '.qp-section-h', '.qp-table thead', '.qp-item-sku', '.qp-pt'] }
+            '.qp-bank-grid', '.qp-section-h', '.qp-table thead', '.qp-item-sku', '.qp-pt',
+            '.qp-terms-block > .qp-section-h'] }
 };
 async function quotePdfBlob(q) {
   const lib = await quotePdfLib();
-  const host = quoteDocHost(q);
+  const { stage, host } = quoteDocHost(q);
   try {
-    return await lib().set(Object.assign({ filename: quoteFileName(q) }, QUOTE_PDF_OPTS))
+    /* Give the images in it — the logo is the only one — a moment to be
+       decoded, or the first page comes out without it. */
+    try { await Promise.all([...host.querySelectorAll('img')].map(i =>
+      i.complete ? null : new Promise(r => { i.onload = i.onerror = r; }))); } catch (e) {}
+    const blob = await lib().set(Object.assign({ filename: quoteFileName(q) }, QUOTE_PDF_OPTS))
       .from(host).outputPdf('blob');
-  } finally { host.remove(); }
+    /* A quote renders to hundreds of kilobytes. Anything tiny is a blank
+       page, and a blank page must not be allowed to reach a customer, so it
+       is caught here rather than in their inbox. */
+    if (!blob || blob.size < 12000) throw new Error('the renderer produced an empty page');
+    return blob;
+  } finally { stage.remove(); }
 }
 async function quoteDownload(q) {
   if (!quotePrintAllowed(q)) return toast(quoteChangedSinceApproval(q)
@@ -15020,12 +15051,12 @@ async function quoteDownload(q) {
     toast('Downloaded', 'ok');
   } catch (e) {
     /* No library, no network to the CDN: print it instead. */
-    const host = quoteDocHost(q);
-    host.classList.add('qp-printing');
+    const { stage } = quoteDocHost(q);
+    stage.classList.add('qp-printing');
     document.body.classList.add('qp-printmode');
     const title = document.title; document.title = quoteFileName(q).replace(/\.pdf$/, '');
     setTimeout(() => { window.print(); document.title = title;
-      document.body.classList.remove('qp-printmode'); host.remove(); }, 120);
+      document.body.classList.remove('qp-printmode'); stage.remove(); }, 150);
     toast('Could not build a PDF here (' + String(e.message || e).slice(0, 60) + ') — printing it instead', 'warn');
   }
 }
