@@ -1149,10 +1149,12 @@ a.mfact:hover b{text-decoration:underline}
 .qp-doc .qp-runhead-meta{font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px}
 .qp-doc .qp-runfoot{border-top:1px solid #e2e8f0;padding-top:6px;font-size:8.5px;color:#94a3b8;text-align:center}
 .qp-doc .qp-pt{padding:1px 0}
-/* Everything from the payment schedule on is the second page of the quote —
-   the tracker drew it that way, and it is what stops a terms table starting
-   two rows before a page break with its heading stranded above it. */
-.qp-doc .qp-page2{break-before:page;page-break-before:always}
+/* No forced break here. Asking for one left a whole blank page in the middle
+   of any quote whose first page was nearly full: the renderer broke at the
+   element, and the element had already flowed past the page boundary. The
+   orphaned-heading problem it was meant to solve is handled by keeping each
+   table's heading with its first row instead. */
+.qp-doc .qp-page2{margin-top:4px}
 /* The stage is what sits off-screen; the document inside it is positioned
    normally, because the renderer clones that element and a clone carrying an
    offset of its own renders nothing at all. */
@@ -1391,7 +1393,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.27.2';
+const VERSION = '1.27.3';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -14925,13 +14927,24 @@ function quoteDocHTML(q) {
       `<div style="width:74%;padding:7px 10px;color:#334155;font-size:11.5px;white-space:pre-line;overflow-wrap:anywhere">${long ? detailHtml(r.detail) : esc(String(r.detail || ''))}</div>` +
     `</div>`;
   }).join('');
-  const termsBlock = (rows, t1, t2) => rows.length
-    ? `<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-top:6px">` +
-      /* The header row of a terms table is no use at the bottom of a page with
-         its rows overleaf, so it is kept with what follows it. */
-      `<div style="display:flex;background:#122036;color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px;page-break-after:avoid;break-after:avoid">` +
-      `<div style="width:26%;padding:7px 10px">${t1}</div><div style="width:74%;padding:7px 10px">${t2}</div></div>` +
-      termRows(rows) + `</div>` : '';
+  /* A table heading at the foot of a page with its rows overleaf is the thing
+     that made a quote look broken. The heading strip and the first row are
+     therefore one unit the renderer may move but not split; everything after
+     it flows normally. The border is drawn in two halves so the box still
+     reads as one box when they do stay together. */
+  const termsBlock = (rows, t1, t2, title) => {
+    if (!rows.length) return '';
+    const head = `<div style="display:flex;background:#122036;color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px">` +
+      `<div style="width:26%;padding:7px 10px">${t1}</div><div style="width:74%;padding:7px 10px">${t2}</div></div>`;
+    const first = termRows(rows.slice(0, 1));
+    const rest = rows.length > 1 ? termRows(rows.slice(1)) : '';
+    const top = `<div class="qp-keep" style="margin-top:6px">` +
+      (title ? `<div class="qp-section-h">${title}</div>` : '') +
+      `<div style="border:1px solid #e2e8f0;border-radius:6px 6px 0 0;${rest ? 'border-bottom:0;' : 'border-radius:6px;'}overflow:hidden">` +
+      head + first + `</div></div>`;
+    return top + (rest
+      ? `<div style="border:1px solid #e2e8f0;border-top:0;border-radius:0 0 6px 6px;overflow:hidden">${rest}</div>` : '');
+  };
 
   let payBlock = '';
   if (q.payBank && q.bank) payBlock += `<div class="qp-bank-grid"><b>Bank Transfer</b><br>` +
@@ -14956,10 +14969,10 @@ function quoteDocHTML(q) {
       <div class="qp-srow qp-sgrand"><span>Total</span><span>${M(q.total || 0)}</span></div>
     </div></div>
     <div class="qp-page2">
-      <div class="qp-keep"><div class="qp-section-h">Payment Schedule</div>${schedTable}
-      ${termsBlock(quotePayTerms(q), 'PAYMENT TERM', 'DETAIL')}</div>
-      ${(() => { const t = termsBlock(quoteTermsFor(q), 'TERM', 'DETAIL');
-        return t ? `<div class="qp-terms-block"><div class="qp-section-h">Purchase Terms</div>${t}</div>` : ''; })()}
+      <div class="qp-keep"><div class="qp-section-h">Payment Schedule</div>${schedTable}</div>
+      ${termsBlock(quotePayTerms(q), 'PAYMENT TERM', 'DETAIL')}
+      ${(() => { const rows = quoteTermsFor(q);
+        return rows.length ? `<div class="qp-terms-block">${termsBlock(rows, 'TERM', 'DETAIL', 'Purchase Terms')}</div>` : ''; })()}
       <div class="qp-accept">By issuing a PO, signing this quote or paying an invoice related to this quote, you are accepting the purchase terms &amp; conditions on behalf of your organization.</div>
       ${payBlock ? `<div class="qp-keep"><div class="qp-section-h">Payment Details</div>${payBlock}</div>` : ''}
       ${q.comments ? `<div class="qp-keep"><div class="qp-section-h">Comments</div><div class="qp-muted">${esc(q.comments)}</div></div>` : ''}
