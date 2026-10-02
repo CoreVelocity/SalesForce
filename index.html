@@ -1092,6 +1092,12 @@ a.mfact:hover b{text-decoration:underline}
 }
 
 /* bringing leads across from the tracker — the column mapper */
+/* new leads today, on the dashboard */
+.leadday{display:flex;gap:var(--sp-4);align-items:flex-start;flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.leadday .big{display:flex;align-items:baseline;gap:8px}
+.leadday .big .n{font-size:2.4rem;font-weight:650;line-height:1;letter-spacing:-.02em}
+.leadday .big .lbl{color:var(--ink-3);font-size:.9rem}
+.leadday .sub{flex:1;min-width:12rem}
 /* the media library */
 .medialine{display:grid;grid-template-columns:1fr 2fr;gap:0 var(--sp-3)}
 @media(max-width:620px){.medialine{grid-template-columns:1fr}}
@@ -1318,7 +1324,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.25.0';
+const VERSION = '1.26.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -1402,6 +1408,14 @@ function frel(d) {
   if (n < 0)  return `${-n}d overdue`;
   if (n < 30) return `in ${n}d`;
   return fdate(d);
+}
+/* The day something happened, where the person is, not where UTC is. A lead
+   that came in at 01:29 in Dubai is a lead that came in that morning, and
+   slicing the ISO string would file it under the day before. */
+function localDay(d) {
+  const t = d instanceof Date ? d : new Date(d);
+  if (isNaN(t)) return '';
+  return new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 function fbytes(n) {
   const b = Number(n) || 0;
@@ -3589,6 +3603,7 @@ function viewHead(title, right) {
 /* ======================================================= DASHBOARD */
 const WIDGETS = [
   { id: 'kpi',      name: 'Headline numbers' },
+  { id: 'leadsday', name: 'New marketing leads, day by day' },
   { id: 'funnel',   name: 'Pipeline by stage' },
   { id: 'forecast', name: 'Weighted forecast by close month' },
   { id: 'reps',     name: 'Rep leaderboard' },
@@ -3647,6 +3662,56 @@ function viewDashboard(root) {
       t.appendChild(tile('Win rate', (won.length + lost.length) ? pct(won.length, won.length + lost.length) + '%' : '—', {
         icon: 'bolt', foot: `${won.length} won · ${lost.length} lost` }));
       return t;
+    },
+    /* NEW LEADS, EVERY DAY.
+       Marketing spend turns into rows in a sheet and the rows turn into
+       leads, and until now nobody could see that happening without opening
+       Marketing Leads and counting. Today's number, yesterday's for contrast,
+       and a fortnight behind it so a quiet week looks quiet. */
+    leadsday: () => {
+      const c = card('New marketing leads', 'What arrived each day — the last 14 days');
+      const rows = live('leads');
+      const scoped = VIEW.rep === 'all' ? rows : rows.filter(l => String(l.assignee) === VIEW.rep);
+      const DAYS = 14;
+      const bars = [];
+      for (let i = DAYS - 1; i >= 0; i--) {
+        const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+        const key = localDay(d);
+        const on = scoped.filter(l => leadDay(l) === key);
+        bars.push({ key, label: new Date(key + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+          value: on.length, rows: on });
+      }
+      const today = bars[bars.length - 1], yday = bars[bars.length - 2] || { value: 0 };
+      const fortnight = bars.reduce((a, b2) => a + b2.value, 0);
+      const week = bars.slice(-7).reduce((a, b2) => a + b2.value, 0);
+      const free = today.rows.filter(l => l.demoAsk === 'free').length;
+      const paid = today.rows.filter(l => l.demoAsk === 'paid').length;
+      const noRep = today.rows.filter(l => !l.assignee).length;
+
+      const head = el('div', { class: 'leadday' }, [
+        el('div', { class: 'big' }, [
+          el('span', { class: 'n', text: String(today.value) }),
+          el('span', { class: 'lbl', text: today.value === 1 ? 'new lead today' : 'new leads today' })
+        ]),
+        el('div', { class: 'sub', style: 'line-height:1.6', html:
+          (today.value
+            ? (free || paid
+                ? `${free} asked for the free demo · ${paid} for the onsite one at AED 800<br>`
+                : '') +
+              (noRep ? `<b style="color:var(--warning)">${noRep} still need a rep</b><br>` : 'all routed to a rep<br>')
+            : 'Nothing has come in yet today.<br>') +
+          `Yesterday ${yday.value} · last 7 days ${week} · last 14 days ${fortnight}` })
+      ]);
+      c.body.appendChild(head);
+      /* chartBar() owns whatever host it is given — it empties it first — so
+         the chart gets a host of its own rather than the card body. */
+      const plot = el('div', {});
+      c.body.appendChild(plot);
+      chartBar(plot, bars, { height: 150, fmt: v => String(v),
+        xLabel: 'Day', yLabel: 'New leads', aria: 'New marketing leads per day' });
+      c.head.appendChild(el('button', { class: 'btn sm', text: 'Open Marketing Leads',
+        onclick: () => { VIEW.name = 'leads'; VIEW.leadTab = 'summary'; render(); } }));
+      return c.node;
     },
     funnel: () => {
       const c = card('Pipeline by stage', `Open deals in each stage · ${VIEW.rep === 'all' ? 'all reps' : ownerName(VIEW.rep)}`);
@@ -10671,6 +10736,15 @@ function leadKey(l) {
   if (p.length >= 7) return 'p:' + p.slice(-9);
   return 'n:' + String(l.name || '').trim().toLowerCase() + '|' + String(l.company || '').trim().toLowerCase();
 }
+/* A lead's day. A date with no time in it (the sheet's own dates arrive that
+   way) is already the day it means, so it is taken as written rather than
+   shifted by a timezone it never had. */
+function leadDay(l) {
+  const raw = String((l && l.createdAt) || '');
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z?$/.test(raw)) return raw.slice(0, 10);
+  return localDay(raw) || raw.slice(0, 10);
+}
 const leadIndex = () => { const m = new Map(); live('leads').forEach(l => m.set(leadKey(l), l)); return m; };
 
 /* ---------------------------------------------------- the CRM link
@@ -10737,6 +10811,7 @@ function leadCreate(p, opt) {
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     stage: 'New', owner: currentOwnerId(),
     name: p.name || '', company: p.company || '', type: p.type === 'B2B' ? 'B2B' : 'B2C',
+    model: p.model || '', demoAsk: p.demoAsk === 'free' || p.demoAsk === 'paid' ? p.demoAsk : '',
     language: p.language === 'Arabic' ? 'Arabic' : 'English',
     phone: p.phone || '', email: p.email || '', address: p.address || '',
     emirate: p.emirate || '', region: p.region || '',
@@ -10952,6 +11027,28 @@ function expandSci(s) {
   return (m[1] === '-' ? '-' : '') +
     (point >= digits.length ? digits + '0'.repeat(point - digits.length) : digits.slice(0, point));
 }
+/* WHAT THEY ASKED FOR.
+   The sheet's "Your preferred model" column is doing two jobs: it carries the
+   model somebody is interested in (XS1 Peak), and it carries which demo they
+   asked for — the free one at our facility, or the AED 800 one at their place.
+   The second is the one a rep needs to see before picking up the phone, so it
+   is pulled out into a field of its own and the model text is kept beside it.
+   The free/paid labels are set here rather than typed into the sheet, so a tab
+   that writes "demo_at_home_(aed_800)" and one that writes "Demo at Home (AED
+   800)" land on the same thing. */
+const LEAD_DEMO = {
+  free: { key: 'free', label: 'Free demo · at our facility', short: 'Free demo' },
+  paid: { key: 'paid', label: 'Onsite demo · AED 800',       short: 'Onsite AED 800' }
+};
+const leadDemoLabel = k => (LEAD_DEMO[k] || {}).label || '';
+function leadDemoAsk(text) {
+  const t = String(text || '').toLowerCase().replace(/[_+]+/g, ' ');
+  if (!t.trim()) return '';
+  /* The money is the surest signal, then the place. */
+  if (/\b800\b/.test(t) || /\bat home\b|\bhome demo\b|\bat (their|your) (place|home|villa)\b|onsite|on-site|at the client/.test(t)) return 'paid';
+  if (/\bfree\b|facility|showroom|at our place|in our/.test(t)) return 'free';
+  return '';
+}
 function leadNormalise(o) {
   o = o || {};
   const blob = [o.note, o.phone, o.email, o.address, o.source, o.company].filter(Boolean).join('\n');
@@ -10984,7 +11081,11 @@ function leadNormalise(o) {
   if (!phone || phone.length < 7) { const m = blob.match(/\+?\d[\d\s()-]{6,}/); if (m) phone = leadDigits(expandSci(m[0])); }
   if (phone && phone.length >= 9 && !phone.startsWith('971') && phone.startsWith('0')) phone = '971' + phone.slice(1);
   const address = String(o.address || '').trim();
-  return { name: String(o.name || '').trim(), type, company: String(o.company || '').trim(),
+  const model = String(o.model || '').trim();
+  const demoAsk = o.demoAsk === 'free' || o.demoAsk === 'paid' ? o.demoAsk
+    : (leadDemoAsk(model) || leadDemoAsk(o.note) || leadDemoAsk(o.source));
+  return { model, demoAsk,
+    name: String(o.name || '').trim(), type, company: String(o.company || '').trim(),
     phone: phone ? '+' + phone : '', email: mail ? mail[0].toLowerCase() : '',
     address, emirate: '', region: leadRegionOf([address, o.note, o.company].filter(Boolean).join(' ')),
     source: String(o.source || '').trim(), note: String(o.note || '').trim(),
@@ -11753,7 +11854,7 @@ function leadMailRows(l) {
     ['Name', l.name], ['Phone', l.phone], ['Email', l.email],
     ['Type', l.type === 'B2B' ? 'B2B — business' : 'B2C — home'],
     ['Company', l.company], ['Area', l.address || l.emirate || l.region],
-    ['Source', l.source], ['Preferred model', l.model],
+    ['Source', l.source], ['Asked for', leadDemoLabel(l.demoAsk)], ['Preferred model', l.model],
     ['Came in', l.createdAt ? new Date(l.createdAt).toLocaleString('en-GB') : ''],
     ['Where it came from', l.srcTool], ['Stage', l.stage]
   ].filter(([, v]) => v);
@@ -12102,6 +12203,9 @@ function viewLeads(root) {
   if (f.recon === 'yes')  rows = rows.filter(l => l.reconnect);
   if (f.recon === 'due')  rows = rows.filter(leadReconnectDue);
   if (f.recon === 'no')   rows = rows.filter(l => !l.reconnect);
+  if (f.demo === 'free') rows = rows.filter(l => l.demoAsk === 'free');
+  if (f.demo === 'paid') rows = rows.filter(l => l.demoAsk === 'paid');
+  if (f.demo === 'none') rows = rows.filter(l => !l.demoAsk);
   if (f.flag === 'due')       rows = rows.filter(leadIsDue);
   if (f.flag === 'awaiting')  rows = rows.filter(leadAwaiting);
   if (f.flag === 'priority')  rows = rows.filter(l => l.priority);
@@ -12231,6 +12335,9 @@ function leadFilterBar(f, base, lost) {
   bar.appendChild(selectFilter('Type', f.type || '',
     [['', 'B2B and B2C'], ['B2B', 'B2B only'], ['B2C', 'B2C only']],
     v => { f.type = v || null; render(); }, 140));
+  bar.appendChild(selectFilter('Demo asked for', f.demo || '',
+    [['', 'Any demo ask'], ['free', LEAD_DEMO.free.label], ['paid', LEAD_DEMO.paid.label], ['none', 'Did not ask for one']],
+    v => { f.demo = v || null; render(); }, 195));
   if (!lost) bar.appendChild(selectFilter('Flag', f.flag || '',
     [['', 'Any state'], ['due', 'Action due now'], ['awaiting', 'Awaiting a reply'],
      ['priority', 'Priority only'], ['cold', 'Cold only']],
@@ -12280,6 +12387,10 @@ function leadRow(l) {
     text: 'overdue ' + fdate(due.toISOString().slice(0, 10)) }));
   else if (due && LEAD_ACTIVE(l)) badges.appendChild(el('span', { class: 'bg',
     text: 'next ' + fdate(due.toISOString().slice(0, 10)) }));
+  /* What they asked for is the first thing a rep wants off the row: an AED 800
+     onsite demo is a different conversation from a free one at the showroom. */
+  if (l.demoAsk) badges.appendChild(el('span', { class: 'bg ' + (l.demoAsk === 'paid' ? 'warn' : 'good'),
+    title: leadDemoLabel(l.demoAsk), text: LEAD_DEMO[l.demoAsk].short }));
   if (l.cold) badges.appendChild(el('span', { class: 'bg info', text: 'Cold' }));
   if (l.reconnect) badges.appendChild(el('span', { class: 'bg ' + (leadReconnectDue(l) ? 'warn' : ''),
     text: 're-connect ' + fdate(l.reconnectBy) }));
@@ -12371,9 +12482,10 @@ function leadDetail(root, l) {
   hd.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
     el('h3', { style: 'margin:0', html: esc(l.name || 'Unnamed') +
       ` <span class="tag">${esc(l.type)}</span> <span class="tag">${esc(l.language)}</span>` +
-      (l.company ? ` <span class="tag info">${esc(l.company)}</span>` : '') }),
+      (l.company ? ` <span class="tag info">${esc(l.company)}</span>` : '') +
+      (l.demoAsk ? ` <span class="tag ${l.demoAsk === 'paid' ? 'warn' : 'good'}">${esc(LEAD_DEMO[l.demoAsk].label)}</span>` : '') }),
     el('div', { class: 'sub', style: 'margin-top:4px', text:
-      [l.source ? 'Source: ' + l.source : null, l.region || null,
+      [l.source ? 'Source: ' + l.source : null, l.model ? 'Model: ' + l.model : null, l.region || null,
        'Added ' + fdate(String(l.createdAt).slice(0,10))].filter(Boolean).join(' · ') }),
     l.note ? el('p', { style: 'margin:var(--sp-2) 0 0;line-height:1.55;color:var(--ink-2)', text: l.note }) : null
   ]));
@@ -12703,6 +12815,10 @@ function leadEdit(l) {
   const sr = el('input', { class: 'inp', value: l.source || '', placeholder: 'Instagram, referral, walk-in…' });
   const lg = el('select', { class: 'inp' });
   ['English','Arabic'].forEach(v => lg.appendChild(el('option', { value: v, text: v, selected: l.language === v || null })));
+  const dm = el('select', { class: 'inp' });
+  [['', 'Not asked / not known'], ['free', LEAD_DEMO.free.label], ['paid', LEAD_DEMO.paid.label]]
+    .forEach(([v, t]) => dm.appendChild(el('option', { value: v, text: t, selected: (l.demoAsk || '') === v || null })));
+  const md = el('input', { class: 'inp', value: l.model || '', placeholder: 'XS1 Peak, XP1, not sure yet…' });
   const as = ownerSelect(l.assignee || '', { emptyLabel: 'Route it automatically' });
   const nt = el('textarea', { class: 'inp', rows: 2, value: l.note || '',
     placeholder: 'What they asked for, their goal, anything they said' });
@@ -12716,6 +12832,9 @@ function leadEdit(l) {
     el('div', { class: 'field-row' }, [ fld('Phone', ph), fld('Email', em) ]),
     fld('Address', ad, 'Naming the emirate here is what routes the lead to the right rep.'),
     el('div', { class: 'field-row' }, [ fld('Source', sr), fld('Assign to', as) ]),
+    el('div', { class: 'field-row' }, [
+      fld('Demo they asked for', dm, 'The free one at our facility, or the AED 800 one at their place.'),
+      fld('Preferred model', md) ]),
     fld('Notes', nt)
   ]), [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
@@ -12723,7 +12842,8 @@ function leadEdit(l) {
       if (!nm.value.trim()) { nm.focus(); return toast('A name is required', 'err'); }
       const p = { name: nm.value.trim(), type: ty.value, company: co.value.trim(),
         phone: ph.value.trim(), email: em.value.trim(), address: ad.value.trim(),
-        source: sr.value.trim(), language: lg.value, assignee: as.value, note: nt.value.trim() };
+        source: sr.value.trim(), language: lg.value, assignee: as.value, note: nt.value.trim(),
+        demoAsk: dm.value, model: md.value.trim() };
       if (isNew) {
         const made = leadCreate(p);
         closeAll(); VIEW.leadOpen = made.id; render();
@@ -12755,6 +12875,8 @@ function exportLeads(rows) {
     { h: 'Region', f: l => l.region || '' }, { h: 'Assigned to', f: l => ownerName(l.assignee) },
     { h: 'Stage', f: l => l.stage }, { h: 'Lost reason', f: l => l.lostReason || '' },
     { h: 'Source', f: l => l.source || '' }, { h: 'Language', f: l => l.language },
+    { h: 'Demo asked for', f: l => leadDemoLabel(l.demoAsk) },
+    { h: 'Preferred model', f: l => l.model || '' },
     { h: 'Priority', f: l => l.priority ? 'yes' : '' },
     { h: 'Added', f: l => String(l.createdAt || '').slice(0, 10) },
     { h: 'Last WhatsApp', f: l => String(l.lastWhatsAppAt || '').slice(0, 10) },
@@ -13027,6 +13149,7 @@ const MIG_FIELDS = [
   ['source',    'Source',          /^(source|lead.?source|channel|campaign|platform|medium|form)$/i, /source|channel|campaign|platform|medium/i],
   ['stage',     'Stage or status', /^(stage|status|state|pipeline|lead.?status|progress)$/i, /stage|status|pipeline/i],
   ['type',      'B2B / B2C',       /^(type|lead.?type|segment|category|b2b)$/i, /type|segment|categ/i],
+  ['model',     'Preferred model', /^(your.?preferred.?model|preferred.?model|model|product|device|package)$/i, /preferred.?model|\bmodel\b|\bdevice\b/i],
   ['title',     'Job title',       /^(job.?title|title|position|designation|role)$/i, /job.?title|designation|position/i],
   ['note',      'Note',            /^(note|notes|message|comment|comments|remark|remarks|enquiry|inquiry|requirement|details|description)$/i, /note|message|comment|remark|enquir|inquir|requirement|detail|descr/i],
   ['assignee',  'Assigned rep',    /^(assigned|assigned.?to|assignee|owner|rep|sales.?rep|agent|handled.?by|salesperson)$/i, /assign|owner|\brep\b|agent|salesperson/i],
@@ -13160,7 +13283,7 @@ function migRowToLead(src, map) {
   const name = [g('name'), g('name2')].filter(Boolean).join(' ').trim();
   const l = leadNormalise({ name, company: g('company'), phone: g('phone'), email: g('email'),
     address: g('address'), source: g('source') || migSourceName(),
-    note: g('note'), type: g('type'), language: g('language') });
+    note: g('note'), type: g('type'), language: g('language'), model: g('model') });
   /* A B2B list carries the person's job title, and "owner" or "MD" is the
      first thing a rep wants to see. It has nowhere of its own to live, so it
      goes at the top of the note rather than being thrown away. */
@@ -13611,6 +13734,8 @@ function leadStats(rows) {
     avgEngage: engaged.length ? engaged.reduce((a, b) => a + b, 0) / engaged.length : null,
     engagedCount: engaged.length,
     reconnect: rows.filter(l => l.reconnect && LEAD_ACTIVE(l)).length,
+    freeDemo: rows.filter(l => l.demoAsk === 'free').length,
+    paidDemo: rows.filter(l => l.demoAsk === 'paid').length,
     noRep: rows.filter(l => !l.assignee).length
   };
 }
@@ -13702,6 +13827,16 @@ function viewLeadSummary(root, all) {
     foot: s.engagedCount ? `across ${s.engagedCount} who answered` : 'nobody has answered yet' }));
   t.appendChild(leadTileLink(tile('Awaiting engagement', s.awaiting, { icon: 'warn', tag: s.awaiting ? 'warn' : '',
     foot: 'messaged, no reply yet' }), 'active', { flag: 'awaiting' }, 'Show who has not replied'));
+  /* The two asks are different work: one is a visit to us, the other is a van,
+     two people and AED 800 of somebody's money. Counting them apart is the
+     first thing anyone asks of the month. */
+  if (s.freeDemo || s.paidDemo) {
+    t.appendChild(leadTileLink(tile('Free demo asked for', s.freeDemo, { icon: 'cal',
+      foot: 'at our facility' }), 'active', { demo: 'free' }, 'Show who asked for the free demo'));
+    t.appendChild(leadTileLink(tile('Onsite demo · AED 800', s.paidDemo, { icon: 'target',
+      tag: s.paidDemo ? 'warn' : '', foot: 'at their own place' }), 'active', { demo: 'paid' },
+      'Show who asked for the paid onsite demo'));
+  }
   if (s.reconnect) t.appendChild(leadTileLink(tile('To re-connect', s.reconnect, { icon: 'cal',
     foot: rows.filter(l => leadReconnectDue(l) && LEAD_ACTIVE(l)).length + ' due now' }), 'active', { recon: 'yes' },
     'Show the leads tagged to re-connect'));
