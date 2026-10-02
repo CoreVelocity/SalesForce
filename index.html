@@ -1383,7 +1383,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.27.0';
+const VERSION = '1.27.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -15677,6 +15677,16 @@ function quoteBuild(q) {
   const exp = el('input', { class: 'inp', type: 'date', value: w.expiresAt || '' });
   const shp = el('input', { class: 'inp', value: w.shipDate || '', placeholder: '1-2 days' });
   const dest = el('input', { class: 'inp', value: w.destination || '', placeholder: 'City, country' });
+  dl.addEventListener('change', () => {
+    const d = dl.value ? getDl(dl.value) : null;
+    if (!d) return;
+    if (!nm.value.trim()) nm.value = d.name || '';
+    const b = quoteBuyerFromDeal(d);
+    if (b.name && !bn.value.trim()) bn.value = b.name;
+    if (b.email && !be.value.trim()) be.value = b.email;
+    if (b.phone && !bp.value.trim()) bp.value = b.phone;
+    if (b.address && !ba.value.trim()) ba.value = b.address;
+  });
   s1.appendChild(fld('Quote name *', nm));
   s1.appendChild(el('div', { class: 'field-row' }, [fld('On which deal', dl), fld('Expires *', exp)]));
   s1.appendChild(el('div', { class: 'field-row' }, [
@@ -15685,11 +15695,21 @@ function quoteBuild(q) {
 
   /* ---- buyer ---- */
   const s2 = sec('Who it is for', 'Picking a contact fills the rest in; anything can be typed over.');
-  const contacts = live('contacts').sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  /* A contact's name is fullName here — firstName and lastName are kept
+     separately and fullName is what everything else in the tool shows. */
+  const contacts = live('contacts').filter(c => ctLabel(c))
+    .sort((a, b) => ctLabel(a).localeCompare(ctLabel(b)));
   const ct = el('select', { class: 'inp' });
   ct.appendChild(el('option', { value: '', text: 'Not from the contact list' }));
-  contacts.slice(0, 2000).forEach(c => ct.appendChild(el('option', { value: c.id,
-    text: c.name + (c.companyId ? ' · ' + ((getCo(c.companyId) || {}).name || '') : ''), selected: w.contactId === c.id || null })));
+  /* The deal's own people first — on a quote it is nearly always one of them. */
+  const near = w.dealId ? ((getDl(w.dealId) || {}).contactIds || []) : [];
+  const ordered = contacts.slice().sort((x, y) =>
+    (near.includes(y.id) ? 1 : 0) - (near.includes(x.id) ? 1 : 0));
+  ordered.slice(0, 2000).forEach(c => {
+    const co = c.companyId ? (getCo(c.companyId) || {}).name : '';
+    ct.appendChild(el('option', { value: c.id, selected: w.contactId === c.id || null,
+      text: [ctLabel(c), co, near.includes(c.id) ? 'on this deal' : ''].filter(Boolean).join(' · ') }));
+  });
   const bn = el('input', { class: 'inp', value: w.buyer.name || '' });
   const be = el('input', { class: 'inp', type: 'email', value: w.buyer.email || '' });
   const bp = el('input', { class: 'inp', value: w.buyer.phone || '' });
@@ -15697,7 +15717,8 @@ function quoteBuild(q) {
   const bv = el('input', { class: 'inp', value: w.buyer.vat || '', placeholder: 'Buyer VAT / TRN' });
   ct.addEventListener('change', () => {
     const c = contacts.find(x => x.id === ct.value); if (!c) return;
-    bn.value = c.name || ''; be.value = c.email || ''; bp.value = c.phone || '';
+    bn.value = ctLabel(c); be.value = c.email || ''; bp.value = c.phone || '';
+    if (c.jobTitle && !w.buyerTitle) w.buyerTitle = c.jobTitle;
     if (c.companyId) { const co = getCo(c.companyId); if (co) { ba.value = co.address || ba.value; w.companyId = co.id; } }
   });
   s2.appendChild(fld('Contact', ct));
@@ -15913,9 +15934,25 @@ function dealQuotes(d) {
   return wrap;
 }
 function quoteBuyerFromDeal(d) {
-  const c = (d.contactIds || []).map(id => getCt(id)).filter(Boolean)[0];
+  /* The first person on the deal who has an email is the one a quote goes to;
+     somebody with no address on them is no use as a buyer block. */
+  const people = (d.contactIds || []).map(id => getCt(id)).filter(Boolean);
+  const c = people.find(x => x.email) || people[0];
   if (!c) return {};
-  return { name: c.name || '', email: c.email || '', phone: c.phone || '' };
+  const co = d.companyId ? getCo(d.companyId) : null;
+  return { name: ctLabel(c), email: c.email || '', phone: c.phone || '',
+    address: (co && co.address) || '' };
+}
+/* What to call a contact: the full name the rest of the tool shows, then the
+   two halves, then the email. Never the empty string that read as undefined. */
+function ctLabel(c) {
+  if (!c) return '';
+  let n = String(c.fullName || '').trim() ||
+    [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+  /* An import left a few contacts called "- -" and "." — punctuation is not a
+     name, and on a quote it would be printed as one. */
+  if (!/[\p{L}\p{N}]/u.test(n)) n = '';
+  return n || String(c.email || '').trim();
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
