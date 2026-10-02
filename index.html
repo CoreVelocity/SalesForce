@@ -1324,7 +1324,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.26.0';
+const VERSION = '1.26.1';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -12167,8 +12167,6 @@ function viewLeads(root) {
     el('button', { class: 'btn', html: ico('dl',14) + ' Export', onclick: () => exportLeads(all) }),
     isReadOnly() ? null : el('button', { class: 'btn', html: ico('clip',14) + ' Import a list',
       onclick: leadImportModal }),
-    isReadOnly() ? null : el('button', { class: 'btn', html: ico('link',14) + ' From the Sales Tracker',
-      title: 'Read the marketing leads straight out of the tracker\u2019s OneDrive folder', onclick: migOpen }),
     isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus',14) + ' New lead',
       onclick: () => leadEdit(null) })
   ]));
@@ -12859,11 +12857,10 @@ function leadEdit(l) {
 }
 
 /* ---------------------------------------------------- import a list */
-/* "Import a list" and "From the Sales Tracker" are the same importer with a
-   different first screen. It used to be a second, simpler one that read only
-   the columns it recognised — so stage, rep and date never came in, a blank row
-   in the middle of a file shifted every row under it, and a semicolon-separated
-   export arrived as one long name. */
+/* "Import a list" opens the importer. It used to be a reader of its own, a
+   simpler one that took only the columns it recognised — so stage, rep and date
+   never came in, a blank row in the middle of a file shifted every row under it,
+   and a semicolon-separated export arrived as one long name. */
 const leadImportModal = () => migOpen('paste');
 
 function exportLeads(rows) {
@@ -12889,107 +12886,25 @@ function exportLeads(rows) {
   toast(`${rows.length} leads exported`, 'ok');
 }
 /* ================================================================
-   BRING DATA ACROSS FROM THE SALES TRACKER
+   IMPORTING A LIST OF LEADS
 
-   The tracker (corevelocity/sales) keeps its records as JSON in the
-   same OneDrive this CRM reads, so nothing has to be exported by hand:
-   sign in, point at the tracker's folder, and its marketing leads come
-   across with the stage they were at, the rep who had them and the day
-   they arrived.
+   A list of leads arrives as rows: pasted out of a sheet, or a CSV,
+   TSV or JSON file somebody exported. This reads it, keeps every
+   column whatever it is called, guesses which column is which, and
+   shows that guess for correction before a single record is written.
 
-   Four things make it safe to run on live data:
-     · a backup of the tracker's folder downloads before anything is
-       read across, and OneDrive keeps its own version history besides;
-     · nothing is ever written back to the tracker — this only reads;
-     · every lead carries the id it had over there, so running it a
-       second time updates what came across instead of doubling it;
+   Three things make it safe to run on live data:
+     · every lead carries the id it had in the file, so running the
+       same list twice updates what came across instead of doubling it;
+     · nothing is saved until the list has been seen and ticked;
      · the last run can be undone in one click.
 
-   It does not assume the tracker's field names. It reads the file,
-   finds the arrays that look like leads, guesses the columns, and then
-   shows that guess for correction before a single record is written.
+   The same screens read the agency sheet, which is why the mapper is
+   shared rather than written twice.
    ================================================================ */
 
-const MIG = { step: 'src', busy: '', err: '', folders: [], files: [], folder: null,
-  file: null, raw: null, cands: [], pick: null, map: {}, rows: [], opts: {} };
-
-/* ---------------------------------------------------- reading OneDrive */
-const migFolderId = () => (DB.config && DB.config.trackerFolder) || '';
-
-async function migChildren(id) {
-  const r = await graph(`/drives/${DRIVE.id}/items/${id}/children` +
-    '?$top=200&$select=id,name,size,folder,file,lastModifiedDateTime');
-  return (r && r.value) || [];
-}
-async function migScan() {
-  MIG.busy = 'Looking in OneDrive…'; MIG.err = ''; migPaint();
-  try {
-    await resolveDrive();
-    /* The CRM's own folder sits beside the tracker's — OXEFIT/CoreVCRM and
-       OXEFIT/<whatever the tracker called itself> — so the parent is where
-       to look first. */
-    const me = await graph(`/drives/${DRIVE.id}/items/${DRIVE.folderId}?$select=id,name,parentReference`);
-    const parent = me && me.parentReference && me.parentReference.id;
-    const sibs = parent ? await migChildren(parent) : [];
-    MIG.folders = sibs.filter(x => x.folder && x.id !== DRIVE.folderId);
-    MIG.step = 'folder';
-  } catch (e) {
-    MIG.err = String(e.message || e);
-    MIG.step = 'folder';
-  } finally { MIG.busy = ''; migPaint(); }
-}
-async function migOpenFolder(f) {
-  MIG.folder = f; MIG.busy = 'Reading ' + f.name + '…'; MIG.err = ''; migPaint();
-  try {
-    const kids = await migChildren(f.id);
-    MIG.files = kids.filter(x => x.file && /\.(json|csv|txt)$/i.test(x.name))
-      .sort((a, b) => String(b.lastModifiedDateTime).localeCompare(String(a.lastModifiedDateTime)));
-    /* One level down as well — some tools keep a data/ subfolder. */
-    for (const sub of kids.filter(x => x.folder).slice(0, 6)) {
-      const deeper = await migChildren(sub.id);
-      deeper.filter(x => x.file && /\.(json|csv|txt)$/i.test(x.name))
-        .forEach(x => MIG.files.push(Object.assign({}, x, { name: sub.name + '/' + x.name })));
-    }
-    MIG.step = 'file';
-  } catch (e) { MIG.err = String(e.message || e); }
-  finally { MIG.busy = ''; migPaint(); }
-}
-async function migGrab(item) {
-  const r = await graph(`/drives/${DRIVE.id}/items/${item.id}/content`, { raw: true });
-  return await r.text();
-}
-async function migReadFile(item) {
-  MIG.busy = 'Opening ' + item.name + '…'; MIG.err = ''; migPaint();
-  try {
-    MIG.file = item;
-    migTake(await migGrab(item), item.name);
-  } catch (e) { MIG.err = String(e.message || e); MIG.busy = ''; migPaint(); }
-}
-
-/* Downloads everything in the tracker's folder as one file, before a single
-   record is read across. This is the backup. */
-async function migBackup() {
-  const f = MIG.folder; if (!f) return;
-  MIG.busy = 'Packing a backup of ' + f.name + '…'; migPaint();
-  const bundle = { tool: f.name, folder: f.name, takenAt: new Date().toISOString(),
-    takenBy: (AUTH.user && AUTH.user.username) || 'local', files: {} };
-  let bytes = 0, failed = [];
-  try {
-    for (const item of MIG.files) {
-      try {
-        const text = await migGrab(item);
-        bytes += text.length;
-        try { bundle.files[item.name] = JSON.parse(text); }
-        catch (e) { bundle.files[item.name] = text; }
-      } catch (e) { failed.push(item.name); }
-    }
-    download(`${f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-backup-${TODAY()}.json`,
-      JSON.stringify(bundle, null, 1));
-    toast(`Backup of ${Object.keys(bundle.files).length} file${Object.keys(bundle.files).length === 1 ? '' : 's'} downloaded` +
-      (failed.length ? ` · ${failed.length} could not be read` : ''), failed.length ? 'warn' : 'ok');
-  } catch (e) { toast('Backup failed: ' + String(e.message || e).slice(0, 110), 'err'); }
-  finally { MIG.busy = ''; migPaint(); }
-}
+const MIG = { step: 'paste', busy: '', err: '', file: null, raw: null,
+  cands: [], pick: null, map: {}, rows: [], opts: {} };
 
 /* ---------------------------------------------------- finding the leads */
 /* A tab whose columns were confirmed once should open showing those columns,
@@ -13008,7 +12923,7 @@ function migTake(text, label) {
     /* Not JSON — read it as a sheet, keeping EVERY column as its own field.
        The plain lead reader would be simpler here, but it throws away any
        column it does not recognise, and stage and rep are exactly the two
-       columns worth keeping off a tracker export. */
+       columns worth keeping off any export. */
     const rows = migCsvRows(text);
     if (!rows.length) { MIG.err = 'Nothing readable in that — it is neither JSON nor rows of columns.';
       MIG.step = MIG.raw ? 'paste' : MIG.step; return migPaint(); }
@@ -13269,7 +13184,6 @@ function migDate(v) {
 /* What a lead with no source column of its own is labelled: where it came
    from, in words a rep would recognise on the lead itself. */
 function migSourceName() {
-  if (MIG.folder) return MIG.folder.name;
   const f = MIG.file && MIG.file.name;
   if (f && !/^(a pasted list|the pasted list|probe)$/i.test(f)) return f.replace(/\.[a-z]+$/i, '');
   return 'Imported list';
@@ -13332,17 +13246,17 @@ function migCommit() {
       ['company', 'phone', 'email', 'address', 'source', 'note'].forEach(k => { if (!l[k] && r[k]) l[k] = r[k]; });
       if (!l.assignee && r.assignee) l.assignee = r.assignee;
       if (MIG.opts.stage !== false && r.stage && r.stage !== 'New') l.stage = r.stage;
-      l.srcId = l.srcId || r.srcId; l.srcTool = l.srcTool || (MIG.folder ? 'Sales Tracker' : migSourceName());
+      l.srcId = l.srcId || r.srcId; l.srcTool = l.srcTool || migSourceName();
       leadSave(l); touched.push(l.id);
     } else {
       l = leadCreate(Object.assign({}, r, { assignee: r.assignee || '' }), { quiet: true });
       if (r.createdAt) l.createdAt = r.createdAt;
       if (r.stage) l.stage = r.stage;
-      l.srcId = r.srcId; l.srcTool = MIG.folder ? 'Sales Tracker' : migSourceName();
+      l.srcId = r.srcId; l.srcTool = migSourceName();
       if (r.rawStage && r.stage === 'New' && !/new|fresh|open/i.test(r.rawStage))
-        leadAddUpdate(l, `Came across from ${MIG.folder ? "the Sales Tracker" : "that list"} as "${r.rawStage}" — parked at New`, true);
+        leadAddUpdate(l, `Came across from that list as "${r.rawStage}" — parked at New`, true);
       if (r.rawAssignee && !r.assignee)
-        leadAddUpdate(l, `Was with "${r.rawAssignee}" in ${MIG.folder ? "the Sales Tracker" : "that list"} — no one here matched that name` +
+        leadAddUpdate(l, `Was with "${r.rawAssignee}" in that list — no one here matched that name` +
           (l.assignee ? `, so it was routed to ${ownerName(l.assignee)}` : ''), true);
       leadSave(l); made.push(l.id);
       if (l.assignee) routed++;
@@ -13363,7 +13277,7 @@ function migCommit() {
   }
   DB.config.leadMigLast = { at: new Date().toISOString(),
     by: (AUTH.user && AUTH.user.username) || 'local',
-    from: (MIG.folder ? MIG.folder.name + '/' : '') + (MIG.file ? MIG.file.name : 'a file'),
+    from: MIG.file ? MIG.file.name : 'a file',
     made, touched: touched.length };
   touch('config');
   closeAll(); VIEW.name = 'leads'; render();
@@ -13398,9 +13312,11 @@ function migUndoLast() {
    THE SCREENS
    ================================================================ */
 function migOpen(mode) {
-  MIG.step = mode === 'paste' ? 'paste' : 'src';
+  /* The Sales Tracker is being shut down, so there is one way in now: a
+     list, pasted or picked as a file. */
+  MIG.step = 'paste';
   MIG.err = ''; MIG.busy = ''; MIG.rows = []; MIG.cands = []; MIG.raw = '';
-  MIG.folder = null; MIG.file = null; MIG.pick = null; MIG.sheet = false;
+  MIG.file = null; MIG.pick = null; MIG.sheet = false;
   MIG.sheetIdx = null; MIG.sheetLabel = ''; MIG.savedMap = null;
   MIG.opts = { stage: true, deals: false };
   migPaint();
@@ -13413,55 +13329,13 @@ function migPaint() {
     el('span', { class: 'ic', html: ico('warn', 16) }), el('div', { style: 'flex:1;line-height:1.5', text: MIG.err })]));
   const foot = [];
   MIG._after = null;
-  ({ src: migStepSrc, paste: migStepPaste, folder: migStepFolder, file: migStepFile,
-     pick: migStepPick, map: migStepMap, preview: migStepPreview }[MIG.step] || migStepSrc)(body, foot);
+  ({ paste: migStepPaste, pick: migStepPick, map: migStepMap,
+     preview: migStepPreview }[MIG.step] || migStepPaste)(body, foot);
   modal(MIG.sheet ? 'Check the agency sheet' + (MIG.sheetLabel ? ' — ' + MIG.sheetLabel : '')
-    : MIG.step === 'paste' ? 'Import a list of leads'
-    : 'Bring leads across from the Sales Tracker', body, foot, true);
+    : 'Import a list of leads', body, foot, true);
   /* The footer buttons only exist once modal() has put them in the page, so
      anything that labels one runs here rather than while building the step. */
   if (MIG._after) MIG._after();
-}
-
-function migStepSrc(body, foot) {
-  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);line-height:1.65;color:var(--ink-2)', html:
-    'The tracker keeps its records in OneDrive, in a folder beside this one, so they can be read straight across — ' +
-    'no export, no copy and paste. <b>Nothing is written back to the tracker</b>, and nothing lands here until you have ' +
-    'seen it.' }));
-  const opt = (title, sub, on, dis) => {
-    const b = el('button', { class: 'btn', style:
-      'display:block;width:100%;text-align:left;padding:var(--sp-3);height:auto;margin-bottom:var(--sp-2)',
-      disabled: dis || null, onclick: on });
-    b.appendChild(el('div', { style: 'font-weight:600', text: title }));
-    b.appendChild(el('div', { class: 'sub', style: 'margin-top:2px;white-space:normal;line-height:1.5', text: sub }));
-    return b;
-  };
-  body.appendChild(opt('Read it from OneDrive',
-    SYNC.mode === 'onedrive' ? 'Pick the tracker’s folder, download a backup of it, then choose the file to read.'
-      : 'Sign in with Microsoft first — this browser is not synced at the moment.',
-    migScan, SYNC.mode !== 'onedrive'));
-
-  const file = el('input', { type: 'file', accept: '.json,.csv,.tsv,.txt', style: 'display:none',
-    onchange: e => { const f = e.target.files[0]; if (!f) return;
-      const r = new FileReader();
-      r.onload = () => { MIG.file = { name: f.name }; migTake(String(r.result || ''), f.name); };
-      r.readAsText(f); } });
-  body.appendChild(file);
-  body.appendChild(opt('Choose a file I already exported',
-    'A backup or export from the tracker — JSON or CSV. Use this if the tracker’s data is only in the browser it was typed into.',
-    () => file.click()));
-  body.appendChild(opt('Paste a list',
-    'Rows copied out of a sheet, or a list written out in plain words.',
-    () => { MIG.step = 'paste'; MIG.err = ''; migPaint(); }));
-
-  const last = DB.config && DB.config.leadMigLast;
-  if (last && (last.made || []).length) body.appendChild(el('div', { class: 'alert', style: 'margin-top:var(--sp-3)' }, [
-    el('span', { class: 'ic', html: ico('warn', 16) }),
-    el('div', { style: 'flex:1;line-height:1.55' }, [
-      el('div', { text: `${last.made.length} leads came across on ${new Date(last.at).toLocaleString('en-GB')} from ${last.from}.` }),
-      el('button', { class: 'btn sm ghost', style: 'margin-top:6px', text: 'Undo that import', onclick: migUndoLast })
-    ])]));
-  foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
 }
 
 function migStepPaste(body, foot) {
@@ -13486,8 +13360,7 @@ function migStepPaste(body, foot) {
     html: '<b>Read it with Claude</b> is for a list that is not in columns at all — notes, ' +
       'a chat thread, a jumble of names and numbers. It sorts each one into B2B or B2C and pulls the ' +
       'phone, email and address out of the text.' }));
-  foot.push(el('button', { class: 'btn', text: 'Back',
-    onclick: () => { MIG.step = 'src'; MIG.err = ''; migPaint(); } }));
+  foot.push(el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }));
   foot.push(el('div', { style: 'flex:1' }));
   if (aiReady()) foot.push(el('button', { class: 'btn', text: 'Read it with Claude',
     onclick: () => migPasteRun(true) }));
@@ -13516,55 +13389,6 @@ async function migPasteRun(smart) {
   }
 }
 
-function migStepFolder(body, foot) {
-  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)',
-    text: MIG.folders.length
-      ? `These folders sit beside ${driveRoot()} on ${DRIVE.name || driveOwner()}. Pick the tracker’s.`
-      : `Nothing else is in the folder beside ${driveRoot()}. The tracker may keep its data somewhere else — export a file from it instead.` }));
-  const list = el('div', { class: 'picklist', style: 'max-height:46vh' });
-  MIG.folders.forEach(f => {
-    const row = el('button', { class: 'pick', style: 'width:100%;text-align:left', onclick: () => migOpenFolder(f) });
-    row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
-      el('div', { class: 'nm', text: f.name }),
-      el('div', { class: 'sub', text: 'changed ' + fdate(String(f.lastModifiedDateTime || '').slice(0, 10), 'long') })
-    ]));
-    row.appendChild(el('span', { class: 'ic', html: ico('right', 14) }));
-    list.appendChild(row);
-  });
-  if (MIG.folders.length) body.appendChild(list);
-  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = 'src'; migPaint(); } }));
-  foot.push(el('div', { style: 'flex:1' }));
-  foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
-}
-
-function migStepFile(body, foot) {
-  body.appendChild(el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' }, [
-    el('span', { class: 'ic', html: ico('warn', 16) }),
-    el('div', { style: 'flex:1;line-height:1.55' }, [
-      el('div', { html: `<b>Take the backup first.</b> It downloads every file in ${esc(MIG.folder.name)} as one JSON, ` +
-        'so there is a copy of the tracker on your own machine before anything is read across. ' +
-        'OneDrive keeps its own version history of that folder besides — right-click it in OneDrive → Version history.' }),
-      el('button', { class: 'btn sm', style: 'margin-top:8px', html: ico('dl', 14) + ' Download a backup of ' + esc(MIG.folder.name),
-        onclick: migBackup })
-    ])]));
-  body.appendChild(el('p', { style: 'margin:0 0 var(--sp-2);color:var(--ink-2);line-height:1.6',
-    text: MIG.files.length ? 'Now pick the file the leads are in. If you are not sure, open the biggest one — the tool will say what it found.'
-      : 'No JSON or CSV in that folder.' }));
-  const list = el('div', { class: 'picklist', style: 'max-height:40vh' });
-  MIG.files.forEach(f => {
-    const row = el('button', { class: 'pick', style: 'width:100%;text-align:left', onclick: () => migReadFile(f) });
-    row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
-      el('div', { class: 'nm', text: f.name }),
-      el('div', { class: 'sub', text: `${fbytes(f.size)} · changed ${fdate(String(f.lastModifiedDateTime || '').slice(0, 10), 'long')}` })
-    ]));
-    list.appendChild(row);
-  });
-  body.appendChild(list);
-  foot.push(el('button', { class: 'btn', text: 'Back', onclick: () => { MIG.step = 'folder'; migPaint(); } }));
-  foot.push(el('div', { style: 'flex:1' }));
-  foot.push(el('button', { class: 'btn', text: 'Close', onclick: closeAll }));
-}
-
 function migStepPick(body, foot) {
   body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);color:var(--ink-2);line-height:1.6',
     text: 'That file holds more than one list. This one looks most like leads — change it if it is the wrong one.' }));
@@ -13580,7 +13404,7 @@ function migStepPick(body, foot) {
   });
   body.appendChild(list);
   foot.push(el('button', { class: 'btn', text: 'Back',
-    onclick: () => { MIG.step = MIG.folder ? 'file' : (MIG.raw ? 'paste' : 'src'); migPaint(); } }));
+    onclick: () => { MIG.step = 'paste'; migPaint(); } }));
   foot.push(el('div', { style: 'flex:1' }));
   foot.push(el('button', { class: 'btn primary', text: 'Use this list',
     onclick: () => { MIG.map = migGuess(MIG.pick.keys, MIG.pick.rows); MIG.step = 'map'; migPaint(); } }));
@@ -13616,7 +13440,7 @@ function migStepMap(body, foot) {
   body.appendChild(sample);
   redraw();
   foot.push(el('button', { class: 'btn', text: 'Back',
-    onclick: () => { MIG.step = MIG.cands.length > 1 ? 'pick' : (MIG.folder ? 'file' : (MIG.raw ? 'paste' : 'src')); migPaint(); } }));
+    onclick: () => { MIG.step = MIG.cands.length > 1 ? 'pick' : 'paste'; migPaint(); } }));
   foot.push(el('div', { style: 'flex:1' }));
   foot.push(el('button', { class: 'btn primary', text: 'Check them',
     onclick: () => { if (!MIG.map.name && !MIG.map.phone && !MIG.map.email) {
@@ -13678,7 +13502,7 @@ function migStepPreview(body, foot) {
   body.appendChild(sum);
   body.appendChild(list);
   body.appendChild(el('div', { style: 'margin-top:var(--sp-3)' }, [
-    cb('Keep the stage each lead was at', 'stage', 'Off means everything arrives as New. Stages the tracker used that this tool does not have are parked at New with a note.'),
+    cb('Keep the stage each lead was at', 'stage', 'Off means everything arrives as New. A stage in the list that this tool does not have is parked at New with a note.'),
     cb('Also create pipeline deals for anything at Demo booked or Won', 'deals',
       'Off by default. Leave it off for the first run — you can move a lead to Demo booked here at any time and the deal is made then.')
   ]));
@@ -15310,9 +15134,6 @@ function viewSettings(root) {
   bts.appendChild(el('button', { class: 'btn', html: ico('dl',14) + ' Download full backup',
     onclick: () => { download('corev-crm-backup-' + TODAY() + '.json', JSON.stringify(exportAll(), null, 1)); toast('Backup downloaded', 'ok'); } }));
   bts.appendChild(el('button', { class: 'btn', html: ico('clip',14) + ' Import data', onclick: importDialog }));
-  bts.appendChild(el('button', { class: 'btn', html: ico('link',14) + ' Back up / read the Sales Tracker',
-    title: 'Download a backup of another tool’s OneDrive folder, and bring its marketing leads across',
-    onclick: migOpen }));
   bts.appendChild(el('button', { class: 'btn danger', text: 'Reset local cache',
     onclick: () => confirmDo('Reset local cache',
       SYNC.mode === 'onedrive'
