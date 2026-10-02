@@ -1121,6 +1121,9 @@ a.mfact:hover b{text-decoration:underline}
 .qbth{font-weight:700;font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin:var(--sp-2) 0 4px}
 .qbtrm{display:flex;gap:var(--sp-3);padding:4px 0;font-size:.85rem;line-height:1.5}
 .qbtrm b{width:11rem;flex:none}
+.qblink{display:flex;align-items:center;gap:var(--sp-2);padding:3px 0;font-size:.85rem;cursor:pointer}
+.qbsku{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:3px}
+.inp.sm{height:1.6rem;padding:0 6px;font-size:.78rem;width:auto;min-width:8rem}
 @media(max-width:700px){.qbtrm{flex-direction:column;gap:2px}.qbtrm b{width:auto}}
 /* ---- quotes: the document, as the tracker drew it ---- */
 .qp-wrap{background:#eef2f7;padding:var(--sp-3);border-radius:var(--r-md);max-height:70vh;overflow:auto}
@@ -1393,7 +1396,7 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.27.3';
+const VERSION = '1.28.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -14803,6 +14806,29 @@ function quotePayTermsLib() {
     return { full: c.full || [], installment: c.installment || [] };
   return QUOTE_PAYTERMS_SEED;
 }
+/* WHAT LINKS A TERM SET TO A PRODUCT.
+
+   Terms hang off a product's terms type. A product carries one explicitly
+   when it needs its own terms (XP1-APEX+, OXLEAD), and otherwise falls back
+   to its catalogue category — so a catalogue that only says "Hardware" still
+   works, and a term set written for "XP1-APEX+" attaches to the products
+   that say they are XP1-APEX+ rather than to nothing at all.
+
+   This is the join people got wrong: a term set whose name matches no
+   product is a term set that never appears on a quote. Settings says so in
+   as many words now, and offers to tick the products it belongs to. */
+const quoteLineType = p => String((p && (p.termsType || p.category)) || '').trim();
+const quoteProductsOfType = t => live('products').filter(p => quoteLineType(p) === String(t));
+/* Every type that exists: the ones with terms written for them, and the ones
+   the catalogue uses. */
+function quoteTermTypes() {
+  const out = new Set(Object.keys(quoteTermsLib()));
+  live('products').forEach(p => { const t = quoteLineType(p); if (t) out.add(t); });
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+const quoteTypesWithoutTerms = () => [...new Set(live('products').map(quoteLineType).filter(Boolean))]
+  .filter(t => !(quoteTermsLib()[t] || []).length).sort();
+
 /* A single milestone is "paid in full"; more than one is an installment
    plan, and the two carry different payment terms. */
 const quotePayMode = q => ((q && q.schedule) || []).length > 1 ? 'installment' : 'full';
@@ -15796,8 +15822,15 @@ function quoteBuild(q) {
       de.addEventListener('input', () => { it.desc = de.value; });
       qt.addEventListener('input', () => { it.qty = Math.max(0, parseFloat(qt.value) || 0); recalc(); });
       up.addEventListener('input', () => { it.unitPrice = Math.max(0, parseFloat(up.value) || 0); recalc(); });
+      /* The type is what pulls the terms in, so it is on the line where it can
+         be seen and corrected rather than buried in the catalogue. */
+      const ty = el('select', { class: 'inp sm' });
+      ty.appendChild(el('option', { value: '', text: 'no terms type' }));
+      quoteTermTypes().forEach(t => ty.appendChild(el('option', { value: t, text: t,
+        selected: (it.lineType || '') === t || null })));
+      ty.addEventListener('change', () => { it.lineType = ty.value; paintTerms(); });
       row.appendChild(el('div', { style: 'flex:1;min-width:0' }, [
-        el('div', { class: 'mono sub', text: (it.sku || '') + (it.lineType ? ' · ' + it.lineType : '') }), de]));
+        el('div', { class: 'qbsku' }, [el('span', { class: 'mono sub', text: it.sku || '(no sku)' }), ty]), de]));
       row.appendChild(el('div', { class: 'qbqty' }, [el('span', { class: 'sub', text: 'Qty' }), qt]));
       row.appendChild(el('div', { class: 'qbqty' }, [el('span', { class: 'sub', text: 'Unit' }), up]));
       row.appendChild(el('button', { class: 'btn sm ghost', html: ico('x', 13), title: 'Remove this line',
@@ -15833,9 +15866,9 @@ function quoteBuild(q) {
     if (!p) return;
     const raw = Number(p.listPrice) || 0;
     w.items.push({ productId: p.id, sku: p.sku || '', desc: p.name || '',
-      lineType: p.category || '', qty: 1,
+      lineType: quoteLineType(p), qty: 1,
       unitPrice: w.international ? Math.round(raw * USD_PER_AED * 100) / 100 : raw });
-    paint(); recalc();
+    paint(); recalc(); paintTerms();
   });
   const free = el('button', { class: 'btn sm', text: '+ A line of my own', onclick: () => {
     w.items.push({ productId: '', sku: '', desc: '', lineType: '', qty: 1, unitPrice: 0 }); paint(); recalc(); } });
@@ -15867,6 +15900,7 @@ function quoteBuild(q) {
   };
   const pctNote = el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0' });
   const paintTotalPct = () => {
+    try { paintTerms(); } catch (e) {}      /* not built yet on the first paint */
     const t = (w.schedule || []).reduce((a, m) => a + (Number(m.pct) || 0), 0);
     pctNote.textContent = t === 100 ? 'Adds up to 100%.' : `Adds up to ${t}% — it has to be 100% before this can go out.`;
     pctNote.style.color = t === 100 ? '' : 'var(--warning)';
@@ -15892,12 +15926,35 @@ function quoteBuild(q) {
   const termsBox = el('div', { class: 'qbterms' });
   const paintTerms = () => {
     termsBox.innerHTML = '';
+    /* Why nothing came through is the question people actually have, so it is
+       answered here rather than left as an empty box. */
+    const noType = (w.items || []).filter(it => !it.lineType).length;
+    const types = quoteTypes(w);
+    const missing = types.filter(t => !(quoteTermsLib()[t] || []).length);
+    if (noType) termsBox.appendChild(el('p', { class: 'sub',
+      style: 'margin:0 0 var(--sp-2);line-height:1.5;color:var(--warning)',
+      text: noType + ' line' + (noType === 1 ? ' has' : 's have') + ' no terms type on them, so no terms attach to ' +
+        (noType === 1 ? 'it' : 'them') + '. Set it on the line above, or on the product in Settings.' }));
+    if (missing.length) termsBox.appendChild(el('p', { class: 'sub',
+      style: 'margin:0 0 var(--sp-2);line-height:1.5;color:var(--warning)',
+      text: 'Nothing is written for ' + missing.join(', ') + ' yet — an admin adds it in Settings \u2192 Quotes.' }));
     const rows = quoteTermsFor(w);
-    if (!rows.length) { termsBox.appendChild(el('p', { class: 'sub', style: 'margin:0',
-      text: 'No terms are set for these product types yet — an admin adds them in Settings.' })); return; }
+    if (!rows.length) {
+      termsBox.appendChild(el('p', { class: 'sub', style: 'margin:0',
+        text: types.length ? 'So this quote would go out with no purchase terms on it.'
+          : 'Add a line first — the terms follow what is on the quote.' }));
+    }
     rows.forEach(r => termsBox.appendChild(r.isHeader
       ? el('div', { class: 'qbth', text: r.label })
       : el('div', { class: 'qbtrm' }, [el('b', { text: r.label }), el('span', { text: r.detail })])));
+    /* And the payment terms, which follow the schedule rather than the lines. */
+    const pay = quotePayTerms(w);
+    termsBox.appendChild(el('div', { class: 'qbth',
+      text: 'Payment terms · ' + (quotePayMode(w) === 'installment' ? 'installments' : 'paid in full') }));
+    if (!pay.length) termsBox.appendChild(el('p', { class: 'sub', style: 'margin:0;color:var(--warning)',
+      text: 'None written for this case yet — Settings \u2192 Quotes \u2192 Payment terms.' }));
+    pay.forEach(r => termsBox.appendChild(el('div', { class: 'qbtrm' },
+      [el('b', { text: r.label }), el('span', { text: r.detail })])));
   };
   s6.appendChild(termsBox);
   const cmt = el('textarea', { class: 'inp', rows: 2, value: w.comments || '' });
@@ -17366,37 +17423,114 @@ function quoteSettingsCard() {
   /* ---- the terms library ---- */
   const lib = quoteTermsLib();
   const types = Object.keys(lib);
-  c.body.appendChild(el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Terms library' }));
-  c.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.55', text:
-    'Purchase terms belong to a product type — every quote with that type on it carries them, and nobody retypes them. ' +
-    'A term marked common is stated once when a quote mixes types.' }));
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Purchase terms, by product type' }));
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.55', html:
+    'A term set is attached to a <b>terms type</b>, and a product carries that type — that is the whole link. ' +
+    'A quote picks up the terms of every type on it, states the shared ones once and lists each type’s own underneath. ' +
+    'A term set whose type no product carries will never appear on a quote, which is called out below.' }));
   const list = el('div', { class: 'medialist' });
   types.forEach(t => {
+    const used = quoteProductsOfType(t);
     list.appendChild(el('div', { class: 'mediaitem' }, [
       el('span', { class: 'ic', html: ico('clip', 15) }),
       el('div', { style: 'flex:1;min-width:0' }, [
         el('div', {}, [el('b', { text: t }),
-          el('span', { class: 'sub', text: ' · ' + (lib[t] || []).length + ' term' + ((lib[t] || []).length === 1 ? '' : 's') })]),
-        el('div', { class: 'cellsub', text: (lib[t] || []).map(r => r.label).join(' · ') })]),
+          el('span', { class: 'sub', text: ' · ' + (lib[t] || []).length + ' term' + ((lib[t] || []).length === 1 ? '' : 's') }),
+          used.length
+            ? el('span', { class: 'sub', text: ' · on ' + used.length + ' product' + (used.length === 1 ? '' : 's') })
+            : el('span', { class: 'tag warn', style: 'margin-left:6px', text: 'no product carries this type' })]),
+        el('div', { class: 'cellsub', text: used.length
+          ? used.slice(0, 6).map(p => p.sku || p.name).join(' · ') + (used.length > 6 ? ' …' : '')
+          : 'Tick the products it applies to, or these terms will never reach a quote.' })]),
       el('button', { class: 'btn sm ghost', text: 'Edit', onclick: () => quoteTermsEdit(t) })
     ]));
   });
   if (!types.length) list.appendChild(el('p', { class: 'sub', style: 'margin:0',
-    text: 'Nothing here yet — bring them across from the old tool on the Quotes screen, or add a type.' }));
+    text: 'Nothing here yet — bring them across from the old tool on the Quotes screen, or write one.' }));
   c.body.appendChild(list);
-  c.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)', html: ico('plus', 13) + ' Add a product type',
+  /* The other half of the join: a type the catalogue uses that nobody has
+     written terms for. A quote with one of those on it goes out short. */
+  const gaps = quoteTypesWithoutTerms();
+  if (gaps.length) {
+    c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 var(--sp-2);line-height:1.55;color:var(--warning)',
+      text: 'Products carry these types with no terms written for them: ' + gaps.join(', ') + '.' }));
+    const row = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap' });
+    gaps.slice(0, 8).forEach(t => row.appendChild(el('button', { class: 'btn sm',
+      text: 'Write terms for ' + t, onclick: () => quoteTermsEdit(t) })));
+    c.body.appendChild(row);
+  }
+  c.body.appendChild(el('button', { class: 'btn', style: 'margin-top:var(--sp-3)', html: ico('plus', 13) + ' New term set',
     onclick: () => quoteTermsEdit('') }));
-  if ((DB.config || {}).quoteImportAt) c.body.appendChild(el('p', { class: 'sub',
-    style: 'margin:var(--sp-3) 0 0;line-height:1.55',
-    text: (DB.config.quoteImportCount || 0) + ' quote(s) brought across from the Sales Tracker, last on ' +
-      fdate(String(DB.config.quoteImportAt).slice(0, 10), 'long') + '.' }));
+
+  /* ---- payment terms: paid in full vs installments ---- */
+  const pay = quotePayTermsLib();
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-5) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Payment terms' }));
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.55', html:
+    'These follow the <b>payment schedule</b> on the quote rather than the products: one milestone is paid in full, ' +
+    'two or more is installments, and the matching set is printed under the schedule.' }));
+  const payList = el('div', { class: 'medialist' });
+  [['full', 'Paid in full', 'one milestone on the schedule'],
+   ['installment', 'Installments', 'two or more milestones']].forEach(([k, label, when]) => {
+    const rows = pay[k] || [];
+    payList.appendChild(el('div', { class: 'mediaitem' }, [
+      el('span', { class: 'ic', html: ico('cal', 15) }),
+      el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', {}, [el('b', { text: label }),
+          el('span', { class: 'sub', text: ' · ' + when + ' · ' + rows.length + ' term' + (rows.length === 1 ? '' : 's') }),
+          rows.length ? null : el('span', { class: 'tag warn', style: 'margin-left:6px', text: 'nothing written' })]),
+        el('div', { class: 'cellsub', text: rows.map(r => r.label).join(' · ') })]),
+      el('button', { class: 'btn sm ghost', text: 'Edit', onclick: () => quotePayTermsEdit(k, label) })
+    ]));
+  });
+  c.body.appendChild(payList);
+
   return c.node;
 }
 function quoteTermsEdit(type) {
   const lib = JSON.parse(JSON.stringify(quoteTermsLib()));
   let rows = (lib[type] || []).map(r => Object.assign({ scope: 'unique' }, r));
   if (!rows.length) rows = [{ label: '', detail: '', scope: 'unique' }];
-  const name = el('input', { class: 'inp', value: type || '', placeholder: 'e.g. XFIT-PEAK' });
+
+  /* The type, chosen from the ones that exist rather than typed from memory —
+     a typo here is the difference between terms appearing on every quote and
+     on none of them. */
+  const known = quoteTermTypes().filter(t => t !== type);
+  const sel = el('select', { class: 'inp' });
+  sel.appendChild(el('option', { value: '', text: type || 'Pick a type…' }));
+  known.forEach(t => sel.appendChild(el('option', { value: t,
+    text: t + ' · ' + quoteProductsOfType(t).length + ' product' + (quoteProductsOfType(t).length === 1 ? '' : 's') })));
+  sel.appendChild(el('option', { value: '__new', text: 'A new type of my own…' }));
+  const typed = el('input', { class: 'inp', value: type || '', placeholder: 'e.g. XP1-APEX+' });
+  typed.style.display = type ? '' : 'none';
+  sel.addEventListener('change', () => {
+    if (sel.value === '__new') { typed.style.display = ''; typed.value = ''; typed.focus(); }
+    else if (sel.value) { typed.value = sel.value; typed.style.display = ''; paintLink(); }
+  });
+
+  /* And the products it covers, ticked here, so the link is made in the same
+     breath as the terms rather than somewhere else entirely. */
+  const linkBox = el('div', { class: 'qbterms', style: 'max-height:13rem' });
+  const picked = new Set(quoteProductsOfType(type).map(p => p.id));
+  const paintLink = () => {
+    linkBox.innerHTML = '';
+    const t = typed.value.trim();
+    const prods = live('products').filter(p => p.active !== false)
+      .sort((a, b) => String(a.sku || a.name).localeCompare(String(b.sku || b.name)));
+    if (!prods.length) { linkBox.appendChild(el('p', { class: 'sub', style: 'margin:0',
+      text: 'No products in the catalogue yet.' })); return; }
+    prods.forEach(p => {
+      const cur = quoteLineType(p);
+      const cb = el('input', { type: 'checkbox', checked: picked.has(p.id) ? true : null });
+      cb.addEventListener('change', () => { if (cb.checked) picked.add(p.id); else picked.delete(p.id); });
+      linkBox.appendChild(el('label', { class: 'qblink' }, [cb,
+        el('span', { style: 'flex:1;min-width:0' }, [
+          el('span', { class: 'mono', text: p.sku || '(no sku)' }),
+          el('span', { class: 'sub', text: ' ' + (p.name || '') })]),
+        el('span', { class: 'sub', text: cur && cur !== t ? 'now: ' + cur : (cur ? 'linked' : 'no type') })]));
+    });
+  };
+  paintLink();
+
   const host = el('div', {});
   const paint = () => {
     host.innerHTML = '';
@@ -17418,24 +17552,82 @@ function quoteTermsEdit(type) {
     });
   };
   paint();
-  modal(type ? 'Terms for ' + type : 'A product type and its terms', el('div', {}, [
-    fld('Product type', name, 'It has to match the product’s category in the catalogue — that is how a quote picks these up.'),
+
+  modal(type ? 'Terms for ' + type : 'A new term set', el('div', {}, [
+    el('div', { class: 'field-row' }, [
+      fld('Terms type', sel, 'What the products call themselves. Pick one that exists so the terms land on a quote.'),
+      fld(' ', typed, 'The name, exactly as the products carry it.')]),
+    el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'Products these terms apply to' }),
+    el('p', { class: 'sub', style: 'margin:0 0 var(--sp-2);line-height:1.5',
+      text: 'Ticking a product sets its terms type to this one. That is what pulls these terms onto a quote.' }),
+    linkBox,
+    el('h4', { style: 'margin:var(--sp-4) 0 var(--sp-2);font-size:var(--fs-sm)', text: 'The terms' }),
     host,
     el('button', { class: 'btn', style: 'margin-top:var(--sp-2)', text: '+ Another term',
       onclick: () => { rows.push({ label: '', detail: '', scope: 'unique' }); paint(); } })
   ]), [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
-    type ? el('button', { class: 'btn ghost', style: 'color:var(--critical-ink)', text: 'Delete this type',
+    type ? el('button', { class: 'btn ghost', style: 'color:var(--critical-ink)', text: 'Delete this set',
       onclick: () => { delete lib[type]; DB.config.quoteTerms = lib; DB.config._v = now(); touch('config');
         closeAll(); render(); toast('Removed'); } }) : null,
     el('button', { class: 'btn primary', text: 'Save', onclick: () => {
-      const t = name.value.trim();
-      if (!t) return toast('The product type is what links these to a quote', 'err');
+      const t = typed.value.trim();
+      if (!t) return toast('Pick or name the terms type — that is what links these to a product', 'err');
       const keep = rows.filter(r => (r.label || '').trim() || (r.detail || '').trim());
+      if (!keep.length) return toast('Write at least one term', 'err');
       if (type && type !== t) delete lib[type];
       lib[t] = keep.map(r => ({ label: (r.label || '').trim(), detail: (r.detail || '').trim(), scope: r.scope || 'unique' }));
-      DB.config.quoteTerms = lib; DB.config._v = now(); touch('config');
-      closeAll(); render(); toast('Saved — quotes with ' + t + ' on them carry these', 'ok');
+      DB.config.quoteTerms = lib;
+      /* The link, written onto the products themselves. */
+      let on = 0, off = 0;
+      batch(() => live('products').forEach(p => {
+        const was = quoteLineType(p);
+        if (picked.has(p.id)) { if (was !== t) { p.termsType = t; upsert('products', p); on++; } }
+        else if (p.termsType === t) { p.termsType = null; upsert('products', p); off++; }
+      }));
+      DB.config._v = now(); touch('config');
+      closeAll(); render();
+      toast('Saved · ' + quoteProductsOfType(t).length + ' product' +
+        (quoteProductsOfType(t).length === 1 ? '' : 's') + ' carry ' + t +
+        (off ? ' · ' + off + ' unlinked' : ''), 'ok');
+    } })
+  ], true);
+}
+function quotePayTermsEdit(mode, label) {
+  const lib = JSON.parse(JSON.stringify(quotePayTermsLib()));
+  let rows = (lib[mode] || []).map(r => Object.assign({}, r));
+  if (!rows.length) rows = [{ label: 'PAYMENT TERMS', detail: '' }];
+  const host = el('div', {});
+  const paint = () => {
+    host.innerHTML = '';
+    rows.forEach((r, i) => {
+      const lb = el('input', { class: 'inp', value: r.label || '' });
+      const dt = el('textarea', { class: 'inp', rows: 3, value: r.detail || '' });
+      lb.addEventListener('input', () => { r.label = lb.value; });
+      dt.addEventListener('input', () => { r.detail = dt.value; });
+      host.appendChild(el('div', { class: 'sheettab' }, [
+        fld('Label', lb), fld('Detail', dt),
+        el('button', { class: 'btn sm ghost', text: 'Remove',
+          onclick: () => { rows.splice(i, 1); if (!rows.length) rows.push({ label: '', detail: '' }); paint(); } })
+      ]));
+    });
+  };
+  paint();
+  modal('Payment terms — ' + label, el('div', {}, [
+    el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6', html: mode === 'installment'
+      ? 'Printed under the schedule whenever a quote has <b>more than one milestone</b> on it — the rep builds the ' +
+        'milestones on the quote, and these are the words that go with them.'
+      : 'Printed under the schedule whenever a quote has <b>a single milestone</b> — the ordinary case of paying on order.' }),
+    host,
+    el('button', { class: 'btn', style: 'margin-top:var(--sp-2)', text: '+ Another term',
+      onclick: () => { rows.push({ label: '', detail: '' }); paint(); } })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+      lib[mode] = rows.filter(r => (r.label || '').trim() || (r.detail || '').trim())
+        .map(r => ({ label: (r.label || '').trim(), detail: (r.detail || '').trim() }));
+      DB.config.quotePayTerms = lib; DB.config._v = now(); touch('config');
+      closeAll(); render(); toast('Saved — quotes on ' + label.toLowerCase() + ' carry these', 'ok');
     } })
   ], true);
 }
