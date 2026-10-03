@@ -174,6 +174,23 @@ nav.side .side-foot{position:sticky;bottom:calc(var(--sp-3)*-1);background:var(-
   padding-left:var(--sp-3);padding-right:var(--sp-3)}
 nav.side .grp{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);
   padding:var(--sp-4) var(--sp-3) var(--sp-2);font-weight:700}
+/* the heading is a button that folds the group under it */
+nav.side button.grp{display:flex;align-items:center;gap:var(--sp-2);width:100%;
+  background:none;border:0;cursor:pointer;text-align:left;font:inherit;font-size:var(--fs-xs);
+  font-weight:700;color:var(--ink-3);-webkit-tap-highlight-color:transparent}
+nav.side button.grp:hover{color:var(--ink-1)}
+nav.side button.grp:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--r-sm)}
+nav.side .grp .gl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+nav.side .grp .chev{display:grid;place-items:center;opacity:.65;flex:none;
+  transition:transform .15s var(--ease)}
+nav.side button.grp:hover .chev{opacity:1}
+/* shut points at the group it is hiding rather than down into it */
+nav.side .grp.shut .chev{transform:rotate(-90deg)}
+/* whatever is urgent inside a shut group is still on its heading */
+nav.side .grp .gn{flex:none;background:var(--critical);color:#fff;border-radius:99px;
+  font-size:9.5px;letter-spacing:0;padding:0 5px;min-width:16px;height:16px;
+  display:grid;place-items:center}
+nav.side .grp .gn:empty{display:none}
 nav.side a{display:flex;align-items:center;gap:var(--sp-3);padding:8px var(--sp-3);border-radius:var(--r-md);
   color:var(--ink-2);text-decoration:none;font-weight:500;cursor:pointer;transition:background .12s,color .12s}
 nav.side a svg{flex:none;opacity:.85}
@@ -2188,7 +2205,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.41.0';
+const VERSION = '1.42.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -4370,14 +4387,60 @@ const NAV = [
   { g: 'Setup', admin: true },
   { id: 'settings',  label: 'Settings',  icon: 'cog', admin: true }
 ];
+/* ------------------------------------------------- folding the menu groups
+   Sell, Accounts, Dashboard, Info and Setup are twenty-odd links, and most
+   people live in three of them. Each heading is a button now: tap it and the
+   group shuts. Which ones are shut is this person's own choice, so it is kept
+   in their browser rather than in the shared config — the team should not
+   inherit each other's sidebar.
+   Two things never go missing. The page you are on stays visible even inside
+   a shut group, so you can always see where you are; and anything urgent
+   inside one (an overdue task, a quote waiting on approval) is counted on the
+   heading itself, so folding a group can never hide a number quietly. */
+const NAVSHUT_KEY = () => CFG.cacheKey + '.navshut';
+function navShut() {
+  try { const r = JSON.parse(localStorage.getItem(NAVSHUT_KEY()) || '[]');
+    return Array.isArray(r) ? r : []; } catch (e) { return []; }
+}
+function navGroupToggle(slug) {
+  const s = navShut(); const i = s.indexOf(slug);
+  if (i < 0) s.push(slug); else s.splice(i, 1);
+  try { localStorage.setItem(NAVSHUT_KEY(), JSON.stringify(s)); } catch (e) {}
+  renderNav();
+}
 function renderNav() {
   const n = $('#nav'); n.innerHTML = '';
+  const shut = navShut();
+  /* Collapsed to icons there is no heading to tap and nothing to gain. */
+  const rail = $('#app').classList.contains('rail');
+  let grp = null;
   NAV.forEach(item => {
     if (item.admin && !isAdmin()) return;
-    if (item.g) { n.appendChild(el('div', { class: 'grp', text: item.g })); return; }
+    if (item.g) {
+      const slug = item.g.toLowerCase();
+      const closed = !rail && shut.indexOf(slug) >= 0;
+      const h = el('button', { class: 'grp' + (closed ? ' shut' : ''), type: 'button',
+        'aria-expanded': closed ? 'false' : 'true',
+        title: (closed ? 'Show ' : 'Hide ') + item.g.toLowerCase(),
+        html: `<span class="gl">${esc(item.g)}</span><span class="gn"></span>` +
+              `<span class="chev">${ico('down', 12)}</span>` });
+      h.addEventListener('click', () => navGroupToggle(slug));
+      n.appendChild(h);
+      grp = { closed, head: h, alerts: 0 };
+      return;
+    }
     let c = null;
     try { c = item.count ? item.count() : null; } catch (e) {}
-    const a = el('a', { class: VIEW.name === item.id ? 'on' : '', href: '#' + item.id,
+    const active = VIEW.name === item.id;
+    if (grp && grp.closed && !active) {
+      if (item.alert && c) {
+        grp.alerts += c;
+        grp.head.querySelector('.gn').textContent = grp.alerts > 999 ? '999+' : String(grp.alerts);
+        grp.head.title = `${grp.alerts} need attention in here`;
+      }
+      return;
+    }
+    const a = el('a', { class: active ? 'on' : '', href: '#' + item.id,
       title: item.label + (c ? ` (${c})` : ''),
       html: ico(item.icon, 16) + `<span>${esc(item.label)}</span>` +
         (c ? `<span class="pill${item.alert && c ? ' alert' : ''}">${c > 999 ? '999+' : c}</span>` : '') });
