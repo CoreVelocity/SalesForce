@@ -615,20 +615,36 @@ table.dt th.sorted{color:var(--accent)}
    neighbour with a dead strip beside it. */
 /* Cards in a row share a height so the row reads as a band instead of
    leaving ragged voids under the shorter ones. */
-.dash{display:grid;gap:var(--sp-4);grid-template-columns:repeat(12,minmax(0,1fr));align-items:stretch}
+/* WIDTHS ARE 4, 6, 8 OR 12 AND NOTHING ELSE.
+   They used to be 5 and 7 as well, which is why the right-hand edge was
+   ragged: a 4 next to a 5 is 9 of 12, so every such row ended in a dead
+   strip two or three columns wide, and the headline tiles above (which
+   span 1/-1) made the shortfall obvious. 4, 6, 8 and 12 are the only
+   widths that tile 12 in every combination a person can choose.
+   Even so, a row can come up short once widths are set by hand (a full-width
+   panel pushes everything after it along), so fitDashRows() widens the last
+   panel of any short row to close it. Panel order is kept — no `dense`,
+   which would reshuffle panels behind the reader's back. */
+.dash{display:grid;gap:var(--sp-4);grid-template-columns:repeat(12,minmax(0,1fr));
+  align-items:stretch}
 .dash>.card{margin:0;display:flex;flex-direction:column}
 .dash>.card>div:last-child{flex:1;min-height:0}
-.dash .w5{grid-column:span 5}
-.dash .w7{grid-column:span 7}
-.dash .w6{grid-column:span 6}
 .dash .w4{grid-column:span 4}
+.dash .w6{grid-column:span 6}
+.dash .w8{grid-column:span 8}
 .dash .w12{grid-column:1/-1}
-@media (max-width:1500px){
-  .dash .w5,.dash .w7{grid-column:span 6}
-  .dash .w4{grid-column:span 4}
+/* configs saved before widths were a setting */
+.dash .w5{grid-column:span 6}
+.dash .w7{grid-column:span 8}
+/* Between these widths a third of the screen is too narrow for a chart to
+   read, so thirds become halves and two-thirds becomes full. Still only 6s
+   and 12s, so it still tiles. */
+@media (max-width:1400px){
+  .dash .w4,.dash .w5,.dash .w6{grid-column:span 6}
+  .dash .w7,.dash .w8{grid-column:1/-1}
 }
-@media (max-width:1180px){
-  .dash .w5,.dash .w7,.dash .w6,.dash .w4{grid-column:1/-1}
+@media (max-width:1100px){
+  .dash .w4,.dash .w5,.dash .w6,.dash .w7,.dash .w8{grid-column:1/-1}
 }
 .grid3{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 .span2{grid-column:span 2}
@@ -1368,8 +1384,17 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
 .wtoggle{display:flex;align-items:center;gap:var(--sp-3);padding:9px var(--sp-3);border:1px solid var(--line);
   border-radius:var(--r-md);background:var(--surface-2);cursor:grab}
 .wtoggle .hd{color:var(--ink-3);cursor:grab}
-.wtoggle .nm{flex:1;font-weight:600}
+.wtoggle .nm{flex:1;font-weight:600;min-width:0}
 .wtoggle.off{opacity:.5}
+.wtoggle>.sub{flex:none;font-size:var(--fs-xs);color:var(--ink-3)}
+/* the width picker: small enough that the row still reads as one line */
+.seg.wsize{flex:none}
+.seg.wsize button{padding:4px 8px;font-size:var(--fs-xs);white-space:nowrap}
+@media (max-width:620px){
+  .wtoggle{flex-wrap:wrap}
+  .wtoggle .nm{flex:1 0 50%}
+  .seg.wsize{order:3;margin-left:26px}
+}
 .tgl{position:relative;width:36px;height:20px;border-radius:99px;background:var(--surface-3);
   border:1px solid var(--line);cursor:pointer;flex:none;padding:0;transition:background .14s}
 .tgl::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:99px;
@@ -2114,7 +2139,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.39.0';
+const VERSION = '1.40.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3789,12 +3814,34 @@ function chartShell(host, opts) {
   }
   return wrap;
 }
+/* ------------------------------------------------- draw at the real width
+   Dashboard panels are built before they are in the document, so
+   host.clientWidth is 0 and every chart fell back to a 520px viewBox. The
+   SVG then has preserveAspectRatio "none", so that 520 got squashed into
+   whatever the card actually was — which is why axis labels on a narrow
+   panel came out stretched sideways and ran together.
+   Draw once, then draw again as soon as the true width is known, and on any
+   genuine resize after that. Guarded on the width it last drew at, so a
+   redraw cannot retrigger itself. */
+const CHART_OBS = typeof ResizeObserver === 'function' ? new ResizeObserver(es => es.forEach(e => {
+  const w = Math.round(e.contentRect.width);
+  if (!w || !e.target._redraw || w === e.target._drawnAt) return;
+  e.target._drawnAt = w;
+  try { e.target._redraw(); } catch (err) {}
+})) : null;
+function chartFit(host, draw) {
+  host._redraw = draw;
+  host._drawnAt = Math.round(host.clientWidth || 0);
+  draw();
+  if (CHART_OBS) { try { CHART_OBS.unobserve(host); CHART_OBS.observe(host); } catch (e) {} }
+}
 const tblHTML = (cols, rows) =>
   `<table><thead><tr>${cols.map(c => `<th class="${c.num?'num':''}">${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
     rows.map(r => `<tr>${cols.map(c => `<td class="${c.num?'num':''}">${esc(c.f(r))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 
 /* ---------------------------------------------------- vertical bars */
-function chartBar(host, rows, o) {
+function chartBar(host, rows, o) { chartFit(host, () => drawBar(host, rows, o)); }
+function drawBar(host, rows, o) {
   o = o || {};
   const fmt = o.fmt || (v => money(v, { compact: true }));
   const wrap = chartShell(host, { table: tblHTML(
@@ -3818,6 +3865,20 @@ function chartBar(host, rows, o) {
   svg.appendChild(svgEl('line', { x1: 0, x2: W, y1: H - PB, y2: H - PB, class: 'bl' }));
 
   const plotH = H - PT - PB;
+  /* LABEL EVERY NTH BAR, NOT EVERY BAR.
+     Fourteen "20 Sep"s need about 42px each; in a third-width card there are
+     maybe 24px apiece, and they ran into each other into one grey smear.
+     Work out how many fit and skip the rest, always keeping the first and the
+     last so the range is still readable. */
+  const widest = Math.max(...rows.map(r => String(r.short || r.label).length), 1);
+  const need = widest * 6.2 + 8;
+  const every = Math.max(1, Math.ceil(need / (bw + gap)));
+  /* Step back from the last bar so the most recent one is always labelled;
+     whatever falls off the front is simply not labelled, rather than being
+     squeezed in next to its neighbour. */
+  const keep = new Set();
+  for (let i = rows.length - 1; i >= 0; i -= every) keep.add(i);
+  const labelAt = i => keep.has(i);
   rows.forEach((r, i) => {
     const h = Math.max(0, (r.value / max) * plotH);
     const x = PL + i * (bw + gap), y = H - PB - h;
@@ -3829,7 +3890,7 @@ function chartBar(host, rows, o) {
       const t = svgEl('text', { x: x + bw / 2, y: y - 6, 'text-anchor': 'middle', class: 'vlab' });
       t.textContent = fmt(r.value); svg.appendChild(t);
     }
-    if (rows.length <= 16) {
+    if (rows.length <= 16 && labelAt(i)) {
       const t = svgEl('text', { x: x + bw / 2, y: H - PB + 14, 'text-anchor': 'middle', class: 'alab' });
       t.textContent = r.short || r.label; svg.appendChild(t);
     }
@@ -3851,7 +3912,8 @@ function chartBar(host, rows, o) {
    topmost segment carries the 4px rounded data-end, and each bar gets a
    direct total label so the light-mode contrast relief is satisfied
    without relying on the fills alone. */
-function chartStackBar(host, cats, series, o) {
+function chartStackBar(host, cats, series, o) { chartFit(host, () => drawStackBar(host, cats, series, o)); }
+function drawStackBar(host, cats, series, o) {
   o = o || {};
   const fmt = o.fmt || (v => money(v, { compact: true }));
   const totalOf = c => sum(series, s => c.values[s.key] || 0);
@@ -4039,7 +4101,8 @@ function chartDonut(host, rows, o) {
 }
 
 /* ----------------------------------------- line / area with crosshair */
-function chartLine(host, series, labels, o) {
+function chartLine(host, series, labels, o) { chartFit(host, () => drawLine(host, series, labels, o)); }
+function drawLine(host, series, labels, o) {
   o = o || {};
   const fmt = o.fmt || (v => money(v, { compact: true }));
   const wrap = chartShell(host, { table: tblHTML(
@@ -4496,6 +4559,58 @@ const WIDGETS = [
   { id: 'recent',   name: 'Recent activity' }
 ];
 const defaultWidgets = () => WIDGETS.map(w => w.id);
+
+/* ------------------------------------------------- how wide each panel is
+   Four widths, because 12 divides by all of them: a third, a half, two
+   thirds, the whole row. The old 5-and-7 pair could not tile with the 4s
+   beside them, so rows came out at 9 or 10 of 12 and left a dead strip down
+   the right — which is what made the dashboard look like it did not fit.
+   Everyone on the team sees the same arrangement: it is saved in the shared
+   config alongside the panel order. */
+const DASH_WIDTHS = [[4, 'Third'], [6, 'Half'], [8, 'Two thirds'], [12, 'Full width']];
+/* Defaults chosen so the stock dashboard tiles exactly: 6+6, 8+4, 4+4+4, 6+6. */
+const DEFAULT_SPAN = { leadsday: 6, funnel: 6, forecast: 8, reps: 4, wl: 4, loss: 4,
+                       commit: 4, risk: 6, recent: 6 };
+function widgetSpan(id) {
+  const saved = (DB.config && DB.config.widgetSize) || {};
+  const n = +saved[id];
+  if (DASH_WIDTHS.some(x => x[0] === n)) return n;
+  return DEFAULT_SPAN[id] || 4;
+}
+/* NO ROW ENDS SHORT OF THE EDGE.
+   The defaults tile exactly, but once widths are set by hand they need not:
+   one full-width panel shifts everything after it, and a row can land on 10
+   of 12 — the dead strip down the right that started all this. Pack the rows
+   the way the grid will, and give the last panel of any short row the columns
+   left over. Below 1400px the stylesheet has already reduced every width to a
+   6 or a 12, which always tiles, so there is nothing to do. */
+function fitDashRows(grid) {
+  const cards = [...grid.children];
+  cards.forEach(c => { c.style.gridColumn = ''; });
+  if (window.innerWidth <= 1400) return;
+  const spanOf = c => {
+    const m = /\bw(\d+)\b/.exec(c.className);
+    return Math.min(12, Math.max(1, m ? +m[1] : 4));
+  };
+  let used = 0, row = [];
+  const close = () => {
+    const last = row[row.length - 1];
+    if (last && used < 12) last.style.gridColumn = 'span ' + (spanOf(last) + (12 - used));
+    row = []; used = 0;
+  };
+  cards.forEach(c => {
+    const n = spanOf(c);
+    if (used + n > 12) close();
+    row.push(c); used += n;
+  });
+  close();
+}
+/* Spans change at the breakpoints, so the packing has to be redone when the
+   window crosses one. Cheap, and only while the dashboard is on screen. */
+addEventListener('resize', () => {
+  const g = document.querySelector('#view .dash');
+  if (g) fitDashRows(g);
+});
 function widgetOrder() {
   const c = (DB.config && DB.config.widgets) || null;
   if (!Array.isArray(c) || !c.length) return defaultWidgets();
@@ -4740,16 +4855,14 @@ function viewDashboard(root) {
       return c.node;
     }
   };
-  /* how much of the 12 columns each panel is worth */
-  const SPAN = { funnel: 'w5', forecast: 'w7', reps: 'w4', wl: 'w4', loss: 'w4',
-                 commit: 'w4', risk: 'w4', recent: 'w4' };
   order.forEach(id => {
     if (!W[id]) return;
     const n = W[id]();
     if (id === 'kpi') { root.appendChild(n); return; }
-    n.classList.add(SPAN[id] || 'w4');
+    n.classList.add('w' + widgetSpan(id));
     grid.appendChild(n);
   });
+  fitDashRows(grid);
   root.appendChild(grid);
 }
 function card(title, sub) {
@@ -4877,9 +4990,13 @@ function teamTargetInfo(b) {
 function customizeDash() {
   const off = widgetOff().slice();
   let order = widgetOrder().slice();
+  const size = Object.assign({}, (DB.config && DB.config.widgetSize) || {});
   const body = el('div');
   body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6',
-    text: 'Switch panels on or off and drag to reorder. Saved per team in the shared config file, so everyone sees the same dashboard.' }));
+    text: 'Switch panels on or off, set how wide each one is, and drag to reorder. Saved per team in the shared config file, so everyone sees the same dashboard.' }));
+  /* Says, in the dialog, what the row of panels currently adds up to — so
+     you can see a half-empty row before you save it rather than after. */
+  const tally = el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3)' });
   const list = el('div', { class: 'widgets' });
   function paint() {
     list.innerHTML = '';
@@ -4890,6 +5007,16 @@ function customizeDash() {
       row.dataset.id = id;
       row.appendChild(el('span', { class: 'hd', html: ico('list',14) }));
       row.appendChild(el('span', { class: 'nm', text: w.name }));
+      /* The headline tiles are a strip across the top, not a panel in the
+         grid — there is no width to choose. */
+      if (id === 'kpi') row.appendChild(el('span', { class: 'sub', text: 'full width' }));
+      else {
+        const seg = el('div', { class: 'seg sm wsize' });
+        DASH_WIDTHS.forEach(([n, label]) => seg.appendChild(el('button', {
+          class: (widgetSpanOf(id) === n ? 'on' : ''), text: label, title: label + ' of the row',
+          onclick: () => { size[id] = n; paint(); } })));
+        row.appendChild(seg);
+      }
       row.appendChild(el('button', { class: 'tgl' + (isOff ? '' : ' on'), 'aria-label': 'Toggle ' + w.name,
         onclick: () => { const i = off.indexOf(id); if (i < 0) off.push(id); else off.splice(i, 1); paint(); } }));
       row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', id); row.style.opacity = '.4'; });
@@ -4905,14 +5032,34 @@ function customizeDash() {
       });
       list.appendChild(row);
     });
+    /* walk the visible panels and show where each row breaks */
+    let used = 0, rows = 1, short = 0;
+    order.filter(id => id !== 'kpi' && !off.includes(id)).forEach(id => {
+      const n = widgetSpanOf(id);
+      if (used + n > 12) { if (used < 12) short += 12 - used; used = n; rows++; }
+      else used += n;
+    });
+    if (used && used < 12) short += 12 - used;
+    /* Nothing is ever left as a hole — fitDashRows widens the last panel of a
+       short row. Worth saying, though, because it means a panel can come out
+       wider than the width picked for it. */
+    tally.textContent = short
+      ? `${rows} rows. One does not add up to a full row, so the last panel in it stretches to fill the gap.`
+      : `${rows} rows, each adding up to a full row.`;
+    tally.style.color = 'var(--ink-3)';
   }
-  paint(); body.appendChild(list);
+  /* reads the dialog's working copy, not the saved config */
+  const widgetSpanOf = id => {
+    const n = +size[id];
+    return DASH_WIDTHS.some(x => x[0] === n) ? n : (DEFAULT_SPAN[id] || 4);
+  };
+  paint(); body.appendChild(tally); body.appendChild(list);
   modal('Customize dashboard', body, [
     el('button', { class: 'btn', text: 'Reset to default', onclick: () => {
-      DB.config.widgets = defaultWidgets(); DB.config.widgetsOff = [];
+      DB.config.widgets = defaultWidgets(); DB.config.widgetsOff = []; DB.config.widgetSize = {};
       DB.config._v = now(); SYNC.dirty.add('config'); touch('config'); closeAll(); render(); } }),
     el('button', { class: 'btn primary', text: 'Save', onclick: () => {
-      DB.config.widgets = order; DB.config.widgetsOff = off;
+      DB.config.widgets = order; DB.config.widgetsOff = off; DB.config.widgetSize = size;
       DB.config._v = now(); SYNC.dirty.add('config'); touch('config'); closeAll(); render();
       toast('Dashboard saved', 'ok'); } })
   ]);
