@@ -1972,7 +1972,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.35.0';
+const VERSION = '1.36.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -1987,6 +1987,10 @@ const CFG = {
   /* Asked for separately, only when a request is submitted, so the whole app
      does not demand Mail.Send consent on day one. */
   mailScopes   : ['Mail.Send'],
+  /* Putting a drafted follow-up into the rep's own Outlook Drafts needs more
+     than Mail.Send. Asked for only when they click "Open in Outlook", so the
+     people who never use the composer are never asked for it. */
+  draftScopes  : ['Mail.ReadWrite'],
   approver     : 'ahmed@core-velocity.com',
   demoCalendar  : 'demo@core-velocity.com',
   // Data lives in the signed-in user's OneDrive under this folder. Share the
@@ -6108,6 +6112,11 @@ function openDeal(id, tab) {
   const foot = el('div', { class: 'foot' });
   foot.appendChild(el('button', { class: 'btn', html: ico('plus',14) + ' Task', onclick: () => editTask(null, { dealId: d.id, ownerId: d.ownerId }) }));
   foot.appendChild(el('button', { class: 'btn', html: ico('note',14) + ' Log note', onclick: () => logNote(d) }));
+  foot.appendChild(el('button', { class: 'btn', html: ico('mail',14) + ' Follow up' + (d.followUp && d.followUp.body ? ' ·' : ''),
+    title: d.followUp && d.followUp.body
+      ? 'There is a saved draft on this deal'
+      : 'Claude writes the follow-up from everything logged on this deal, and it opens in your Outlook',
+    onclick: () => dealFollowUp(d) }));
   foot.appendChild(el('button', { class: 'btn', html: ico('flag',14) + ' Commit / best case', onclick: () => commitDeal(d) }));
   foot.appendChild(el('div', { style: 'flex:1' }));
   if (isOpen(d)) {
@@ -17642,6 +17651,272 @@ function dealOwnerChanged(d, fromId, opt) {
      a failure is reported by the toast inside. */
   dealEmailOwner(d, { quiet: !!o.quiet });
   return true;
+}
+/* ================================================================
+   THE FOLLOW-UP COMPOSER
+
+   The same idea as the lead follow-ups Claude writes, pointed at a
+   deal instead: everything already on the record — the stage, the
+   value, the estimate, the quotes, the open tasks, the whole timeline
+   including the notes that came out of HubSpot — goes into the prompt,
+   and what comes back is a mail the rep edits and sends.
+
+   The send puts it in the rep's own Outlook. Not a mailto: handed to
+   whatever the machine thinks a mail client is, but a real draft in
+   their Drafts folder, written over Graph and opened in Outlook, so
+   it has their signature, their sent-items and their send button.
+   ================================================================ */
+
+const FU_PURPOSES = [
+  ['nudge',    'No reply — nudge them',        'They have gone quiet. Get a reply without nagging.'],
+  ['demo',     'After a demo or meeting',      'Recap what was shown, confirm what was agreed, name the next step.'],
+  ['proposal', 'Send or chase the proposal',   'Move the quote forward and make the next decision easy.'],
+  ['meeting',  'Ask for a meeting or demo',    'Propose a specific time and a reason to meet.'],
+  ['revive',   'Re-engage a cold deal',        'It went quiet months ago. Give them a reason to come back.'],
+  ['decision', 'Ask for the decision',         'Everything is in their hands. Ask plainly, with a date.'],
+  ['custom',   'Something else',               'Say what the mail is for in your own words.']
+];
+const fuPurpose = k => FU_PURPOSES.find(p => p[0] === k) || FU_PURPOSES[0];
+
+/* What Claude is told. Only what is already on the record — nothing is looked
+   up, and nothing about the customer leaves the tool beyond this prompt. */
+function fuContext(d) {
+  const co = getCo(d.companyId);
+  const st = stage(d.stageId);
+  const people = (d.contactIds || []).map(getCt).filter(Boolean);
+  const items = (d.items || []).map(i =>
+    `${i.qty || 1} × ${i.name}${i.price ? ` @ ${CFG.currency} ${i.price}` : ''}`);
+  const qs = (typeof quotesForDeal === 'function' ? quotesForDeal(d.id) : []).slice(0, 3)
+    .map(q => `${q.ref || q.id}: ${CFG.currency} ${money(q.total || q.amount || 0, { dash: false })}` +
+      (q.status ? ` (${q.status})` : '') + (q.createdAt ? ` on ${fdate(q.createdAt)}` : ''));
+  const tasks = live('tasks').filter(t => t.dealId === d.id && t.status !== 'done')
+    .slice(0, 5).map(t => `${t.title || t.name || 'task'}${t.dueDate ? ' due ' + fdate(t.dueDate) : ''}`);
+  /* The timeline is the part that matters — it is where the customer's own
+     words are, and since the HubSpot import that is years of them. Oldest
+     first, so the story reads forwards. */
+  const hist = (typeof actsFor === 'function' ? actsFor('deal', d.id) : []).slice(0, 14).reverse()
+    .map(a => `${fdate(String(a.at).slice(0, 10))} (${String(a.by || '').split('@')[0]}): ` +
+      String(a.text || String(a.html || '').replace(/<[^>]*>/g, '')).slice(0, 400));
+  const notes = (d.notes || []).slice(-6).map(n => `${fdate(String(n.at).slice(0, 10))}: ${n.text}`);
+  return [
+    `Deal: ${d.name}`,
+    co ? `Company: ${co.name}${co.industry ? ' — ' + co.industry : ''}${regionOf(co) ? ' — ' + regionOf(co) : ''}` : null,
+    `Stage: ${st.label} (${Math.round((st.probability || 0) * 100)}% weight)`,
+    d.amount ? `Value: ${CFG.currency} ${money(d.amount, { dash: false })}` : 'Value: not set',
+    d.closeDate ? `Expected close: ${fdate(d.closeDate, 'long')}${
+      isOpen(d) && dnum(d.closeDate) < dnum(TODAY()) ? ' (ALREADY PASSED)' : ''}` : 'Expected close: not set',
+    d.demoDate ? `Demo date: ${fdate(d.demoDate, 'long')}` : null,
+    d.dealType ? `Deal type: ${d.dealType}` : null,
+    d.nextStep ? `Next step on record: ${d.nextStep}` : 'Next step on record: none',
+    d.lossReason ? `Loss reason: ${d.lossReason}` : null,
+    people.length ? 'Contacts: ' + people.map(c =>
+      `${c.fullName || c.email}${c.jobTitle ? ' (' + c.jobTitle + ')' : ''}`).join('; ') : 'Contacts: none linked',
+    items.length ? 'Estimate on the deal: ' + items.join('; ') : null,
+    qs.length ? 'Quotes: ' + qs.join('; ') : null,
+    tasks.length ? 'Open follow-ups: ' + tasks.join('; ') : null,
+    notes.length ? 'Deal notes:\n' + notes.join('\n') : null,
+    hist.length ? 'Timeline, oldest first:\n' + hist.join('\n') : 'Timeline: nothing logged yet'
+  ].filter(Boolean).join('\n');
+}
+
+function fuPrompt(d, o) {
+  const to = (d.contactIds || []).map(getCt).filter(Boolean)[0];
+  const me = (AUTH.user && AUTH.user.name) || ownerName(d.ownerId) || 'the rep';
+  const p = fuPurpose(o.purpose);
+  return (
+    'You write follow-up emails for a salesperson at CoreV, the authorised OxeFit distributor for the GCC ' +
+    'and Middle East. OxeFit makes premium connected strength systems — the XS1 and the XP1 — sold to gyms, ' +
+    'hotels, clinics, sports facilities and private homes, with an optional AI subscription.\n\n' +
+    'Write ONE email. Return it as exactly this, and nothing else:\n' +
+    'Subject: <the subject line>\n' +
+    '<blank line>\n' +
+    '<the body>\n\n' +
+    'Rules:\n' +
+    `- Write in ${o.language || 'English'}.\n` +
+    `- ${o.length === 'short' ? 'Keep it under 90 words. Three short paragraphs at most.'
+        : o.length === 'long' ? 'Up to 220 words. It may carry detail, but no padding.'
+        : 'Around 120 words.'}\n` +
+    `- Sign off as ${me}. Do not invent a job title, a phone number or a company address.\n` +
+    `- Address it to ${to ? (to.fullName || to.email) : 'the customer'} by first name if there is one.\n` +
+    '- Use ONLY the facts below. Never invent a price, a discount, a delivery date, a specification, a ' +
+    'feature, a case study or a name. If something would help and is not here, ask for it instead of ' +
+    'asserting it.\n' +
+    '- Refer to what actually happened in the timeline — that is the whole point of the mail. Be specific ' +
+    'about the last thing that passed between you.\n' +
+    '- End with one clear ask: a question they can answer in a line, or a specific time.\n' +
+    '- No markdown, no bullet characters, no emoji, no "I hope this email finds you well", no exclamation marks.\n' +
+    '- Plain paragraphs separated by blank lines.\n\n' +
+    `What this email is for: ${p[1]} — ${p[2]}\n` +
+    (o.steer ? `The rep's own steer, which outranks everything except the facts: ${o.steer}\n` : '') +
+    '\nTHE DEAL\n' + fuContext(d)
+  );
+}
+
+/* ---------------------------------------------------------- Outlook */
+async function draftToken() {
+  if (!AUTH.msal || !AUTH.user) throw new Error('Not signed in');
+  const req = { scopes: CFG.draftScopes, account: AUTH.msal.getActiveAccount() };
+  try { return (await AUTH.msal.acquireTokenSilent(req)).accessToken; }
+  catch (e) { return (await AUTH.msal.acquireTokenPopup(req)).accessToken; }
+}
+/* Creates the mail in the rep's own Drafts and hands back the link that opens
+   it in Outlook — their signature, their send button, their sent items. */
+async function outlookDraft(to, subject, html, cc) {
+  const tok = await draftToken();
+  const addr = a => ({ emailAddress: { address: String(a).trim() } });
+  const body = {
+    subject: subject || '',
+    body: { contentType: 'HTML', content: html },
+    toRecipients: (to || []).filter(Boolean).map(addr)
+  };
+  const ccList = (cc || []).filter(Boolean);
+  if (ccList.length) body.ccRecipients = ccList.map(addr);
+  const res = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    let why = `Graph ${res.status}`;
+    if (res.status === 403) why = 'your Microsoft account has not been allowed to write drafts from this app — an admin grants Mail.ReadWrite once';
+    else if (res.status === 401) why = 'the sign-in needs refreshing — sign out and back in';
+    throw new Error(why);
+  }
+  const msg = await res.json();
+  return msg.webLink || null;
+}
+/* If Graph cannot be used, Outlook on the web still takes a compose link —
+   which is the next best thing, and still Outlook rather than whatever the
+   machine has registered for mailto:. */
+function owaCompose(to, subject, text, cc) {
+  /* Built with encodeURIComponent rather than URLSearchParams: the latter
+     writes a space as "+", which some mail clients show literally. A very
+     long body would also blow the URL length, so it is cut with a line
+     saying so rather than silently arriving half-written. */
+  const LIMIT = 1800;
+  let body = String(text || '');
+  if (body.length > LIMIT) body = body.slice(0, LIMIT) +
+    '\n\n[The rest did not fit in this link — the full draft is saved on the deal in the CRM.]';
+  const q = [['to', (to || []).join(';')], ['subject', subject || ''], ['body', body]]
+    .concat((cc || []).length ? [['cc', cc.join(';')]] : [])
+    .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+  return 'https://outlook.office.com/mail/deeplink/compose?' + q;
+}
+/* Paragraphs in, HTML out. The composer edits plain text because that is what
+   a person can read and fix; Outlook wants markup. */
+function fuHtml(text) {
+  return '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#11151c">' +
+    String(text || '').trim().split(/\n{2,}/)
+      .map(p => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, '<br>')}</p>`).join('') +
+    '</div>';
+}
+
+/* ---------------------------------------------------------- the modal */
+let FU_BUSY = false;
+function dealFollowUp(d) {
+  const people = (d.contactIds || []).map(getCt).filter(Boolean);
+  const withMail = people.filter(c => c.email);
+  const draft = d.followUp || {};
+
+  const purpose = el('select', { class: 'inp' });
+  FU_PURPOSES.forEach(([v, l]) => purpose.appendChild(
+    el('option', { value: v, text: l, selected: draft.purpose === v || null })));
+  const lang = el('select', { class: 'inp' });
+  ['English', 'Arabic'].forEach(v => lang.appendChild(
+    el('option', { value: v, text: v, selected: draft.language === v || null })));
+  const len = el('select', { class: 'inp' });
+  [['short', 'Short — under 90 words'], ['medium', 'Medium — about 120'], ['long', 'Longer — up to 220']]
+    .forEach(([v, l]) => len.appendChild(el('option', { value: v, text: l, selected: (draft.length || 'medium') === v || null })));
+  const steer = el('textarea', { class: 'inp', rows: 2, value: draft.steer || '',
+    placeholder: 'Anything Claude would not find on the record — what they said on the phone, a date you agreed, a price you promised to hold.' });
+
+  const to = el('input', { class: 'inp', value: draft.to || withMail.map(c => c.email).join(', '),
+    placeholder: withMail.length ? '' : 'nobody on this deal has an email address' });
+  const subject = el('input', { class: 'inp', value: draft.subject || '', placeholder: 'Claude writes this' });
+  const bodyTa = el('textarea', { class: 'inp', rows: 14, value: draft.body || '',
+    placeholder: 'Pick what the mail is for, then "Write it with Claude" — or type it yourself.' });
+
+  const status = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5;min-height:20px' });
+  const say = (t, bad) => { status.textContent = t || ''; status.style.color = bad ? 'var(--warning)' : ''; };
+
+  const write = el('button', { class: 'btn primary', html: ico('bolt',14) + ' Write it with Claude',
+    onclick: async () => {
+      if (!aiReady()) return toast('No Anthropic key is set — an admin adds it in Settings', 'err');
+      if (FU_BUSY) return;
+      FU_BUSY = true; write.disabled = true;
+      say('Claude is reading the deal and everything logged on it…');
+      try {
+        const out = await claudeText(fuPrompt(d, {
+          purpose: purpose.value, language: lang.value, length: len.value, steer: steer.value.trim()
+        }), 1600);
+        let text = out.trim();
+        if (/^subject:/i.test(text)) {
+          const nl = text.indexOf('\n');
+          subject.value = text.slice(0, nl < 0 ? undefined : nl).replace(/^subject:\s*/i, '').trim();
+          text = nl < 0 ? '' : text.slice(nl + 1).trim();
+        }
+        bodyTa.value = text;
+        say('Written from ' + actsFor('deal', d.id).length + ' timeline entries. Read it before it goes — it is your name on it.');
+      } catch (e) { say('Claude: ' + String(e.message || e).slice(0, 140), true); }
+      finally { FU_BUSY = false; write.disabled = false; }
+    } });
+
+  const keep = () => {
+    d.followUp = { purpose: purpose.value, language: lang.value, length: len.value,
+      steer: steer.value.trim(), to: to.value.trim(), subject: subject.value.trim(),
+      body: bodyTa.value, at: new Date().toISOString() };
+    upsert('deals', d);
+  };
+  const addrs = v => String(v || '').split(/[,;\s]+/).map(x => x.trim()).filter(x => x.includes('@'));
+
+  const openOutlook = el('button', { class: 'btn primary', html: ico('mail',14) + ' Open it in Outlook',
+    onclick: async () => {
+      const list = addrs(to.value);
+      if (!bodyTa.value.trim()) return toast('There is nothing to send yet', 'err');
+      if (!list.length) return toast('No address to send to — add one above', 'err');
+      keep();
+      say('Putting it in your Outlook drafts…');
+      try {
+        const link = await outlookDraft(list, subject.value.trim(), fuHtml(bodyTa.value), []);
+        logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+          html: `Follow-up drafted in Outlook to <b>${esc(list.join(', '))}</b> — “${esc(subject.value.trim())}”` });
+        d.followUpAt = new Date().toISOString(); upsert('deals', d);
+        if (link) window.open(link, '_blank', 'noopener');
+        closeAll(); openDeal(d.id);
+        toast(link ? 'It is in your Outlook drafts' : 'Draft created in Outlook', 'ok');
+      } catch (e) {
+        /* Not a dead end: Outlook on the web takes a compose link without any
+           extra permission, so the mail still opens in Outlook. */
+        say('Could not write to your drafts — ' + String(e.message || e).slice(0, 110) +
+            '. Opening a compose window in Outlook on the web instead.', true);
+        window.open(owaCompose(list, subject.value.trim(), bodyTa.value), '_blank', 'noopener');
+      }
+    } });
+
+  const body = el('div');
+  body.appendChild(fld('What is this follow-up for?', purpose));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Language', lang), fld('Length', len) ]));
+  body.appendChild(fld('Anything to add', steer));
+  body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-3) 0' }, [ write ]));
+  body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5', text:
+    `Claude is given this deal's stage, value, estimate, quotes, open follow-ups and all ${
+      actsFor('deal', d.id).length} entries on its timeline — including the notes that came across from HubSpot. ` +
+    'It is told to use only those facts and to ask rather than invent. Read what comes back anyway.' }));
+  body.appendChild(fld('To', to, withMail.length < people.length
+    ? 'Some contacts on this deal have no email address.' : ''));
+  body.appendChild(fld('Subject', subject));
+  body.appendChild(fld('The email', bodyTa));
+  body.appendChild(status);
+
+  modal('Follow up on ' + d.name, body, [
+    el('button', { class: 'btn', html: ico('copy',14) + ' Copy',
+      onclick: () => copyText((subject.value.trim() ? subject.value.trim() + '\n\n' : '') + bodyTa.value, 'email') }),
+    el('button', { class: 'btn', text: 'Save the draft',
+      onclick: () => { keep(); closeAll(); toast('Draft saved on the deal', 'ok'); } }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn', text: 'Close', onclick: closeAll }),
+    openOutlook
+  ], true);
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
