@@ -347,6 +347,12 @@ table.dt td.num,table.dt th.num{text-align:right;font-variant-numeric:tabular-nu
 .kcol .kt .bar{width:4px;height:15px;border-radius:2px;background:var(--stage,var(--s1));flex:none}
 .kcol .kt .n{margin-left:auto;font-size:var(--fs-xs);color:var(--ink-3);font-weight:700;
   background:var(--surface-3);padding:1px 7px;border-radius:99px;font-variant-numeric:tabular-nums}
+/* the count on a won/lost strip is a button — it is the way in to the deals
+   behind it, so it has to look pressable rather than decorative */
+.kcol .kt button.n{border:1px solid var(--line);cursor:pointer;font-family:inherit;line-height:1.45;
+  transition:background .14s ease,color .14s ease,border-color .14s ease}
+.kcol .kt button.n:hover{background:var(--stage,var(--s1));border-color:var(--stage,var(--s1));color:#fff}
+.kcol .kt button.n:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .kcol .kv{font-size:var(--fs-sm);color:var(--ink-2);margin-top:4px;font-variant-numeric:tabular-nums}
 .kcol .kv em{color:var(--ink-3);font-style:normal}
 .kcol .ktot{margin-top:7px;display:flex;flex-direction:column;gap:3px}
@@ -765,7 +771,9 @@ a.mfact:hover b{text-decoration:underline}
 .tl .it.won::before{border-color:var(--good);background:var(--good)}
 .tl .it.lost::before{border-color:var(--critical);background:var(--critical)}
 .tl .it .w{font-size:var(--fs-xs);color:var(--ink-3);margin-bottom:2px;font-variant-numeric:tabular-nums}
-.tl .it .t{line-height:1.5}
+/* an imported or typed note keeps its paragraphs and its bullet lines; it is
+   escaped text, so pre-wrap is the only thing that can show its shape */
+.tl .it .t{line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .tl .it .t b{font-weight:650}
 
 /* task rows */
@@ -923,7 +931,8 @@ a.mfact:hover b{text-decoration:underline}
   border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1)}
 .leadperiod .lbl{font-size:var(--fs-sm);color:var(--ink-3);font-weight:600;margin-right:2px}
 .leadfilters{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)}
-.leadfilters>.inp:first-child{width:auto;min-width:210px;flex:1 1 210px;max-width:330px}
+/* the search box is no longer first in the bar — the period segment is */
+.leadfilters>input.inp{width:auto;min-width:210px;flex:1 1 210px;max-width:330px}
 
 .reptbl{display:flex;flex-direction:column;gap:4px}
 .reptbl .rhead,.reptbl .rgroup,.reptbl .rrow{display:grid;
@@ -1950,8 +1959,8 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.33.0';
-const RELEASED = '2026-09-29';
+const VERSION = '1.34.0';
+const RELEASED = '2026-10-03';
 
 const CFG = {
   version  : VERSION,
@@ -2372,6 +2381,10 @@ function rebuildStages() {
 }
 const stage     = id => STAGE.get(id) || { id, label: id || 'Unstaged', probability: 0, kind: 'open', order: 99 };
 const openStages= () => DB.stages.filter(s => s.kind === 'open').sort((a,b) => a.order - b.order);
+/* Won before lost, whatever order they carry — a closed column pair reads
+   better that way round, and the board puts them at the right-hand end. */
+const closedStages = () => DB.stages.filter(s => s.kind === 'won' || s.kind === 'lost')
+  .sort((a, b) => (a.kind === b.kind ? a.order - b.order : a.kind === 'won' ? -1 : 1));
 const isOpen    = d => stage(d.stageId).kind === 'open';
 const isWon     = d => stage(d.stageId).kind === 'won';
 const isLost    = d => stage(d.stageId).kind === 'lost';
@@ -3933,7 +3946,13 @@ function chartFunnel(host, rows, o) {
        <div class="r"><span>Weighted</span><b>${esc(CFG.currency + ' ' + fmt(r.value * stage(r.id).probability))}</b></div>`, ev));
     row.addEventListener('mouseleave', tipHide);
     row.style.cursor = 'pointer';
-    row.addEventListener('click', () => { VIEW.stageFilter = r.id; go('pipeline'); });
+    /* This used to set VIEW.stageFilter, which nothing has ever read — so
+       clicking a funnel row opened the board and changed nothing. It lands on
+       the table, filtered to the stage you clicked. */
+    row.addEventListener('click', () => {
+      VIEW.tableFilter.stage = r.id; VIEW.dealView = 'table';
+      VIEW.dealStatus = 'all'; VIEW.page = {}; go('deals');
+    });
     list.appendChild(row);
   });
   wrap.appendChild(list);
@@ -4000,18 +4019,21 @@ const VIEW = {
   period: 'fy',
   pipePeriod: 'all',           // the board has its own period — opt in, so nothing vanishes on open
   dateBasis: 'close',          // pipeline period applies to close date or created date
+  dealView: 'board',           // Deals is one tab with two shapes: board or table
+  dealStatus: 'open',          // open | closed | all — the same filter in both shapes
   contactPeriod: 'all',        // contacts filter on created date
   coPeriod: 'all',             // companies filter on created date
   contactView: 'list',
-  stageFilter: null,
   sort: {}, page: {}, tableFilter: {},
   week: weekKey(), month: monthKey(), monthWeek: null, monthRegion: null,
   demoPeriod: 'm0', demoRep: null, demoOutcome: null, reqStatus: null
 };
 const NAV = [
   { g: 'Sell' },
-  { id: 'pipeline',  label: 'Pipeline',  icon: 'board', count: () => scopedDeals().filter(isOpen).length },
-  { id: 'deals',     label: 'Deals',     icon: 'list',  count: () => scopedDeals().length },
+  /* Pipeline and Deals were two tabs over the same rows — one as a board, one
+     as a table — which meant a won deal was in neither place you looked. One
+     tab now, with the shape and the open/closed filter as controls on it. */
+  { id: 'deals',     label: 'Deals',     icon: 'board', count: () => scopedDeals().filter(isOpen).length },
   { id: 'tasks',     label: 'Tasks',     icon: 'check',
     count: () => openTasks().filter(t => t.dueDate && dnum(t.dueDate) <= dnum(TODAY())).length, alert: true },
   { id: 'quotes',    label: 'Quotes',     icon: 'clip',
@@ -4087,8 +4109,15 @@ function renderNav() {
   n.appendChild(f);
   renderSyncBadge();
 }
+/* #pipeline is in bookmarks, in sent emails and in half the code below. It
+   resolves to the Deals board rather than 404ing to the dashboard. */
+const VIEW_ALIAS = { pipeline: 'deals' };
+function resolveView(name) {
+  if (name === 'pipeline') VIEW.dealView = 'board';
+  return VIEW_ALIAS[name] || name;
+}
 function go(name) {
-  if (name !== 'pipeline') VIEW.stageFilter = null;
+  name = resolveView(name);
   VIEW.name = name;
   location.hash = name;
   $('#nav').classList.remove('open');
@@ -4107,7 +4136,7 @@ function routeOf(hash) {
 }
 function applyRoute() {
   const r = routeOf(location.hash);
-  VIEW.name = r.name;
+  VIEW.name = resolveView(r.name);
   VIEW.route = r.args;
   render();
   if (r.args.r && typeof openRequestById === 'function') openRequestById(r.args.r);
@@ -4123,7 +4152,7 @@ function applyRoute() {
 }
 addEventListener('hashchange', () => {
   const r = routeOf(location.hash);
-  if (r.name !== VIEW.name || r.args.r || r.args.l || r.args.q) applyRoute();
+  if ((VIEW_ALIAS[r.name] || r.name) !== VIEW.name || r.args.r || r.args.l || r.args.q) applyRoute();
 });
 
 /* ------------------------------------------------------- scoping */
@@ -4484,7 +4513,8 @@ function viewDashboard(root) {
       const list = el('div', { style: 'display:flex;flex-direction:column;gap:6px' });
       rows.forEach(([lbl, ds, sev]) => {
         list.appendChild(el('button', { class: 'nitem', style: 'cursor:pointer;text-align:left;width:100%',
-          onclick: () => { VIEW.riskList = { label: lbl, ids: ds.map(x => x.id) }; go('deals'); },
+          onclick: () => { VIEW.riskList = { label: lbl, ids: ds.map(x => x.id) };
+            VIEW.dealView = 'table'; VIEW.dealStatus = 'all'; go('deals'); },
           html: `<span class="ic" style="color:var(--${sev})">${ico('warn',13)}</span>
                  <span style="flex:1">${esc(lbl)}</span>
                  <b class="mono">${ds.length}</b>
@@ -4907,24 +4937,71 @@ function expandAllStages() {
 /* The board's own scope: rep + period, and which date the period applies to.
    Close date answers "what lands this quarter"; created date answers "what did
    we actually generate this quarter" — different questions, same board. */
-function pipeScope() {
-  let deals = scopedDeals().filter(isOpen);
-  if (VIEW.pipePeriod === 'all') return { deals, hidden: 0, field: null };
+/* One scope for both shapes of the Deals tab, so the board and the table can
+   never disagree about which deals are in view. Status first: "open" is the
+   working pipeline, "closed" is the history, "all" is the whole book. */
+const DEAL_STATUS = [['open', 'Open only'], ['closed', 'Closed only'], ['all', 'Open + closed']];
+const dealStatus = () => (DEAL_STATUS.some(x => x[0] === VIEW.dealStatus) ? VIEW.dealStatus : 'open');
+const dealStatusLabel = () => (DEAL_STATUS.find(x => x[0] === dealStatus()) || DEAL_STATUS[0])[1];
+function dealScope() {
+  const status = dealStatus();
+  let deals = scopedDeals();
+  if (status === 'open')   deals = deals.filter(isOpen);
+  if (status === 'closed') deals = deals.filter(d => !isOpen(d));
+  if (VIEW.pipePeriod === 'all') return { deals, hidden: 0, field: null, status };
   const b = periodBounds(VIEW.pipePeriod);
   const field = VIEW.dateBasis === 'created' ? 'createdAt' : 'closeDate';
   const hidden = deals.filter(d => !d[field]).length;
-  return { deals: deals.filter(d => d[field] && inPeriod(d[field], b)), hidden, field };
+  return { deals: deals.filter(d => d[field] && inPeriod(d[field], b)), hidden, field, status };
 }
-function viewPipeline(root) {
-  const scope = pipeScope();
-  const deals = scope.deals;
-  const st = openStages();
-  const basisLabel = VIEW.dateBasis === 'created' ? 'created date' : 'close date';
+/* kept for anything still asking the old question */
+const pipeScope = dealScope;
 
+/* The two controls that belong to the tab rather than to one shape of it:
+   which shape, and which deals. Built once and used by both. */
+function dealShapeSeg() {
+  const seg = el('div', { class: 'seg' });
+  [['board', 'Board', 'board'], ['table', 'Table', 'list']].forEach(([v, l, ic]) =>
+    seg.appendChild(el('button', { class: (VIEW.dealView || 'board') === v ? 'on' : '',
+      html: ico(ic, 13) + ' ' + l, title: v === 'board' ? 'Drag deals between stages' : 'Sort, filter and export',
+      onclick: () => { VIEW.dealView = v; VIEW.page = {}; render(); } })));
+  return seg;
+}
+function dealStatusSeg() {
+  const seg = el('div', { class: 'seg' });
+  DEAL_STATUS.forEach(([v, l]) =>
+    seg.appendChild(el('button', { class: dealStatus() === v ? 'on' : '', text: l,
+      title: v === 'open' ? 'Deals still being worked'
+           : v === 'closed' ? 'Won and lost deals' : 'Every deal, open and closed',
+      onclick: () => { VIEW.dealStatus = v; VIEW.page = {}; render(); } })));
+  return seg;
+}
+function viewDeals(root) {
+  const scope = dealScope();
   root.appendChild(viewHead(null, [
-    el('button', { class: 'btn', html: ico('list',14) + ' Table view', onclick: () => go('deals') }),
+    (VIEW.dealView === 'table' && canExportBook())
+      ? el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV',
+          onclick: () => exportDeals(dealTableRows(scope)) }) : null,
     el('button', { class: 'btn primary', html: ico('plus',14) + ' New deal', onclick: () => editDeal(null) })
   ]));
+  const shape = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
+  shape.appendChild(dealShapeSeg());
+  shape.appendChild(dealStatusSeg());
+  shape.appendChild(el('div', { style: 'flex:1' }));
+  shape.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: `${scope.deals.length} deal${scope.deals.length === 1 ? '' : 's'} · ${dealStatusLabel().toLowerCase()}` }));
+  root.appendChild(shape);
+  if (VIEW.dealView === 'table') return dealTable(root, scope);
+  return dealBoard(root, scope);
+}
+function dealBoard(root, scope) {
+  const deals = scope.deals;
+  const status = scope.status;
+  /* Open only keeps the familiar nine columns and leaves won and lost as the
+     narrow targets you drag onto. The other two put them on the board as real
+     columns with the cards in them — which is the whole point of the filter. */
+  const st = status === 'closed' ? [] : openStages();
+  const basisLabel = VIEW.dateBasis === 'created' ? 'created date' : 'close date';
 
   // ---- filter row
   const bar = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
@@ -4953,34 +5030,56 @@ function viewPipeline(root) {
     html: ico('board',13) + ` Expand ${mins.length} stage${mins.length > 1 ? 's' : ''}`,
     onclick: expandAllStages }));
   bar.appendChild(el('div', { style: 'flex:1' }));
+  const noun = status === 'closed' ? 'Closed deals' : status === 'all' ? 'Deals' : 'Open deals';
   bar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
-    text: VIEW.pipePeriod === 'all' ? 'Every open deal' : `Open deals with a ${basisLabel} in ${periodBounds(VIEW.pipePeriod).label}` }));
+    text: VIEW.pipePeriod === 'all' ? `Every ${noun.toLowerCase().replace(/s$/, '')}`
+      : `${noun} with a ${basisLabel} in ${periodBounds(VIEW.pipePeriod).label}` }));
   root.appendChild(bar);
 
   // ---- board totals
+  const open = deals.filter(isOpen), won = deals.filter(isWon), lost = deals.filter(isLost);
   const tl = el('div', { class: 'tiles' });
-  tl.appendChild(tile('Open deals', deals.length, { icon: 'board',
-    foot: VIEW.rep === 'all' ? 'all reps' : ownerName(VIEW.rep) }));
-  tl.appendChild(tile('Pipeline value', money(sum(deals, d => d.amount)), { cur: true, icon: 'chart',
-    foot: 'sum of every open deal in scope' }));
-  tl.appendChild(tile('Forecast (weighted)', money(sum(deals, weighted)), { cur: true, icon: 'bolt',
-    foot: 'value × stage probability' }));
-  const commitN = deals.filter(d => stage(d.stageId).probability >= .9);
-  tl.appendChild(tile('At commit stage', money(sum(commitN, d => d.amount)), { cur: true, icon: 'flag',
-    foot: `${commitN.length} deals at 90%+` }));
-  const noVal = deals.filter(d => !d.amount).length;
-  tl.appendChild(tile('Missing a value', noVal, { icon: 'warn',
-    foot: noVal ? 'these sit at zero in the forecast' : 'every deal is valued' }));
+  if (status === 'open') {
+    tl.appendChild(tile('Open deals', deals.length, { icon: 'board',
+      foot: VIEW.rep === 'all' ? 'all reps' : ownerName(VIEW.rep) }));
+    tl.appendChild(tile('Pipeline value', money(sum(deals, d => d.amount)), { cur: true, icon: 'chart',
+      foot: 'sum of every open deal in scope' }));
+    tl.appendChild(tile('Forecast (weighted)', money(sum(deals, weighted)), { cur: true, icon: 'bolt',
+      foot: 'value × stage probability' }));
+    const commitN = deals.filter(d => stage(d.stageId).probability >= .9);
+    tl.appendChild(tile('At commit stage', money(sum(commitN, d => d.amount)), { cur: true, icon: 'flag',
+      foot: `${commitN.length} deals at 90%+` }));
+    const noVal = deals.filter(d => !d.amount).length;
+    tl.appendChild(tile('Missing a value', noVal, { icon: 'warn',
+      foot: noVal ? 'these sit at zero in the forecast' : 'every deal is valued' }));
+  } else {
+    /* With closed deals on the board the useful numbers change: what was won,
+       what was lost, and the rate between them. */
+    const decided = won.length + lost.length;
+    if (status === 'all') tl.appendChild(tile('Open deals', open.length, { icon: 'board',
+      foot: `${CFG.currency} ${money(sum(open, d => d.amount), { compact: true, dash: false })} in the pipeline` }));
+    tl.appendChild(tile('Won', money(sum(won, d => d.amount)), { cur: true, icon: 'check',
+      foot: `${won.length} deal${won.length === 1 ? '' : 's'}` }));
+    tl.appendChild(tile('Lost', money(sum(lost, d => d.amount)), { cur: true, icon: 'warn',
+      foot: `${lost.length} deal${lost.length === 1 ? '' : 's'}` }));
+    tl.appendChild(tile('Win rate', decided ? Math.round(won.length / decided * 100) + '%' : '—',
+      { icon: 'target', foot: decided ? `${won.length} of ${decided} decided` : 'nothing closed in scope' }));
+    const noReason = lost.filter(d => !d.lossReason).length;
+    tl.appendChild(tile('Lost without a reason', noReason, { icon: 'note',
+      foot: noReason ? 'nothing to learn from these' : 'every loss has a reason' }));
+  }
   root.appendChild(tl);
 
-  const ob2 = overdueBanner();
+  /* The overdue banner is about open deals, so it belongs on a board that has
+     some — not over a wall of deals that closed months ago. */
+  const ob2 = status === 'closed' ? null : overdueBanner();
   if (ob2) root.appendChild(ob2);
 
   if (scope.hidden) root.appendChild(el('div', { class: 'card',
     style: 'margin-bottom:var(--sp-3);border-color:var(--warning);display:flex;gap:var(--sp-3);align-items:center' }, [
     el('span', { html: ico('warn',15), style: 'color:var(--warning)' }),
     el('div', { style: 'flex:1;line-height:1.5', html:
-      `<b>${scope.hidden}</b> open deals have no ${esc(basisLabel)} and are not on the board while this period filter is on.` }),
+      `<b>${scope.hidden}</b> ${esc(noun.toLowerCase())} have no ${esc(basisLabel)} and are not on the board while this period filter is on.` }),
     el('button', { class: 'btn sm', text: 'Show all', onclick: () => { VIEW.pipePeriod = 'all'; render(); } })
   ]));
 
@@ -5034,7 +5133,7 @@ function viewPipeline(root) {
       more.appendChild(el('button', { class: 'btn sm ghost', style: 'width:100%',
         text: `Show ${Math.min(PAGE, left)} more of ${left}`, onclick: grow }));
       more.appendChild(el('button', { class: 'btn sm ghost', style: 'width:100%;margin-top:5px',
-        text: 'Open all in the table', onclick: () => { VIEW.tableFilter.stage = s.id; go('deals'); } }));
+        text: 'Open all in the table', onclick: () => { VIEW.tableFilter.stage = s.id; VIEW.dealView = 'table'; go('deals'); } }));
     };
     list.appendChild(more);
     if (ds.length) grow();
@@ -5049,25 +5148,62 @@ function viewPipeline(root) {
     });
     kan.appendChild(col);
   });
-  // won / lost drop targets
-  ['won','lost'].forEach(kind => {
-    const s = DB.stages.find(x => x.kind === kind); if (!s) return;
-    const col = el('div', { class: 'kcol', style: `--stage:${stageColor(s.id)};flex-basis:186px;opacity:.9` });
-    const closed = scopedDeals().filter(d => d.stageId === s.id && inPeriod(d.closeDate, periodBounds(VIEW.pipePeriod)));
+  /* Won and lost. On the open board these stay the narrow strips you drag
+     onto — their count is a button, because "18 won" that you cannot click is
+     exactly the dead end that hid the closed deals in the first place. With
+     the filter on closed or all they become ordinary columns full of cards. */
+  const cards = status !== 'open';
+  closedStages().forEach(s => {
+    const ds = (cards ? deals.filter(d => d.stageId === s.id)
+                      : scopedDeals().filter(d => d.stageId === s.id &&
+                          inPeriod(d.closeDate, periodBounds(VIEW.pipePeriod))))
+      .sort(VIEW.boardSort === 'value' ? (a, b2) => (b2.amount || 0) - (a.amount || 0) : byNewest);
+    const col = el('div', { class: 'kcol', style: `--stage:${stageColor(s.id)}` +
+      (cards ? '' : ';flex-basis:186px;opacity:.9') });
+    col.dataset.stage = s.id;
+    const head = el('div', { class: 'kt' }, [
+      el('span', { class: 'bar' }),
+      el('span', { class: 'lbl', text: s.label, title: s.label })
+    ]);
+    head.appendChild(cards
+      ? el('span', { class: 'n', text: ds.length })
+      : el('button', { class: 'n', text: ds.length, title: `Show the ${ds.length} ${s.label.toLowerCase()} deals`,
+          onclick: e => { e.stopPropagation(); VIEW.dealStatus = 'all'; VIEW.page = {}; render(); } }));
     col.appendChild(el('header', {}, [
-      el('div', { class: 'kt', html: `<span class="bar"></span><span>${esc(s.label)}</span><span class="n">${closed.length}</span>` }),
-      el('div', { class: 'kv', html: `${CFG.currency} ${money(sum(closed, d => d.amount))} <em>· ${periodBounds(VIEW.pipePeriod).label}</em>` })
+      head,
+      el('div', { class: 'kv', html: `${CFG.currency} ${money(sum(ds, d => d.amount))} <em>· ${esc(periodBounds(VIEW.pipePeriod).label)}</em>` })
     ]));
-    const list = el('div', { class: 'klist', style: 'min-height:120px' });
-    list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 6px;line-height:1.5',
-      text: kind === 'won' ? 'Drop here to mark won' : 'Drop here to mark lost (you will be asked for the reason)' }));
+    const list = el('div', { class: 'klist', style: cards ? '' : 'min-height:120px' });
+    if (!cards) {
+      list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 6px;line-height:1.5',
+        text: s.kind === 'won' ? 'Drop here to mark won' : 'Drop here to mark lost (you will be asked for the reason)' }));
+    } else if (!ds.length) {
+      list.appendChild(el('div', { style: 'text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 4px',
+        text: 'Nothing ' + s.label.toLowerCase() + ' in scope' }));
+    } else {
+      /* same paging as an open column: a screenful, then on demand */
+      const PAGE = 25;
+      let shown = 0;
+      const more = el('div', { style: 'text-align:center;padding:8px 4px' });
+      const grow = () => {
+        ds.slice(shown, shown + PAGE).forEach(d => list.insertBefore(kcard(d, s), more));
+        shown = Math.min(shown + PAGE, ds.length);
+        const left = ds.length - shown;
+        more.innerHTML = '';
+        if (!left) return;
+        more.appendChild(el('button', { class: 'btn sm ghost', style: 'width:100%',
+          text: `Show ${Math.min(PAGE, left)} more of ${left}`, onclick: grow }));
+      };
+      list.appendChild(more);
+      grow();
+    }
     col.appendChild(list);
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
     col.addEventListener('dragleave', () => col.classList.remove('drop'));
     col.addEventListener('drop', e => {
       e.preventDefault(); col.classList.remove('drop');
       const d = getDl(e.dataTransfer.getData('text/plain'));
-      if (d) moveStage(d, s.id);
+      if (d && d.stageId !== s.id) moveStage(d, s.id);
     });
     kan.appendChild(col);
   });
@@ -5090,15 +5226,20 @@ function taskMap() {
 }
 function kcard(d, s) {
   const co = getCo(d.companyId);
-  const late = d.closeDate && dnum(d.closeDate) < dnum(TODAY());
-  const soon = d.closeDate && !late && days(d.closeDate, TODAY()) <= 14;
+  /* On a closed deal the close date is when it closed, not a deadline it
+     missed — "40d overdue" on a won deal is nonsense. Only open deals are
+     late or due soon. */
+  const open = isOpen(d);
+  const late = open && d.closeDate && dnum(d.closeDate) < dnum(TODAY());
+  const soon = open && d.closeDate && !late && days(d.closeDate, TODAY()) <= 14;
   const n = el('div', { class: 'kcard', draggable: isReadOnly() ? null : 'true', style: `--stage:${stageColor(s.id)}` });
   n.innerHTML =
     `<span class="n" title="${esc(d.name)}">${esc(d.name)}</span>
      <div class="m">
        <span class="amt">${d.amount ? CFG.currency + ' ' + money(d.amount, { compact: true }) : '<span style="color:var(--warning)">no value</span>'}</span>
        ${co ? `<span class="co" title="${esc(co.name)}">· ${esc(co.name)}</span>` : ''}
-       <span class="due ${late ? 'late' : soon ? 'soon' : ''}">${d.closeDate ? frel(d.closeDate) : 'no date'}</span>
+       <span class="due ${late ? 'late' : soon ? 'soon' : ''}" title="${open ? 'Expected close' : 'Closed'}">${
+         d.closeDate ? (open ? frel(d.closeDate) : fdate(d.closeDate)) : 'no date'}</span>
      </div>`;
   const foot = el('div', { class: 'm', style: 'margin-top:6px' });
   foot.appendChild(el('span', { class: 'avatar', style: `background:${ownerColor(d.ownerId)};width:20px;height:20px;font-size:9px`,
@@ -5230,21 +5371,20 @@ const stageCell = id =>
   `<span class="tag sw" style="--sw:${stageColor(id)}">${esc(stage(id).label)}</span>`;
 
 /* ----------------------------------------------------------- DEALS */
-function viewDeals(root) {
+/* The table's own filters, on top of the scope the tab already applied. Split
+   out so the Export CSV button in the tab header sends exactly the rows on
+   screen rather than its own guess at them. */
+function dealTableRows(scope) {
   const tf = VIEW.tableFilter;
-  let rows = scopedDeals();
+  let rows = (scope || dealScope()).deals;
   if (VIEW.riskList) rows = rows.filter(d => VIEW.riskList.ids.includes(d.id));
   if (tf.stage)  rows = rows.filter(d => d.stageId === tf.stage);
-  if (tf.kind)   rows = rows.filter(d => stage(d.stageId).kind === tf.kind);
   if (tf.type)   rows = rows.filter(d => (d.dealType || '') === tf.type);
-  if (tf.period !== 'off') rows = rows.filter(d => !d.closeDate || inPeriod(d.closeDate, periodBounds()) || isOpen(d));
-
-  root.appendChild(viewHead(null, [
-    el('button', { class: 'btn', html: ico('board',14) + ' Board view', onclick: () => go('pipeline') }),
-    canExportBook() ? el('button', { class: 'btn', html: ico('dl',14) + ' Export CSV',
-      onclick: () => exportDeals(rows) }) : null,
-    el('button', { class: 'btn primary', html: ico('plus',14) + ' New deal', onclick: () => editDeal(null) })
-  ]));
+  return rows;
+}
+function dealTable(root, scope) {
+  const tf = VIEW.tableFilter;
+  const rows = dealTableRows(scope);
   if (VIEW.riskList) {
     root.appendChild(el('div', { class: 'card', style: 'margin-bottom:var(--sp-3);display:flex;align-items:center;gap:var(--sp-3);border-color:var(--warning)' }, [
       el('span', { html: ico('warn',15), style: 'color:var(--warning)' }),
@@ -5253,11 +5393,17 @@ function viewDeals(root) {
     ]));
   }
   const types = Array.from(new Set(live('deals').map(d => d.dealType).filter(Boolean))).sort();
+  const stageOpts = (scope && scope.status === 'closed' ? closedStages()
+                   : scope && scope.status === 'open' ? openStages()
+                   : DB.stages.slice().sort((a,b)=>a.order-b.order));
   root.appendChild(filterBar([
-    selectFilter('Stage', tf.stage || '', [['', 'All stages']].concat(DB.stages.sort((a,b)=>a.order-b.order).map(s => [s.id, s.label])),
+    selectFilter('Stage', tf.stage || '', [['', 'All stages']].concat(stageOpts.map(s => [s.id, s.label])),
       v => { tf.stage = v || null; VIEW.page.deals = 0; render(); }, 150),
-    selectFilter('Status', tf.kind || '', [['','Open + closed'],['open','Open only'],['won','Won only'],['lost','Lost only']],
-      v => { tf.kind = v || null; VIEW.page.deals = 0; render(); }),
+    /* the board has a rep picker of its own, so the table gets one too —
+       switching shape should not silently change who you are looking at */
+    selectFilter('Sales rep', VIEW.rep || 'all',
+      [['all', 'All sales reps']].concat(activeOwners().map(o => [o.id, o.name])),
+      v => { VIEW.rep = v; VIEW.page = {}; render(); }, 150),
     types.length ? selectFilter('Type', tf.type || '', [['','All types']].concat(types.map(t => [t, t])),
       v => { tf.type = v || null; VIEW.page.deals = 0; render(); }) : null,
     el('div', { style: 'flex:1' }),
@@ -6244,14 +6390,22 @@ function dealActivity(d) {
   ]));
   const acts = actsFor('deal', d.id);
   if (!acts.length && !d.createdAt) { w.appendChild(el('p', { class: 'sub', text: 'Nothing logged yet.' })); return w; }
-  const tl = el('div', { class: 'tl' });
-  acts.forEach(a => tl.appendChild(el('div', { class: 'it ' + (a.kind || ''), html:
-    `<div class="w">${esc(new Date(a.at).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' }))} · ${esc((a.by||'').split('@')[0])}</div>
-     <div class="t">${a.html || esc(a.text || '')}</div>` })));
+  const tl = timelineOf(acts);
   if (d.createdAt) tl.appendChild(el('div', { class: 'it', html:
     `<div class="w">${esc(fdate(d.createdAt, 'long'))}</div><div class="t">Deal created</div>` }));
   w.appendChild(tl);
   return w;
+}
+/* The timeline itself, so a contact can show one too. a.html is trusted
+   markup this app wrote; a.text is anybody's — a note typed by a rep, posted
+   by the calling agent, or imported from HubSpot — so it is escaped, and
+   .tl .t keeps its line breaks rather than running the paragraphs together. */
+function timelineOf(acts) {
+  const tl = el('div', { class: 'tl' });
+  acts.forEach(a => tl.appendChild(el('div', { class: 'it ' + (a.kind || ''), html:
+    `<div class="w">${esc(new Date(a.at).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' }))} · ${esc((a.by||'').split('@')[0])}</div>
+     <div class="t">${a.html || esc(a.text || '')}</div>` })));
+  return tl;
 }
 function logNote(d) {
   const ta = el('textarea', { class: 'inp', placeholder: 'What happened? Who said what, and what did you agree?', rows: 5 });
@@ -6430,8 +6584,16 @@ function openCompany(id) {
           w.appendChild(r);
         });
         return w;
-      } }
-  ]);
+      } },
+    /* Account-level history: notes logged against the company in HubSpot
+       before any deal existed. The tab only appears when there is some. */
+    actsFor('company', c.id).length ? { label: 'Activity', count: actsFor('company', c.id).length, render: () => {
+        const w = el('div');
+        w.appendChild(el('h3', { text: 'Activity timeline' }));
+        w.appendChild(timelineOf(actsFor('company', c.id)));
+        return w;
+      } } : null
+  ].filter(Boolean));
   drawer([head, bar, body]);
 }
 
@@ -6594,6 +6756,16 @@ function openContact(id) {
     tc.appendChild(el('h3', { text: 'Tasks' }));
     ts.forEach(t => tc.appendChild(taskRow(t)));
     body.appendChild(tc);
+  }
+  /* Some history belongs to the person rather than to a deal — notes logged
+     against a contact in HubSpot before there was a deal, most of all. It had
+     nowhere to show until this card existed. */
+  const cacts = actsFor('contact', c.id);
+  if (cacts.length) {
+    const ac = el('div', { class: 'card', style: 'margin-top:var(--sp-3)' });
+    ac.appendChild(el('h3', { text: `Activity timeline (${cacts.length})` }));
+    ac.appendChild(timelineOf(cacts));
+    body.appendChild(ac);
   }
   drawer([head, body]);
 }
@@ -13107,8 +13279,50 @@ function viewLeads(root) {
 
 /* One bar, both tabs. The two lists want the same questions asked of them —
    which rep, which emirate, which status — so they get the same controls. */
+/* "It is hard to tell which one is new" — with a few hundred leads in the list
+   that is true, and a status of New only tells you nobody has called it yet,
+   not that it arrived today. This filters on the arrival date. */
+const LEAD_LIST_PERIODS = [['d0', 'Today'], ['w0', 'This week'], ['m0', 'This month'], ['all', 'All time']];
+/* The summary hands its own period over when you click a tile, and it spells
+   this month 'm' where the buttons spell it 'm0'. Same month, same button. */
+const LEAD_PERIOD_SAME = { m: 'm0', w: 'w0', d: 'd0' };
+function leadPeriodSeg(f) {
+  const cur = LEAD_PERIOD_SAME[f.period] || f.period || 'all';
+  const seg = el('div', { class: 'seg' });
+  LEAD_LIST_PERIODS.forEach(([v, lbl]) => seg.appendChild(el('button', {
+    class: cur === v ? 'on' : '', text: lbl,
+    title: v === 'all' ? 'Every lead, whenever it arrived'
+                       : 'Leads that arrived in ' + leadPeriodBounds(v).label,
+    onclick: () => { if (v === 'all') delete f.period; else f.period = v; VIEW.page = {}; render(); } })));
+  /* A period the buttons do not cover — a custom range, or the six months a
+     summary tile hands over — shows itself here rather than silently. */
+  const other = !LEAD_LIST_PERIODS.some(x => x[0] === cur);
+  seg.appendChild(el('button', { class: other ? 'on' : '',
+    html: ico('cal', 12) + ' ' + esc(other ? leadPeriodBounds(cur).label : 'Custom…'),
+    title: 'Pick the dates yourself', onclick: () => leadPeriodPicker(f) }));
+  return seg;
+}
+function leadPeriodPicker(f) {
+  const b = leadPeriodBounds(f.period === 'all' || !f.period ? 'm0' : f.period);
+  const from = el('input', { class: 'inp', type: 'date', value: b.from, max: TODAY() });
+  const to   = el('input', { class: 'inp', type: 'date', value: b.grain === 'all' ? TODAY() : b.to });
+  modal('Leads that arrived between…', el('div', {}, [
+    el('div', { class: 'field-row' }, [ fld('From', from), fld('To', to) ]),
+    el('p', { class: 'sub', style: 'margin:10px 0 0',
+      text: 'The date the lead arrived, not the date it was last worked — a lead belongs to the week it came in.' })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Apply', onclick: () => {
+      const a = from.value, z = to.value;
+      if (!a || !z) { (a ? to : from).focus(); return toast('Both dates are needed', 'err'); }
+      f.period = 'c:' + (a <= z ? a + ':' + z : z + ':' + a);   // typed backwards is still a range
+      VIEW.page = {}; closeAll(); render();
+    } })
+  ]);
+}
 function leadFilterBar(f, base, lost) {
   const bar = el('div', { class: 'leadfilters' });
+  bar.appendChild(leadPeriodSeg(f));
   const q = el('input', { class: 'inp', placeholder: 'Search name, company, phone, email…', value: f.q || '' });
   q.addEventListener('input', debounce(e => { f.q = e.target.value; render(); }, 250));
   bar.appendChild(q);
@@ -13147,10 +13361,6 @@ function leadFilterBar(f, base, lost) {
      ['priority', 'Priority only'], ['cold', 'Cold only']],
     v => { f.flag = v || null; render(); }, 165));
 
-  if (f.period && f.period !== 'all') bar.appendChild(el('button', { class: 'btn sm',
-    title: 'Only leads that arrived in this period — click to drop it',
-    html: ico('cal', 12) + ' Added in ' + esc(leadPeriodBounds(f.period).label) + ' \u00d7',
-    onclick: () => { delete f.period; render(); } }));
   if (Object.keys(f).some(k => f[k])) bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear',
     onclick: () => { VIEW.leadFilter = {}; render(); } }));
   bar.appendChild(el('div', { style: 'flex:1' }));
@@ -14470,6 +14680,12 @@ function leadPeriod() { return (VIEW.leadPeriod = VIEW.leadPeriod || 'all'); }
 function leadPeriodBounds(key) {
   const p = key || leadPeriod();
   if (p === 'all') return { from: '1900-01-01', to: '2999-12-31', label: 'all time', grain: 'all' };
+  /* Today, and a hand-typed range, are questions the summary never asked but
+     the lead list does: "which of these came in since I last looked". */
+  if (p === 'd0') return { from: TODAY(), to: TODAY(), label: 'today', grain: 'day' };
+  const c = /^c:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(p);
+  if (c) return { from: c[1], to: c[2], grain: 'custom',
+    label: c[1] === c[2] ? fdate(c[1], 'long') : fdate(c[1]) + ' – ' + fdate(c[2]) };
   if (p === 'w0') return periodBounds('w0');
   if (p === 'mn6') { const a = mBounds(monthShift(monthKey(), -5) + '-01'), z = mBounds();
     return { from: a.from, to: z.to, label: 'the last six months', grain: 'month' }; }
@@ -17976,7 +18192,85 @@ function importDialog() {
       rd.readAsText(f);
     } })
   ]));
+
+  /* The first migration brought the objects across and left the engagement
+     history behind — 1,239 deals and not one note on any of them. This takes
+     the notes as their own file, matched on the HubSpot record id the deals
+     and contacts already carry, and is safe to run twice. */
+  const fileNotes = el('input', { type: 'file', accept: '.json,application/json', class: 'inp' });
+  const notesOut = el('div', { class: 'sub', style: 'margin-top:var(--sp-3);line-height:1.6' });
+  body.appendChild(el('div', { class: 'card', style: 'margin-top:var(--sp-3)' }, [
+    el('h3', { text: 'HubSpot notes (.json)' }),
+    el('p', { class: 'sub', style: 'margin:4px 0 0',
+      text: 'Adds notes to the activity timeline of the deal or contact they belong to. Each note carries its HubSpot id, so importing the same file again adds nothing.' }),
+    el('div', { style: 'margin-top:var(--sp-3)' }, [ fld('File', fileNotes) ]),
+    el('button', { class: 'btn primary', text: 'Import notes', onclick: () => {
+      const f = fileNotes.files[0]; if (!f) return toast('Choose a file first', 'err');
+      const rd = new FileReader();
+      rd.onload = () => {
+        let r;
+        try { r = batch(() => importNotes(JSON.parse(rd.result))); }
+        catch (e) { return toast('Import failed: ' + e.message, 'err'); }
+        notesOut.innerHTML =
+          `<b>${r.added}</b> notes added · <b>${r.already}</b> already here` +
+          (r.noTarget ? ` · <b style="color:var(--warning)">${r.noTarget}</b> matched no record here and were skipped` : '') +
+          (r.added ? `<br>Across ${r.deals} deals, ${r.contacts} contacts and ${r.companies} companies.` : '');
+        toast(`${r.added} notes imported`, 'ok');
+        scheduleSync();
+      };
+      rd.readAsText(f);
+    } }),
+    notesOut
+  ]));
   modal('Import data', body, null, true);
+}
+/* Matched on hubspotId, which is on every record the first migration created.
+   Notes land on the deal when the note was on a deal in HubSpot, on the
+   contact when it was not — and a note whose deal never came across is
+   reported rather than quietly attached to something near it. */
+function importNotes(payload) {
+  if (!canWrite()) throw new Error('you do not have write access');
+  const list = Array.isArray(payload) ? payload : (payload && payload.notes) || [];
+  if (!list.length) throw new Error('that file has no notes in it');
+  const idx = (shard, out) => { live(shard).forEach(r => { if (r.hubspotId) out.set(String(r.hubspotId), r); }); return out; };
+  const deals = idx('deals', new Map()), contacts = idx('contacts', new Map()),
+        cos = idx('companies', new Map());
+  const seen = new Set();
+  DB.activities.forEach(a => { if (a.hsNoteId) seen.add(String(a.hsNoteId)); });
+  const touchedD = new Set(), touchedC = new Set(), touchedCo = new Set();
+  let added = 0, already = 0, noTarget = 0;
+  list.forEach(n => {
+    const hsId = String(n.id || '');
+    if (hsId && seen.has(hsId)) { already++; return; }
+    const text = String(n.text || '').trim();
+    if (!text) return;
+    const d  = n.dealId ? deals.get(String(n.dealId)) : null;
+    const c  = !d && n.contactId ? contacts.get(String(n.contactId)) : null;
+    const co = !d && !c && n.companyId ? cos.get(String(n.companyId)) : null;
+    if (!d && !c && !co) { noTarget++; return; }
+    const own = n.ownerId && DB.owners.find(o => String(o.id) === String(n.ownerId));
+    DB.activities.push(stamp({
+      id: uid('A'),
+      at: n.at || new Date().toISOString(),
+      by: (own && own.name) || n.by || 'HubSpot',
+      ownerId: (own && own.id) || (d && d.ownerId) || (c && c.ownerId) || (co && co.ownerId) || null,
+      /* one home each — the deal if there is one, else the person, else the
+         company. Never two, or the same note shows up twice. */
+      dealId: d ? d.id : null,
+      contactId: c ? c.id : null,
+      companyId: co ? co.id : null,
+      kind: 'note',
+      text: text.slice(0, 8000),
+      hsNoteId: hsId || null,
+      src: 'hubspot'
+    }));
+    if (hsId) seen.add(hsId);
+    if (d) touchedD.add(d.id); else if (c) touchedC.add(c.id); else touchedCo.add(co.id);
+    added++;
+  });
+  if (added) touch('activities');
+  return { added, already, noTarget,
+    deals: touchedD.size, contacts: touchedC.size, companies: touchedCo.size };
 }
 const NORM = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function pick(row, hdr, names) {
@@ -18937,7 +19231,7 @@ function agentOwnerNew() {
    RENDER + BOOT
    ================================================================ */
 const VIEWS = {
-  dashboard: viewDashboard, pipeline: viewPipeline, deals: viewDeals,
+  dashboard: viewDashboard, deals: viewDeals,
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
   review: viewReview, demos: viewDemos, requests: viewRequests,
   monthly: viewMonthly, forecast: viewForecast, settings: viewSettings,
@@ -18945,7 +19239,7 @@ const VIEWS = {
   rules: viewRules, guide: viewGuide
 };
 const TITLES = {
-  dashboard: 'Executive Summary', pipeline: 'Sales pipeline', deals: 'Deals',
+  dashboard: 'Executive Summary', deals: 'Deals',
   companies: 'Companies', contacts: 'Contacts', tasks: 'Tasks & follow-ups',
   review: 'Sales Commitment', demos: 'Demo Tracker', requests: 'Demo Requests',
   perf: 'Rep Performance', leads: 'Marketing Leads', quotes: 'Quotes',
@@ -18958,7 +19252,8 @@ function render() {
   if (rendering) return;
   rendering = true;
   try {
-    const name = VIEWS[VIEW.name] ? VIEW.name : 'dashboard';
+    const alias = resolveView(VIEW.name);
+    const name = VIEWS[alias] ? alias : 'dashboard';
     VIEW.name = name;
     TASKMAP = null; dropActIndex();       // per-render memos: taskMap(), lastActAt()
     $('#vtitle').textContent = TITLES[name];
