@@ -1015,6 +1015,14 @@ a.mfact:hover b{text-decoration:underline}
 .leadrow.picked{border-color:var(--accent);background:var(--accent-soft)}
 .leadrow .selbox{flex:none;accent-color:var(--accent);width:16px;height:16px;margin-right:2px}
 .leadrow .selbox:disabled{opacity:.35}
+/* the same, for picking several deals on the board or in the table */
+.selbox{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
+.selbox:disabled{opacity:.35;cursor:not-allowed}
+.kcard.picking{cursor:pointer;padding-left:30px;position:relative}
+.kcard.picking .selbox{position:absolute;left:9px;top:11px;margin:0}
+.kcard.picked{border-color:var(--accent);background:var(--accent-soft)}
+#view table.dt tbody tr.picked{background:var(--accent-soft)}
+#view table.dt td:has(>.selbox){width:34px;padding-right:0}
 
 /* ---- the lead stage path: chevrons, not a dropdown ---- */
 .pathwrap{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
@@ -1972,7 +1980,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.36.0';
+const VERSION = '1.37.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -5044,6 +5052,11 @@ function viewDeals(root) {
   const shape = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
   shape.appendChild(dealShapeSeg());
   shape.appendChild(dealStatusSeg());
+  if (!isReadOnly()) shape.appendChild(el('button', {
+    class: 'btn sm' + (VIEW.dealPick ? ' primary' : ''),
+    html: ico('check', 13) + (VIEW.dealPick ? ' Done selecting' : ' Select'),
+    title: 'Pick several deals and move them, hand them over or re-date them together',
+    onclick: dealPickToggle }));
   shape.appendChild(el('div', { style: 'flex:1' }));
   shape.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
     text: `${scope.deals.length} deal${scope.deals.length === 1 ? '' : 's'} · ${dealStatusLabel().toLowerCase()}` }));
@@ -5127,9 +5140,11 @@ function dealBoard(root, scope) {
   }
   root.appendChild(tl);
 
+  if (dealPicking()) root.appendChild(dealSelBar(deals));
+
   /* The overdue banner is about open deals, so it belongs on a board that has
      some — not over a wall of deals that closed months ago. */
-  const ob2 = status === 'closed' ? null : overdueBanner();
+  const ob2 = status === 'closed' || dealPicking() ? null : overdueBanner();
   if (ob2) root.appendChild(ob2);
 
   if (scope.hidden) root.appendChild(el('div', { class: 'card',
@@ -5289,8 +5304,12 @@ function kcard(d, s) {
   const open = isOpen(d);
   const late = open && d.closeDate && dnum(d.closeDate) < dnum(TODAY());
   const soon = open && d.closeDate && !late && days(d.closeDate, TODAY()) <= 14;
-  const n = el('div', { class: 'kcard', draggable: isReadOnly() ? null : 'true', style: `--stage:${stageColor(s.id)}` });
+  const pick = dealPicking();
+  const n = el('div', { class: 'kcard' + (pick ? ' picking' : '') + (pick && DEAL_SEL.has(d.id) ? ' picked' : ''),
+    /* dragging and ticking at the same time is how you lose a selection */
+    draggable: isReadOnly() || pick ? null : 'true', style: `--stage:${stageColor(s.id)}` });
   n.innerHTML =
+    (pick ? dealSelBox(d) : '') +
     `<span class="n" title="${esc(d.name)}">${esc(d.name)}</span>
      <div class="m">
        <span class="amt">${d.amount ? CFG.currency + ' ' + money(d.amount, { compact: true }) : '<span style="color:var(--warning)">no value</span>'}</span>
@@ -5325,7 +5344,17 @@ function kcard(d, s) {
 function kanDelegate(kan) {
   const cardOf = e => e.target && e.target.closest ? e.target.closest('.kcard') : null;
   kan.addEventListener('click', e => {
-    const c = cardOf(e); if (c && c.dataset.deal) openDeal(c.dataset.deal);
+    const c = cardOf(e); if (!c || !c.dataset.deal) return;
+    /* While picking, the card is a checkbox the size of a card — clicking it
+       opens nothing. The box itself is left alone; it has its own handler. */
+    if (dealPicking()) {
+      if (e.target.matches && e.target.matches('input.selbox')) return;
+      const box = c.querySelector('input.selbox');
+      if (box && !box.disabled) { box.checked = !box.checked;
+        box.dispatchEvent(new Event('change', { bubbles: true })); }
+      return;
+    }
+    openDeal(c.dataset.deal);
   });
   kan.addEventListener('dragstart', e => {
     const c = cardOf(e); if (!c || !c.dataset.deal) return;
@@ -5467,11 +5496,16 @@ function dealTable(root, scope) {
     el('span', { class: 'mono', style: 'font-size:var(--fs-sm);color:var(--ink-3)',
       text: `${CFG.currency} ${money(sum(rows, d => d.amount))} total · ${CFG.currency} ${money(sum(rows.filter(isOpen), weighted))} weighted` })
   ]));
+  if (dealPicking()) root.appendChild(dealSelBar(rows));
+  /* The select column goes in front, which shifts every other column one to
+     the right — so the default sort column moves with it. */
+  const pick = dealPicking();
   dataTable(root, {
     /* Newest added first by default — column 6 below. It used to open on
        Value, which buries anything created today under the big old deals. */
-    key: 'deals', noun: 'deals', rows, per: 60, defaultSort: 6, defaultDir: -1,
+    key: 'deals', noun: 'deals', rows, per: 60, defaultSort: pick ? 7 : 6, defaultDir: -1,
     cols: [
+      pick ? { h: '', sortable: false, v: () => 0, r: d => dealSelBox(d) } : null,
       { h: 'Deal', v: d => d.name, r: d => {
           const co = getCo(d.companyId);
           return `<div class="cellmain" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</div>` +
@@ -5498,8 +5532,14 @@ function dealTable(root, scope) {
       { h: 'Lost because', v: d => d.lossReason || '', r: d => d.lossReason
           ? `<span class="tag bad">${esc(d.lossReason)}</span>`
           : (isLost(d) ? '<span class="tag warn">not recorded</span>' : '<span class="cellsub">—</span>') }
-    ],
-    onRow: d => openDeal(d.id)
+    ].filter(Boolean),
+    /* While picking, the row is a checkbox the width of the table. */
+    onRow: d => {
+      if (!dealPicking()) return openDeal(d.id);
+      const box = document.querySelector(`#view input.selbox[data-pick="${d.id}"]`);
+      if (box && !box.disabled) { box.checked = !box.checked;
+        box.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
   });
 }
 function exportDeals(rows) {
@@ -17917,6 +17957,311 @@ function dealFollowUp(d) {
     el('button', { class: 'btn', text: 'Close', onclick: closeAll }),
     openOutlook
   ], true);
+}
+/* ================================================================
+   PICKING SEVERAL DEALS AT ONCE
+
+   Dragging one card at a time is fine for one card. Moving a quarter's
+   worth of stale deals out of Discovery, or handing a departing rep's
+   twelve live ones to somebody, is forty drags and a lost afternoon.
+
+   The same select-then-act shape the marketing leads already use, on
+   both shapes of the Deals tab: tick what you mean, then move the
+   stage, change the owner or set the close date on all of them in one
+   write. Every bulk action goes through one confirm that says exactly
+   what is about to happen and to how many.
+   ================================================================ */
+
+let DEAL_SEL = new Set();
+const dealPicking = () => !!VIEW.dealPick && !isReadOnly();
+/* The same guard the leads use: an admin or the office moves anything, a rep
+   moves what they own or work on. It is a UI guard, not a security boundary —
+   anybody with write access to the shared folder can edit the JSON. */
+const canMoveDeal = d => !isReadOnly() &&
+  (isAdmin() || myRole() === 'office' || worksOn(d, currentOwnerId()) ||
+   String(d.ownerId) === currentOwnerId());
+
+const dealSelBox = d => {
+  const can = canMoveDeal(d);
+  return `<input type="checkbox" class="selbox" data-pick="${esc(d.id)}"` +
+    (DEAL_SEL.has(d.id) ? ' checked' : '') + (can ? '' : ' disabled') +
+    ` title="${can ? 'Select this deal' : esc(ownerName(d.ownerId) + '’s deal')}"` +
+    ` aria-label="Select ${esc(d.name)}">`;
+};
+/* The counter is updated in place. Re-rendering on every tick destroys the row
+   under the pointer, so the second box you click is a detached node and the
+   click goes nowhere — which is what ticking three and getting one was. */
+function dealSelSync() {
+  const bar = document.querySelector('#view .selbar'); if (!bar) return;
+  const n = DEAL_SEL.size;
+  const nm = bar.querySelector('.nm');
+  if (nm) nm.textContent = n ? `${n} selected` : 'Nothing selected yet';
+  bar.querySelectorAll('[data-needs-sel]').forEach(b => { b.disabled = !n; });
+  const clr = bar.querySelector('button.ghost');
+  if (clr) clr.style.display = n ? '' : 'none';
+  const val = bar.querySelector('.selval');
+  if (val) {
+    const picked = dealSelRows();
+    /* not named `sum` — that is the global adder, and shadowing it here threw
+       a ReferenceError inside the listener, which silently left this blank */
+    const total = sum(picked, d => d.amount);
+    val.textContent = n ? `${CFG.currency} ${money(total, { dash: false })}` : '';
+  }
+}
+const dealSelRows = () => Array.from(DEAL_SEL).map(getDl).filter(Boolean).filter(canMoveDeal);
+
+/* One delegated listener for every checkbox on the page, board or table. */
+addEventListener('change', e => {
+  const b = e.target;
+  if (!b || !b.matches || !b.matches('input.selbox[data-pick]')) return;
+  const id = b.getAttribute('data-pick');
+  if (b.checked) DEAL_SEL.add(id); else DEAL_SEL.delete(id);
+  const card = b.closest('.kcard') || b.closest('tr');
+  if (card) card.classList.toggle('picked', b.checked);
+  dealSelSync();
+}, true);
+
+function dealPickToggle() {
+  VIEW.dealPick = !VIEW.dealPick;
+  DEAL_SEL = new Set();
+  render();
+}
+
+/* ------------------------------------------------------------ the bar */
+function dealSelBar(rows) {
+  const bar = el('div', { class: 'selbar' });
+  const n = DEAL_SEL.size;
+  bar.appendChild(el('span', { class: 'nm', text: n ? `${n} selected` : 'Nothing selected yet' }));
+  bar.appendChild(el('span', { class: 'selval mono', style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+    text: n ? CFG.currency + ' ' + money(sum(dealSelRows(), d => d.amount), { dash: false }) : '' }));
+  const mine = rows.filter(canMoveDeal);
+  bar.appendChild(el('button', { class: 'btn sm',
+    text: `Select all ${mine.length} shown`,
+    title: mine.length < rows.length
+      ? `${rows.length - mine.length} of the deals on screen belong to another rep` : '',
+    onclick: () => { mine.forEach(d => DEAL_SEL.add(d.id)); render(); } }));
+  bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear', style: n ? '' : 'display:none',
+    onclick: () => { DEAL_SEL = new Set(); render(); } }));
+  bar.appendChild(el('div', { style: 'flex:1' }));
+  bar.appendChild(el('button', { class: 'btn sm', 'data-needs-sel': '1', disabled: n ? null : true,
+    html: ico('board',13) + ' Move to stage', onclick: () => dealBulkStageAsk() }));
+  bar.appendChild(el('button', { class: 'btn sm', 'data-needs-sel': '1', disabled: n ? null : true,
+    html: ico('user',13) + ' Change owner', onclick: () => dealBulkOwnerAsk() }));
+  bar.appendChild(el('button', { class: 'btn sm', 'data-needs-sel': '1', disabled: n ? null : true,
+    html: ico('cal',13) + ' Close date', onclick: () => dealBulkCloseAsk() }));
+  if (canExportBook()) bar.appendChild(el('button', { class: 'btn sm', 'data-needs-sel': '1', disabled: n ? null : true,
+    html: ico('dl',13) + ' Export', onclick: () => {
+      const picked = dealSelRows();
+      if (!picked.length) return toast('Nothing selected', 'err');
+      exportDeals(picked);
+    } }));
+  bar.appendChild(el('button', { class: 'btn sm primary', html: ico('check',13) + ' Done',
+    onclick: dealPickToggle }));
+  return bar;
+}
+
+/* ------------------------------------------------------------ moving */
+/* The one that matters. Open stages are a straight write. Won and lost are
+   not: a won deal needs a close date and a lost one needs a reason, and asking
+   forty times is not an answer — so it is asked once and applied to all, with
+   the dialog saying so. */
+function dealBulkStageAsk() {
+  const picked = dealSelRows();
+  if (!picked.length) return toast('Nothing selected', 'err');
+  const sel = el('select', { class: 'inp' });
+  sel.appendChild(el('option', { value: '', text: 'Pick a stage…' }));
+  DB.stages.slice().sort((a, b) => a.order - b.order).forEach(s =>
+    sel.appendChild(el('option', { value: s.id, text: s.label +
+      (s.kind === 'open' ? ` · ${Math.round(s.probability * 100)}%` : ` · ${s.kind}`) })));
+
+  const reason = el('select', { class: 'inp', style: 'display:none' });
+  const reasons = DB.lossReasons && DB.lossReasons.length ? DB.lossReasons
+    : ['Price too high','Lost to competitor','No budget','No response','Timing / postponed','Not a fit','Other'];
+  reason.appendChild(el('option', { value: '', text: 'Pick one reason for all of them…' }));
+  reasons.forEach(r => reason.appendChild(el('option', { value: r, text: r })));
+  const reasonWrap = el('div', { style: 'display:none' }, [
+    fld('Why they were lost *', reason,
+      'The same reason goes on every one of them. If they were lost for different reasons, do them separately — the loss analysis is only worth reading if it is true.') ]);
+
+  const dt = el('input', { class: 'inp', type: 'date', value: TODAY() });
+  const dtWrap = el('div', { style: 'display:none' }, [
+    fld('Close date', dt, 'Set on every one of them, replacing whatever is there now.') ]);
+
+  const note = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5' });
+  const paint = () => {
+    const s = stage(sel.value);
+    const closed = sel.value && s.kind !== 'open';
+    reasonWrap.style.display = sel.value && s.kind === 'lost' ? '' : 'none';
+    dtWrap.style.display = closed ? '' : 'none';
+    if (!sel.value) { note.textContent = ''; return; }
+    const val = sum(picked, d => d.amount);
+    note.innerHTML = `<b>${picked.length}</b> deal${picked.length === 1 ? '' : 's'} worth ` +
+      `<b>${CFG.currency} ${money(val, { dash: false })}</b> move to <b>${esc(s.label)}</b>.` +
+      (s.kind === 'open'
+        ? ` Any without a close date get one 30 days out, as a single drag does.`
+        : ` They leave the open pipeline, so the forecast drops by ${CFG.currency} ${
+            money(sum(picked.filter(isOpen), weighted), { dash: false })} weighted.`);
+  };
+  sel.addEventListener('change', paint);
+
+  const body = el('div');
+  body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5',
+    text: `${picked.length} deal${picked.length === 1 ? '' : 's'} selected. Every one of them is moved to the same stage.` }));
+  body.appendChild(fld('Move them to', sel));
+  body.appendChild(reasonWrap);
+  body.appendChild(dtWrap);
+  body.appendChild(note);
+  /* what is about to move, named — a count is not a check */
+  const list = el('div', { class: 'picklist' });
+  picked.slice(0, 40).forEach(d => list.appendChild(el('div', { class: 'pick', style: 'cursor:default', html:
+    `<div style="min-width:0;flex:1"><div class="nm">${esc(d.name)}</div>` +
+    `<div class="sub">${esc(stage(d.stageId).label)} · ${
+      d.amount ? CFG.currency + ' ' + money(d.amount, { dash: false }) : 'no value'} · ${
+      esc(ownerName(d.ownerId))}${d.closeDate ? ' · closes ' + esc(fdate(d.closeDate)) : ''}</div></div>` })));
+  if (picked.length > 40) list.appendChild(el('div', { class: 'pick', style: 'cursor:default', html:
+    `<div class="sub">…and ${picked.length - 40} more</div>` }));
+  body.appendChild(el('div', { style: 'margin-top:var(--sp-3)' }, [
+    el('label', { class: 'fl', text: 'What moves' }), list ]));
+
+  modal('Move ' + picked.length + ' deal' + (picked.length === 1 ? '' : 's'), body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Move them', onclick: () => {
+      if (!sel.value) { sel.focus(); return toast('Pick a stage first', 'err'); }
+      const s = stage(sel.value);
+      if (s.kind === 'lost' && !reason.value) { reason.focus(); return toast('A reason is required', 'err'); }
+      const n = dealBulkStage(picked.map(d => d.id), sel.value,
+        { reason: reason.value || null, closeDate: s.kind !== 'open' ? dt.value : null });
+      closeAll();
+      toast(`${n} deal${n === 1 ? '' : 's'} moved to ${s.label}`, 'ok');
+    } })
+  ], true);
+  paint();
+}
+
+function dealBulkStage(ids, stageId, opt) {
+  const o = opt || {};
+  const to = stage(stageId);
+  let n = 0;
+  batch(() => ids.forEach(id => {
+    const d = getDl(id); if (!d || !canMoveDeal(d)) return;
+    const from = stage(d.stageId);
+    if (d.stageId === stageId) return;
+    d.stageId = stageId;
+    if (to.kind === 'open') {
+      d.lossReason = null;
+      if (!d.closeDate) d.closeDate = addDays(TODAY(), 30);
+    } else {
+      if (o.closeDate) d.closeDate = o.closeDate;
+      d.lossReason = to.kind === 'lost' ? (o.reason || 'Not recorded') : null;
+    }
+    upsert('deals', d);
+    logAct({ dealId: d.id, ownerId: d.ownerId, kind: to.kind === 'open' ? 'stage' : to.kind,
+      html: `Moved <b>${esc(d.name)}</b> from ${esc(from.label)} to <b>${esc(to.label)}</b>` +
+        (to.kind === 'lost' && o.reason ? ` — ${esc(o.reason)}` : '') + ' (bulk move)' });
+    n++;
+  }));
+  DEAL_SEL = new Set();
+  render();
+  return n;
+}
+
+/* ------------------------------------------------------- the owner */
+function dealBulkOwnerAsk() {
+  const picked = dealSelRows();
+  if (!picked.length) return toast('Nothing selected', 'err');
+  const sel = ownerSelect('', {});
+  const mail = el('input', { type: 'checkbox' });
+  const mailRow = el('label', { style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-top:var(--sp-3)' },
+    [ mail, el('div', {}, [
+      el('div', { text: 'Email the new owner about each one' }),
+      el('div', { class: 'sub', style: 'white-space:normal;line-height:1.5',
+        text: `Off by default — ticking it sends ${picked.length} separate mails. For a handful it is what you want; for a book it is not.` })
+    ]) ]);
+  const body = el('div');
+  body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5', html:
+    `<b>${picked.length}</b> deal${picked.length === 1 ? '' : 's'} worth <b>${CFG.currency} ${
+      money(sum(picked, d => d.amount), { dash: false })}</b> change hands. Collaborators are left as they are.` }));
+  body.appendChild(fld('Give them to', sel));
+  body.appendChild(mailRow);
+  modal('Change the owner on ' + picked.length + ' deal' + (picked.length === 1 ? '' : 's'), body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Change the owner', onclick: () => {
+      if (!sel.value) { sel.focus(); return toast('Pick who gets them', 'err'); }
+      const n = dealBulkOwner(picked.map(d => d.id), sel.value, { mail: mail.checked });
+      closeAll();
+      toast(`${n} deal${n === 1 ? '' : 's'} now belong to ${ownerName(sel.value)}` +
+        (mail.checked ? ' · they are being emailed' : ''), 'ok');
+    } })
+  ], true);
+}
+function dealBulkOwner(ids, ownerId, opt) {
+  const o = opt || {};
+  let n = 0;
+  const moved = [];
+  batch(() => ids.forEach(id => {
+    const d = getDl(id); if (!d || !canMoveDeal(d)) return;
+    const before = d.ownerId || null;
+    if (String(before) === String(ownerId)) return;
+    d.ownerId = ownerId;
+    /* somebody cannot be their own collaborator */
+    d.collaboratorIds = collabsOf(d).filter(x => String(x) !== String(ownerId));
+    d.collaboratorId = null;
+    upsert('deals', d);
+    logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'stage',
+      html: `Owner changed from <b>${esc(ownerName(before))}</b> to <b>${esc(ownerName(ownerId))}</b> (bulk)` });
+    moved.push(d); n++;
+  }));
+  /* The mail is deliberate rather than automatic here — forty assignments
+     would otherwise be forty mails, which is how a rep learns to filter the
+     sender. dealOwnerChanged() is not used for the same reason. */
+  if (o.mail) moved.forEach(d => dealEmailOwner(d, { quiet: true }));
+  DEAL_SEL = new Set();
+  render();
+  return n;
+}
+
+/* --------------------------------------------------- the close date */
+function dealBulkCloseAsk() {
+  const picked = dealSelRows();
+  if (!picked.length) return toast('Nothing selected', 'err');
+  const dt = el('input', { class: 'inp', type: 'date', value: addDays(TODAY(), 30) });
+  const quick = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)' });
+  [['End of this month', () => mBounds().to], ['In 30 days', () => addDays(TODAY(), 30)],
+   ['In 60 days', () => addDays(TODAY(), 60)], ['End of the quarter', () => qBounds().to]]
+    .forEach(([l, f]) => quick.appendChild(el('button', { class: 'btn sm', text: l,
+      onclick: () => { dt.value = f(); } })));
+  const late = picked.filter(d => isOpen(d) && d.closeDate && dnum(d.closeDate) < dnum(TODAY())).length;
+  const body = el('div');
+  body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5', html:
+    `The same date goes on <b>${picked.length}</b> deal${picked.length === 1 ? '' : 's'}, replacing whatever is there now.` +
+    (late ? ` <b>${late}</b> of them are already past their date.` : '') }));
+  body.appendChild(fld('Expected close', dt));
+  body.appendChild(quick);
+  modal('Set the close date on ' + picked.length + ' deal' + (picked.length === 1 ? '' : 's'), body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Set the date', onclick: () => {
+      if (!dt.value) { dt.focus(); return toast('Pick a date', 'err'); }
+      const n = dealBulkClose(picked.map(d => d.id), dt.value);
+      closeAll();
+      toast(`Close date set on ${n} deal${n === 1 ? '' : 's'}`, 'ok');
+    } })
+  ], true);
+}
+function dealBulkClose(ids, date) {
+  let n = 0;
+  batch(() => ids.forEach(id => {
+    const d = getDl(id); if (!d || !canMoveDeal(d)) return;
+    if (d.closeDate === date) return;
+    const was = d.closeDate;
+    d.closeDate = date;
+    upsert('deals', d);
+    logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+      html: `Close date moved ${was ? 'from ' + esc(fdate(was)) + ' ' : ''}to <b>${esc(fdate(date))}</b> (bulk)` });
+    n++;
+  }));
+  DEAL_SEL = new Set();
+  render();
+  return n;
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
