@@ -953,6 +953,10 @@ a.mfact:hover b{text-decoration:underline}
 .picklist .pick input{flex:none;accent-color:var(--accent);width:15px;height:15px}
 .picklist .pick .nm{font-weight:600;font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .picklist .pick .sub{font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}
+/* one value out of a short closed list, picked in a tap and visibly picked —
+   a dropdown hides which one is chosen behind a closed control */
+.choices{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.choices button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:650}
 
 /* ---- marketing leads: tabs, filters, rep table, loss bars ---- */
 .cardacts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin:0 0 var(--sp-3)}
@@ -2110,7 +2114,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.38.0';
+const VERSION = '1.39.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -18222,25 +18226,63 @@ function dealBulkStageAsk() {
     sel.appendChild(el('option', { value: s.id, text: s.label +
       (s.kind === 'open' ? ` · ${Math.round(s.probability * 100)}%` : ` · ${s.kind}`) })));
 
-  const reason = el('select', { class: 'inp', style: 'display:none' });
+  /* Why they were lost. All of them get the same one, so it is one tap on a
+     chosen reason rather than a dropdown you open, read and close — and the
+     chosen one stays visible while you read the list of what is about to
+     move. (This was a <select> carrying style="display:none", which paint()
+     never cleared because it only ever showed the wrapper: the reason could
+     not be picked at all and the move refused to go. That is the bug.) */
   const reasons = DB.lossReasons && DB.lossReasons.length ? DB.lossReasons
-    : ['Price too high','Lost to competitor','No budget','No response','Timing / postponed','Not a fit','Other'];
-  reason.appendChild(el('option', { value: '', text: 'Pick one reason for all of them…' }));
-  reasons.forEach(r => reason.appendChild(el('option', { value: r, text: r })));
+    : ['Price too high','Lost to competitor','No budget','No response','Timing / postponed','Not a fit'];
+  const other = el('input', { class: 'inp', placeholder: 'Say what happened', style: 'display:none;margin-top:var(--sp-2)' });
+  let chosen = '';
+  const choices = el('div', { class: 'choices' });
+  const paintChoices = () => {
+    Array.from(choices.children).forEach(b =>
+      b.classList.toggle('on', b.dataset.reason === chosen));
+    other.style.display = chosen === 'Other' ? '' : 'none';
+    if (chosen === 'Other') other.focus();
+    paint();
+  };
+  reasons.concat(reasons.includes('Other') ? [] : ['Other']).forEach(r => {
+    const b = el('button', { class: 'btn sm', type: 'button', text: r,
+      onclick: () => { chosen = chosen === r ? '' : r; paintChoices(); } });
+    b.dataset.reason = r;
+    choices.appendChild(b);
+  });
+  /* what the reason actually resolves to, once Other is typed into */
+  const lossReason = () => chosen === 'Other' ? other.value.trim() : chosen;
+
+  const bulkNote = el('textarea', { class: 'inp', rows: 2,
+    placeholder: 'Optional — goes on every one of their timelines' });
   const reasonWrap = el('div', { style: 'display:none' }, [
-    fld('Why they were lost *', reason,
-      'The same reason goes on every one of them. If they were lost for different reasons, do them separately — the loss analysis is only worth reading if it is true.') ]);
+    el('label', { class: 'fl', text: 'Why they were lost *' }),
+    choices, other,
+    el('div', { style: 'font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px;line-height:1.5',
+      text: 'The same reason goes on every one of them. If they were lost for different reasons, do them in separate batches — the loss analysis is only worth reading if it is true.' }),
+    el('div', { style: 'margin-top:var(--sp-3)' }, [
+      el('label', { class: 'fl', text: 'A note for all of them' }), bulkNote ])
+  ]);
 
   const dt = el('input', { class: 'inp', type: 'date', value: TODAY() });
   const dtWrap = el('div', { style: 'display:none' }, [
     fld('Close date', dt, 'Set on every one of them, replacing whatever is there now.') ]);
 
   const note = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5' });
+  /* Created before paint() so it can disable it, appended to the modal below. */
+  const go = el('button', { class: 'btn primary', text: 'Move them' });
   const paint = () => {
     const s = stage(sel.value);
     const closed = sel.value && s.kind !== 'open';
-    reasonWrap.style.display = sel.value && s.kind === 'lost' ? '' : 'none';
+    const lost = !!sel.value && s.kind === 'lost';
+    reasonWrap.style.display = lost ? '' : 'none';
     dtWrap.style.display = closed ? '' : 'none';
+    /* The button says what it is about to do and goes dead until it can do
+       it, rather than letting you press it and answering with a complaint. */
+    const ready = !!sel.value && (!lost || !!lossReason());
+    go.disabled = !ready;
+    go.textContent = !sel.value ? 'Move them'
+      : `Move ${picked.length} to ${s.label}`;
     if (!sel.value) { note.textContent = ''; return; }
     const val = sum(picked, d => d.amount);
     note.innerHTML = `<b>${picked.length}</b> deal${picked.length === 1 ? '' : 's'} worth ` +
@@ -18248,9 +18290,11 @@ function dealBulkStageAsk() {
       (s.kind === 'open'
         ? ` Any without a close date get one 30 days out, as a single drag does.`
         : ` They leave the open pipeline, so the forecast drops by ${CFG.currency} ${
-            money(sum(picked.filter(isOpen), weighted), { dash: false })} weighted.`);
+            money(sum(picked.filter(isOpen), weighted), { dash: false })} weighted.`) +
+      (lost && !lossReason() ? ' <b style="color:var(--warning)">Pick the reason first.</b>' : '');
   };
   sel.addEventListener('change', paint);
+  other.addEventListener('input', paint);
 
   const body = el('div');
   body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5',
@@ -18271,17 +18315,23 @@ function dealBulkStageAsk() {
   body.appendChild(el('div', { style: 'margin-top:var(--sp-3)' }, [
     el('label', { class: 'fl', text: 'What moves' }), list ]));
 
+  go.addEventListener('click', () => {
+    if (!sel.value) { sel.focus(); return toast('Pick a stage first', 'err'); }
+    const s = stage(sel.value);
+    if (s.kind === 'lost' && !lossReason()) { other.focus(); return toast('Pick the reason first', 'err'); }
+    const n = dealBulkStage(picked.map(d => d.id), sel.value, {
+      reason: s.kind === 'lost' ? lossReason() : null,
+      closeDate: s.kind !== 'open' ? dt.value : null,
+      note: bulkNote.value.trim() || null
+    });
+    closeAll();
+    toast(`${n} deal${n === 1 ? '' : 's'} moved to ${s.label}` +
+      (s.kind === 'lost' ? ' — ' + lossReason() : ''), 'ok');
+  });
   modal('Move ' + picked.length + ' deal' + (picked.length === 1 ? '' : 's'), body, [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
-    el('button', { class: 'btn primary', text: 'Move them', onclick: () => {
-      if (!sel.value) { sel.focus(); return toast('Pick a stage first', 'err'); }
-      const s = stage(sel.value);
-      if (s.kind === 'lost' && !reason.value) { reason.focus(); return toast('A reason is required', 'err'); }
-      const n = dealBulkStage(picked.map(d => d.id), sel.value,
-        { reason: reason.value || null, closeDate: s.kind !== 'open' ? dt.value : null });
-      closeAll();
-      toast(`${n} deal${n === 1 ? '' : 's'} moved to ${s.label}`, 'ok');
-    } })
+    el('div', { style: 'flex:1' }),
+    go
   ], true);
   paint();
 }
@@ -18305,7 +18355,8 @@ function dealBulkStage(ids, stageId, opt) {
     upsert('deals', d);
     logAct({ dealId: d.id, ownerId: d.ownerId, kind: to.kind === 'open' ? 'stage' : to.kind,
       html: `Moved <b>${esc(d.name)}</b> from ${esc(from.label)} to <b>${esc(to.label)}</b>` +
-        (to.kind === 'lost' && o.reason ? ` — ${esc(o.reason)}` : '') + ' (bulk move)' });
+        (to.kind === 'lost' && o.reason ? ` — ${esc(o.reason)}` : '') + ' (bulk move)' +
+        (o.note ? `<br>${esc(o.note)}` : '') });
     n++;
   }));
   DEAL_SEL = new Set();
