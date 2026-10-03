@@ -256,7 +256,17 @@ header.top h2{margin:0;font-size:var(--fs-lg);font-weight:650;letter-spacing:-.0
 
 main{grid-area:main;overflow-y:auto;padding:var(--sp-5);min-width:0}
 @media (max-width:900px){
-  #app.on{grid-template-columns:minmax(0,1fr);grid-template-areas:"brand" "topbar" "main"}
+  /* THREE AREAS NEED THREE ROWS.
+     The desktop rule sets two (`var(--topbar-h) 1fr`) because desktop stacks
+     brand+topbar on one row. Stacking them here without restating the rows
+     left `main` on an implicit auto row while the topbar took the 1fr — so on
+     a phone the top bar was crushed to a sliver (no search, no New button)
+     and the brand, padded down by the notch inset inside a fixed 56px row it
+     could not grow out of, had its logo sliced in half by its own border. */
+  #app.on{grid-template-columns:minmax(0,1fr);grid-template-areas:"brand" "topbar" "main";
+    grid-template-rows:auto auto minmax(0,1fr)}
+  .brand{height:auto}
+  header.top{height:var(--topbar-h)}
   nav.side{position:fixed;top:0;left:0;bottom:0;width:250px;z-index:120;transform:translateX(-100%);
     transition:transform .2s var(--ease);box-shadow:var(--shadow-3)}
   nav.side.open{transform:none}
@@ -607,6 +617,12 @@ table.dt th.sorted{color:var(--accent)}
 .chart-tbl th{color:var(--ink-3);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em}
 
 .grid2{display:grid;gap:var(--sp-3);grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+
+/* A fold is nothing at all on a desktop — its children lay out in the row
+   they were given. The phone block near the end of this sheet turns it into
+   a button with the controls behind it. */
+.fold,.fold>.foldbody{display:contents}
+.foldbtn{display:none}
 
 /* The dashboard lays out on an explicit 12-column grid rather than auto-fit +
    span2. Auto-fit decided the column count from the window, so a panel asking
@@ -1971,7 +1987,26 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 .phonestat{display:none}
 @media (max-width:760px){
   :root{--tabbar-h:58px}
-  .brand{padding-top:var(--safe-t);height:auto;min-height:var(--topbar-h)}
+  .brand{padding-top:var(--safe-t);height:auto;min-height:calc(var(--topbar-h) + var(--safe-t));
+    overflow:visible}
+
+  /* FOLDED CONTROLS.
+     A phone was being handed the whole desktop control panel before any
+     content: on Deals that was 643px of buttons, segments, pickers, a stat
+     strip and a banner — a full screen of chrome before the first card, and
+     on Marketing Leads nearly two. The controls are still all there; they
+     are behind a button until asked for. Desktop is untouched: .fold is
+     display:contents, so its children sit in the row exactly as before. */
+  /* The fold stays display:contents here too, so the button is just another
+     control in the row rather than a block that claims one to itself. The
+     body is a flex item with a 100% basis, so when it opens it wraps onto
+     its own line underneath instead of squeezing in beside. */
+  .foldbtn{display:inline-flex}
+  .fold>.foldbody{display:none}
+  .fold.open>.foldbody{display:flex;flex:1 1 100%;flex-wrap:wrap;
+    gap:var(--sp-2);align-items:center;margin-top:var(--sp-1)}
+  .foldbtn .pill{background:var(--accent);color:#fff;font-size:10px;font-weight:700;
+    min-width:17px;height:17px;padding:0 5px;border-radius:99px;display:grid;place-items:center}
   nav.side{padding-top:calc(var(--sp-3) + var(--safe-t));padding-bottom:calc(var(--sp-3) + var(--safe-b))}
   /* the tab bar sits over the bottom of the page, so the page ends above it */
   main{padding:var(--sp-3) var(--sp-3) calc(var(--tabbar-h) + var(--safe-b) + var(--sp-4))}
@@ -2035,9 +2070,23 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
      date-basis are a desk decision and stay on the desk. */
   .phone-hide{display:none!important}
   .dealtiles{display:none}
-  /* a banner that fills the screen is not a banner */
+  /* A BANNER THAT FILLS THE SCREEN IS NOT A BANNER.
+     The overdue-deals one ran to 242px on a phone — a third of the screen,
+     above the first card, saying at length what its first clause already
+     says. Clamp the prose to three lines; the button underneath still goes
+     to the full list. */
   .alert{padding:var(--sp-3);font-size:var(--fs-sm)}
   .alert .btn{width:auto;flex:1 1 auto;justify-content:center}
+  .alert{flex-wrap:wrap}
+  .alert>div,.alert>p{flex:1 1 100%;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden;line-height:1.45}
+
+  /* The head row was a wide empty gap with one button pinned to the right of
+     it. Drop the spacer and let the button be the row — a target the width of
+     the thumb that is going to hit it. */
+  .vhead{margin-bottom:var(--sp-3)}
+  .vhead>.vsp{display:none}
+  .vhead>.btn.primary{flex:1 1 100%;justify-content:center}
   /* two pickers side by side instead of a row each */
   .seg{flex-wrap:wrap}
   select.inp{min-width:0!important;flex:1 1 140px;max-width:none}
@@ -2139,7 +2188,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.40.0';
+const VERSION = '1.41.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -4536,12 +4585,39 @@ function periodSeg(key) {
     style: 'white-space:nowrap', text: b.label }));
   return wrap;
 }
+/* ----------------------------------------------------- folded controls
+   On a phone every control was laid out one per row above the content, so
+   the first deal card sat a full screen down and the first lead nearly two.
+   A fold puts a group of them behind one button with a count of how many are
+   doing something. On a desktop it is `display:contents` — the children sit
+   in the row exactly as they did, and nothing changes. */
+function fold(label, kids, count, icon) {
+  const w = el('div', { class: 'fold' });
+  const body = el('div', { class: 'foldbody' });
+  (Array.isArray(kids) ? kids : [kids]).forEach(k => k && body.appendChild(k));
+  const btn = el('button', { class: 'btn foldbtn', 'aria-expanded': 'false',
+    html: ico(icon || 'list', 14) + ' ' + esc(label) +
+      (count ? ` <span class="pill">${count}</span>` : '') });
+  btn.addEventListener('click', () => {
+    const on = w.classList.toggle('open');
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+  });
+  w.appendChild(btn); w.appendChild(body);
+  return w;
+}
 function viewHead(title, right) {
-  const h = el('div', { style: 'display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-4)' });
+  const h = el('div', { class: 'vhead', style: 'display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-4)' });
   if (title) h.appendChild(el('div', { html:
     `<div style="font-size:var(--fs-xl);font-weight:650;letter-spacing:-.015em">${esc(title)}</div>` }));
-  h.appendChild(el('div', { style: 'flex:1' }));
-  (right || []).forEach(n => n && h.appendChild(n));
+  h.appendChild(el('div', { class: 'vsp', style: 'flex:1' }));
+  const all = (right || []).filter(Boolean);
+  /* The one thing a rep taps — New lead, New deal — stays out in the open.
+     Sync, Export, Import and the rest go behind "Actions" once there are
+     enough of them to cost a screen. */
+  const prime = all.filter(n => n.classList && n.classList.contains('primary'));
+  const rest  = all.filter(n => prime.indexOf(n) < 0);
+  if (rest.length >= 2) { h.appendChild(fold('Actions', rest, 0, 'cog')); prime.forEach(n => h.appendChild(n)); }
+  else all.forEach(n => h.appendChild(n));
   return h;
 }
 
@@ -5336,14 +5412,19 @@ function viewDeals(root) {
   ]));
   const shape = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)' });
   shape.appendChild(dealShapeSeg());
-  shape.appendChild(dealStatusSeg());
+  /* Board-or-table is the one a thumb reaches for; open-or-closed is a
+     decision made once and left alone, so it folds on a phone. */
+  shape.appendChild(fold(dealStatusLabel(), [dealStatusSeg()],
+    dealStatus() === 'open' ? 0 : 1, 'flag'));
   if (!isReadOnly()) shape.appendChild(el('button', {
     class: 'btn sm' + (VIEW.dealPick ? ' primary' : ''),
     html: ico('check', 13) + (VIEW.dealPick ? ' Done selecting' : ' Select'),
     title: 'Pick several deals and move them, hand them over or re-date them together',
     onclick: dealPickToggle }));
   shape.appendChild(el('div', { style: 'flex:1' }));
-  shape.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
+  /* The phone already says this, better, in the strip underneath: "517 open ·
+     AED 17M pipeline · AED 7.5M weighted". Saying it twice cost a row. */
+  shape.appendChild(el('span', { class: 'phone-hide', style: 'font-size:var(--fs-sm);color:var(--ink-3)',
     text: `${scope.deals.length} deal${scope.deals.length === 1 ? '' : 's'} · ${dealStatusLabel().toLowerCase()}` }));
   root.appendChild(shape);
   if (VIEW.dealView === 'table') return dealTable(root, scope);
@@ -5363,8 +5444,11 @@ function dealBoard(root, scope) {
   const rep = el('select', { class: 'inp', style: 'width:auto;min-width:148px', 'aria-label': 'Sales rep',
     onchange: e => { VIEW.rep = e.target.value; VIEW.page = {}; render(); } });
   rep.innerHTML = repOptions('All sales reps');
-  bar.appendChild(rep);
-  bar.appendChild(periodSeg('pipePeriod'));
+  /* Rep and period behind one button on a phone, with a count of how many
+     are actually narrowing anything — so you can see at a glance that you
+     are looking at everything, without reading two pickers to find out. */
+  const narrowed = (VIEW.rep !== 'all' ? 1 : 0) + (VIEW.pipePeriod !== 'all' ? 1 : 0);
+  bar.appendChild(fold('Filters', [rep, periodSeg('pipePeriod')], narrowed, 'list'));
   const basis = el('div', { class: 'seg phone-hide' });
   [['close', 'By close date'], ['created', 'By created date']].forEach(([v, l]) =>
     basis.appendChild(el('button', { class: VIEW.dateBasis === v ? 'on' : '', text: l,
@@ -13757,49 +13841,58 @@ function leadPeriodPicker(f) {
     } })
   ]);
 }
+/* how many of them are actually narrowing the list */
+const leadFilterCount = f =>
+  ['stage','not','region','recon','rep','type','demo','flag'].filter(k => f[k]).length +
+  (f.period && f.period !== 'all' ? 1 : 0);
 function leadFilterBar(f, base, lost) {
   const bar = el('div', { class: 'leadfilters' });
-  bar.appendChild(leadPeriodSeg(f));
+  /* Search is what a rep uses standing in front of someone, so it stays out
+     in the open. The other nine pickers were 292px of phone screen above the
+     first lead; they go behind one button that says how many are on. */
   const q = el('input', { class: 'inp', placeholder: 'Search name, company, phone, email…', value: f.q || '' });
   q.addEventListener('input', debounce(e => { f.q = e.target.value; render(); }, 250));
   bar.appendChild(q);
+  const picks = [leadPeriodSeg(f)];
+  const pk = { appendChild: n => { if (n) picks.push(n); } };
 
   const stages = lost ? ['Lost'] : MLEAD_STAGES.filter(s => !['Won','Lost'].includes(s));
-  bar.appendChild(selectFilter('Status', f.stage || '',
+  pk.appendChild(selectFilter('Status', f.stage || '',
     [['', 'All statuses']].concat(stages.map(s => [s, s])),
     v => { f.stage = v || null; render(); }, 150));
-  if (!lost) bar.appendChild(selectFilter('Exclude', f.not || '',
+  if (!lost) pk.appendChild(selectFilter('Exclude', f.not || '',
     [['', 'Exclude status: none']].concat(stages.map(s => [s, 'Exclude ' + s])),
     v => { f.not = v || null; render(); }, 180));
 
   const regions = leadUniq(base.map(l => l.region).filter(Boolean)).sort();
-  bar.appendChild(selectFilter('Region', f.region || '',
+  pk.appendChild(selectFilter('Region', f.region || '',
     [['', 'All regions'], ['__none', 'No region yet']].concat(regions.map(r => [r, r])),
     v => { f.region = v || null; render(); }, 150));
 
-  bar.appendChild(selectFilter('Re-connection', f.recon || '',
+  pk.appendChild(selectFilter('Re-connection', f.recon || '',
     [['', 'Re-connection: any'], ['yes', 'Tagged to re-connect'], ['due', 'Re-connect due now'], ['no', 'Not tagged']],
     v => { f.recon = v || null; render(); }, 190));
 
   if (leadSeeAll()) {
     const reps = activeOwnersAll().filter(o => base.some(l => String(l.assignee) === o.id));
-    bar.appendChild(selectFilter('Rep', f.rep || '',
+    pk.appendChild(selectFilter('Rep', f.rep || '',
       [['', 'All reps'], ['__none', 'Nobody yet']].concat(reps.map(o => [o.id, o.name])),
       v => { f.rep = v || null; render(); }, 165));
   }
-  bar.appendChild(selectFilter('Type', f.type || '',
+  pk.appendChild(selectFilter('Type', f.type || '',
     [['', 'B2B and B2C'], ['B2B', 'B2B only'], ['B2C', 'B2C only']],
     v => { f.type = v || null; render(); }, 140));
-  bar.appendChild(selectFilter('Demo asked for', f.demo || '',
+  pk.appendChild(selectFilter('Demo asked for', f.demo || '',
     [['', 'Any demo ask'], ['free', LEAD_DEMO.free.label], ['paid', LEAD_DEMO.paid.label], ['none', 'Did not ask for one']],
     v => { f.demo = v || null; render(); }, 195));
-  if (!lost) bar.appendChild(selectFilter('Flag', f.flag || '',
+  if (!lost) pk.appendChild(selectFilter('Flag', f.flag || '',
     [['', 'Any state'], ['due', 'Action due now'], ['awaiting', 'Awaiting a reply'],
      ['priority', 'Priority only'], ['cold', 'Cold only']],
     v => { f.flag = v || null; render(); }, 165));
 
-  if (Object.keys(f).some(k => f[k])) bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear',
+  if (Object.keys(f).some(k => f[k])) pk.appendChild(el('button', { class: 'btn sm ghost', text: 'Clear',
     onclick: () => { VIEW.leadFilter = {}; render(); } }));
+  bar.appendChild(fold('Filters', picks, leadFilterCount(f), 'list'));
   bar.appendChild(el('div', { style: 'flex:1' }));
   if (sheetLast()) bar.appendChild(el('span', { class: 'sub',
     text: 'Sheet read ' + fdate(String(sheetLast()).slice(0, 10), 'long') }));
