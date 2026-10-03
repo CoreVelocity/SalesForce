@@ -1322,6 +1322,12 @@ table.dt.rollup tr:not(.tot):hover{background:var(--surface-2)}
   main{overflow:visible;padding:0}
   .card,.tile,.tw{break-inside:avoid}}
 
+/* leads board: the deals board's classes, plus the two it has no use for */
+.kempty{text-align:center;color:var(--ink-3);font-size:var(--fs-sm);padding:14px 6px;line-height:1.5}
+.kcard.due{box-shadow:inset 2px 0 0 var(--critical)}
+.kcard.dragging{opacity:.45}
+.kcard .mono{font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--ink-2)}
+
 /* The one-time agent key: it cannot be shown again, so it is hard to miss. */
 .keynote{border:1px solid var(--warning);border-left-width:3px;border-radius:var(--r-md);
   background:color-mix(in srgb,var(--warning) 10%,transparent);padding:var(--sp-3) var(--sp-4);
@@ -1944,7 +1950,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.32.0';
+const VERSION = '1.33.0';
 const RELEASED = '2026-09-29';
 
 const CFG = {
@@ -2396,8 +2402,11 @@ const ROLES = [
   ['write',  'Sales rep', 'Can create and edit deals, contacts, companies, tasks and commitments, and fill in the outcome on their own demos. Cannot export the customer lists or open Settings.'],
   ['read',   'Read only', 'Can see everything but change nothing. Exporting the deal, company and contact lists is admin-only.']
 ];
-/* older records said rep / manager / viewer */
-const ROLE_MAP = { admin:'admin', office:'office', manager:'write', rep:'write', write:'write', read:'read', viewer:'read' };
+/* older records said rep / manager / viewer; 'agent' is the calling bot, which
+   cannot sign in at all — it reaches the data over the API, never the UI, so
+   it maps to read-only in case a record of it ever ends up on a session */
+const ROLE_MAP = { admin:'admin', office:'office', manager:'write', rep:'write', write:'write',
+                   read:'read', viewer:'read', agent:'read' };
 const roleLabel = r => (ROLES.find(x => x[0] === (ROLE_MAP[r] || 'write')) || ROLES[1])[1];
 
 /* Who the signed-in person is, matched on their Microsoft address and
@@ -2532,7 +2541,19 @@ function regionRank(o) {
 }
 const teamRank = o => regionRank(o) * 1000 + (Number(o.order) >= 0 ? Number(o.order) : 500);
 const byTeamOrder = (a, b) => (teamRank(a) - teamRank(b)) || a.name.localeCompare(b.name);
-const activeOwners = () => DB.owners.filter(o => o.active).sort(byTeamOrder);
+
+/* The calling agent is a team member so that the owner column, the filters and
+   the leads board work on it without a special case — but it is a bot, and a
+   bot holding hundreds of leads and closing nothing would wreck every number
+   it appeared in. So activeOwners(), which is what Rep Performance, the
+   leaderboard, the regions, the targets and the quote screens all count, means
+   PEOPLE. The two places that genuinely need the agent — the marketing-lead
+   owner filter and the routing settings — ask for it by name. */
+const AGENT_ROLE = 'agent';
+const isAgentOwner = o => !!(o && (o.isAgent || o.role === AGENT_ROLE));
+const agentOwners  = () => DB.owners.filter(o => isAgentOwner(o) && o.active !== false);
+const activeOwners = () => DB.owners.filter(o => o.active && !isAgentOwner(o)).sort(byTeamOrder);
+const activeOwnersAll = () => DB.owners.filter(o => o.active).sort(byTeamOrder);
 /* [{ region, owners }] in configured order, only regions with somebody in them */
 function ownersByRegion(list) {
   const people = (list || activeOwners()).slice().sort(byTeamOrder);
@@ -11266,16 +11287,41 @@ function printDoc(html) {
        tool over the browser storage limit once already.
    ================================================================ */
 
-const MLEAD_STAGES = ['New', 'Contacted', 'Engaged', 'Demo booked', 'Won', 'Lost', 'Referral'];
+const MLEAD_STAGES = ['New', 'Contacted', 'Engaged', 'Demo booked', 'Demo completed',
+                      'Won', 'Lost', 'Referral'];
 const MLEAD_LOST   = ['Above budget', 'Went with a competitor', 'No show', 'Not interested', 'Asked to drop it'];
-const LEAD_DEAL_AT = ['Demo booked', 'Won'];      // the later stages that also force a deal
 
-/* Every lead gets a deal at Discovery & Identify the moment it lands, whoever
-   sent it — the sheet, a rep typing it in, or the calling agent over the API.
-   The Deal Rules page is the reason: no deal means no ownership, so a lead
-   nobody has registered is a lead nobody owns. Switchable, because it is the
-   one setting that decides how fast the pipeline fills. */
-const leadDealOnCreate = () => DB.config.leadDealOnCreate !== false;
+/* A lead earns a place in the pipeline once the demo has actually happened.
+   Booking one is not the same as sitting through one: a booked demo that
+   nobody turns up to would otherwise leave a deal in the forecast for a
+   conversation that never took place. */
+const LEAD_DEAL_AT = ['Demo completed', 'Won'];
+
+/* Where the calling agent's job ends. It works the lead from New to a booked
+   demo; the rep takes it from there. */
+const LEAD_HANDOVER_AT = 'Demo booked';
+
+/* A deal on arrival is off by default now — see LEAD_DEAL_AT. The switch is
+   still here because it was asked for once and may be again. */
+const leadDealOnCreate = () => DB.config.leadDealOnCreate === true;
+
+/* ---------------------------------------------------- the calling agent
+   New leads go to the agent first, not to a rep: it calls everyone within
+   minutes, which no human roster can, and hands over a warm lead with a
+   demo in the diary. The agent is a team member so the owner column, the
+   filters and the board all work without special cases — and it carries
+   isAgent, which keeps it out of Rep Performance, the leaderboard, the
+   regions and the targets, where a bot with hundreds of leads and no
+   revenue would wreck everyone's numbers. */
+function leadAgentOwner() {
+  const set = String(DB.config.leadAgentOwner || '');
+  if (set && DB.owners.some(o => String(o.id) === set && o.active !== false)) return set;
+  const one = agentOwners().filter(o => o.active !== false)[0];
+  return one ? String(one.id) : '';
+}
+/* Agent-first routing only runs when there IS an agent to route to, so
+   turning the setting on with nobody registered cannot strand every lead. */
+const leadAgentFirst = () => DB.config.leadAgentFirst === true && !!leadAgentOwner();
 
 /* Which stage that deal opens on. Matched by name so it survives the stage
    list being rebuilt with different ids (the HubSpot ids and the default
@@ -11405,6 +11451,18 @@ function leadNextRep(region) {
 function leadAutoAssign(l) {
   const region = l.region || leadRegionOf([l.emirate, l.address, l.note, l.company].filter(Boolean).join(' '));
   l.region = region || '';
+
+  /* Agent first. The region is still worked out and kept on the lead, because
+     it is what decides the rep at handover — the agent is holding the lead,
+     not deciding whose it will be. */
+  if (leadAgentFirst()) {
+    l.assignee = leadAgentOwner();
+    l.autoAssigned = true; l.withAgent = true; l.fallbackRouted = false;
+    l.routeNeeded = !region;
+    l.assignedAt = new Date().toISOString();
+    return l.assignee;
+  }
+
   const rep = region ? leadNextRep(region) : '';
   if (rep) {
     l.assignee = rep; l.autoAssigned = true;
@@ -11529,17 +11587,49 @@ function leadCreate(p, opt) {
   if (!o.quiet && saved.assignee) leadNotify(saved, 'assigned');
   return saved;
 }
+/* The handover. The agent books the demo; this is where the lead stops being
+   the agent's and becomes a rep's — by emirate, Gladys when the lead never
+   said which one. The rep is emailed, and the move is written into the lead's
+   own updates so the first thing they read is how it got here. */
+function leadHandover(l, opt) {
+  const o = opt || {};
+  if (!l.withAgent) return null;
+  const region = l.region || leadRegionOf([l.emirate, l.address, l.note, l.company].filter(Boolean).join(' '));
+  l.region = region || '';
+  const rep = (region && leadNextRep(region)) || leadFallbackOwner();
+  if (!rep) { l.routeNeeded = true; return null; }
+
+  const from = l.assignee;
+  l.assignee = rep;
+  l.withAgent = false;
+  l.handedOverAt = new Date().toISOString();
+  l.fallbackRouted = !region;
+  l.routeNeeded = !region;
+  l.autoAssigned = true;
+  l.updates = (l.updates || []).concat([{
+    at: new Date().toISOString(), by: ownerName(from) || 'Calling agent', kind: 'note',
+    text: 'Demo booked — handed over to ' + ownerName(rep) +
+          (region ? ' (' + region + ')' : ' (no emirate on the lead)') }]);
+  if (!o.quiet) { try { leadNotify(l, 'assigned'); } catch (e) { console.error(e); } }
+  return rep;
+}
+
 function leadSetStage(id, stg) {
   const l = getLead(id); if (!l) return;
   const was = l.stage;
   l.stage = stg;
   if (stg === 'Lost' && !l.lostReason) { leadAskLost(l); return; }
   if (stg !== 'Lost') l.lostReason = null;
+  let handedTo = null;
+  if (stg === LEAD_HANDOVER_AT) handedTo = leadHandover(l);
   if (LEAD_DEAL_AT.includes(stg)) { try { leadToDeal(l); } catch (e) { console.error(e); } }
   if (stg === 'Engaged' && !l.engagedAt) l.engagedAt = new Date().toISOString();
+  if (stg === 'Demo completed' && !l.demoDoneAt) l.demoDoneAt = new Date().toISOString();
   leadSave(l); render();
-  toast(`${l.name || 'Lead'} → ${stg}` + (l.dealId && !LEAD_DEAL_AT.includes(was) && LEAD_DEAL_AT.includes(stg)
-    ? ' · a deal is now in the pipeline' : ''), 'ok');
+  toast(`${l.name || 'Lead'} → ${stg}` +
+    (handedTo ? ' · over to ' + ownerName(handedTo) : '') +
+    (l.dealId && !LEAD_DEAL_AT.includes(was) && LEAD_DEAL_AT.includes(stg)
+      ? ' · a deal is now in the pipeline' : ''), 'ok');
 }
 function leadAskLost(l) {
   const sel = el('select', { class: 'inp' });
@@ -12928,6 +13018,19 @@ function viewLeads(root) {
     (z.priority ? 1 : 0) - (a.priority ? 1 : 0) ||
     String(z.updatedAt || z.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
 
+  /* Active leads can be read as a board or as a list. The board is the default
+     because the question people actually have about this screen is "where is
+     everybody up to", which a column answers at a glance and a list does not. */
+  if (!lost) {
+    const mode = VIEW.leadView = VIEW.leadView || 'board';
+    const seg = el('div', { class: 'seg', style: 'margin-bottom:var(--sp-3)' });
+    [['board', 'Pipeline'], ['list', 'List']].forEach(([v, lbl]) =>
+      seg.appendChild(el('button', { class: mode === v ? 'on' : '', text: lbl,
+        onclick: () => { VIEW.leadView = v; render(); } })));
+    root.appendChild(seg);
+    if (mode === 'board') return leadBoard(root, rows);
+  }
+
   if (!lost) {
     const needRep = base.filter(l => !l.assignee).length;
     if (needRep && !isReadOnly() && f.rep !== '__none') {
@@ -13028,7 +13131,7 @@ function leadFilterBar(f, base, lost) {
     v => { f.recon = v || null; render(); }, 190));
 
   if (leadSeeAll()) {
-    const reps = activeOwners().filter(o => base.some(l => String(l.assignee) === o.id));
+    const reps = activeOwnersAll().filter(o => base.some(l => String(l.assignee) === o.id));
     bar.appendChild(selectFilter('Rep', f.rep || '',
       [['', 'All reps'], ['__none', 'Nobody yet']].concat(reps.map(o => [o.id, o.name])),
       v => { f.rep = v || null; render(); }, 165));
@@ -13587,6 +13690,142 @@ function exportLeads(rows) {
   ];
   download('corev-marketing-leads-' + TODAY() + '.csv', toCSV(rows, cols), 'text/csv');
   toast(`${rows.length} leads exported`, 'ok');
+}
+
+/* ================================================================
+   THE LEADS BOARD
+   The same shape as the deals pipeline, because it is the same job seen
+   earlier: columns are the marketing-lead stages, a card is a person, and
+   dragging one moves it. What a lead is worth is not known yet, so the
+   column headers count people and show how many are overdue a touch
+   rather than totalling money.
+   ================================================================ */
+const LEAD_BOARD_STAGES = ['New', 'Contacted', 'Engaged', 'Demo booked', 'Demo completed'];
+/* Fixed hue per stage, in stage order, so a column is the same colour here
+   as the badge on the row in the list. */
+const leadStageColor = s => `var(--s${(LEAD_BOARD_STAGES.indexOf(s) % 8) + 1})`;
+
+function leadBoardCard(l) {
+  const due = leadIsDue(l);
+  const n = el('div', { class: 'kcard' + (due ? ' due' : ''),
+    draggable: isReadOnly() ? null : 'true',
+    style: `--stage:${leadStageColor(l.stage)}` });
+
+  const sub = [l.company, l.region || l.emirate].filter(Boolean).join(' · ');
+  n.innerHTML =
+    `<span class="n" title="${esc(l.name || '')}">${esc(l.name || 'No name')}</span>
+     <div class="m">
+       ${l.phone ? `<span class="mono" style="font-size:11px">${esc(l.phone)}</span>`
+                 : '<span style="color:var(--warning)">no number</span>'}
+       ${sub ? `<span class="co" title="${esc(sub)}">· ${esc(sub)}</span>` : ''}
+     </div>`;
+
+  const foot = el('div', { class: 'm', style: 'margin-top:6px;align-items:center' });
+  if (l.assignee) foot.appendChild(el('span', { class: 'avatar',
+    style: `background:${ownerColor(l.assignee)};width:20px;height:20px;font-size:9px`,
+    text: initials(ownerName(l.assignee)),
+    title: (l.withAgent ? 'With the calling agent: ' : 'Owner: ') + ownerName(l.assignee) }));
+  else foot.appendChild(el('span', { class: 'tag warn', style: 'font-size:9px;padding:1px 6px',
+    text: 'no owner' }));
+
+  if (l.withAgent) foot.appendChild(el('span', { class: 'tag info', style: 'font-size:9px;padding:1px 6px',
+    text: 'agent', title: 'The calling agent is working this lead. It hands over when a demo is booked.' }));
+  if (l.demoAsk) foot.appendChild(el('span', { class: 'tag', style: 'font-size:9px;padding:1px 6px',
+    text: l.demoAsk === 'paid' ? 'on-site' : 'free demo',
+    title: l.demoAsk === 'paid' ? 'Asked for the on-site demo (AED 800)' : 'Asked for a free demo' }));
+  if (l.priority) foot.appendChild(el('span', { class: 'tag', style: 'font-size:9px;padding:1px 6px',
+    text: 'priority' }));
+  if (due) foot.appendChild(el('span', { class: 'tag bad', style: 'font-size:9px;padding:1px 6px',
+    text: 'due' }));
+
+  const last = (l.updates || []).filter(u => u && u.kind === 'call').slice(-1)[0];
+  if (last && last.outcome) foot.appendChild(el('span', { class: 'cellsub',
+    style: 'font-size:10px', text: last.outcome }));
+
+  foot.appendChild(el('div', { style: 'flex:1' }));
+  foot.appendChild(el('span', { class: 'cellsub', style: 'font-size:10px',
+    text: frel(String(l.updatedAt || l.createdAt || '').slice(0, 10)) }));
+  n.appendChild(foot);
+
+  n.addEventListener('click', () => { VIEW.leadOpen = l.id; render(); });
+  n.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', l.id);
+    e.dataTransfer.effectAllowed = 'move';
+    n.classList.add('dragging');
+  });
+  n.addEventListener('dragend', () => n.classList.remove('dragging'));
+  return n;
+}
+
+function leadBoard(root, rows) {
+  const kan = el('div', { class: 'kan' });
+
+  const column = (label, list, opt) => {
+    const o = opt || {};
+    const col = el('div', { class: 'kcol', style: `--stage:${o.color || leadStageColor(label)}` +
+      (o.narrow ? ';flex-basis:186px;opacity:.9' : '') });
+    const dueN = list.filter(leadIsDue).length;
+    const agentN = list.filter(l => l.withAgent).length;
+    col.appendChild(el('header', {}, [
+      el('div', { class: 'kt' }, [
+        el('span', { class: 'bar' }),
+        el('span', { class: 'lbl', text: label, title: label }),
+        el('span', { class: 'n', text: list.length })
+      ]),
+      el('div', { class: 'kv', html: o.foot !== undefined ? o.foot :
+        (dueN ? `<b style="color:var(--critical)">${dueN} overdue</b>` : 'all on time') +
+        (agentN ? ` <em>· ${agentN} with the agent</em>` : '') })
+    ]));
+
+    const klist = el('div', { class: 'klist' });
+    if (!list.length) klist.appendChild(el('div', { class: 'kempty',
+      text: o.empty || 'Drag a lead here' }));
+
+    /* Same reason as the deals board: a column that builds six hundred cards
+       at once is what makes a browser give up on the tab. */
+    const PAGE = 25;
+    let shown = 0;
+    const more = el('div', { style: 'text-align:center;padding:8px 4px' });
+    const grow = () => {
+      list.slice(shown, shown + PAGE).forEach(l => klist.insertBefore(leadBoardCard(l), more));
+      shown = Math.min(shown + PAGE, list.length);
+      const left = list.length - shown;
+      more.innerHTML = '';
+      if (!left) return;
+      more.appendChild(el('button', { class: 'btn sm ghost', style: 'width:100%',
+        text: `Show ${Math.min(PAGE, left)} more of ${left}`, onclick: grow }));
+    };
+    klist.appendChild(more);
+    if (list.length) grow();
+    col.appendChild(klist);
+
+    if (!isReadOnly() && o.dropTo) {
+      col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
+      col.addEventListener('dragleave', () => col.classList.remove('drop'));
+      col.addEventListener('drop', e => {
+        e.preventDefault(); col.classList.remove('drop');
+        const l = getLead(e.dataTransfer.getData('text/plain'));
+        if (l && l.stage !== o.dropTo) leadSetStage(l.id, o.dropTo);
+      });
+    }
+    kan.appendChild(col);
+  };
+
+  LEAD_BOARD_STAGES.forEach(st => column(st,
+    rows.filter(l => (l.stage || 'New') === st).sort((a, z) =>
+      (leadIsDue(z) ? 1 : 0) - (leadIsDue(a) ? 1 : 0) ||
+      (z.priority ? 1 : 0) - (a.priority ? 1 : 0) ||
+      String(z.updatedAt || z.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || ''))),
+    { dropTo: st }));
+
+  /* Won and Lost are not columns you work in — they are where a lead leaves
+     the board. Lost asks for the reason, as it does everywhere else. */
+  column('Won', [], { dropTo: 'Won', narrow: true, color: 'var(--good)',
+    foot: '<em>drop to mark won</em>', empty: 'Drop here to mark won' });
+  column('Lost', [], { dropTo: 'Lost', narrow: true, color: 'var(--critical)',
+    foot: '<em>drop to mark lost</em>', empty: 'Drop here — you will be asked why' });
+
+  root.appendChild(kan);
 }
 /* ================================================================
    IMPORTING A LIST OF LEADS
@@ -18504,6 +18743,45 @@ function routingSettingsCard() {
   c.body.appendChild(fld('Backstop owner', backSel,
     'Who picks up a lead when nothing in it names an emirate. The lead is still flagged as needing a territory.'));
 
+  /* ---- the calling agent takes the front of the funnel ---- */
+  c.body.appendChild(el('h4', { style: 'margin:var(--sp-5) 0 var(--sp-2);font-size:var(--fs-md)',
+    text: 'Who works a new lead first' }));
+
+  const agents = agentOwners();
+  const agentTg = el('label', { style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-bottom:var(--sp-3)' });
+  agentTg.appendChild(el('input', { type: 'checkbox', checked: DB.config.leadAgentFirst === true || null,
+    style: 'margin-top:3px', disabled: !agents.length || null,
+    onchange: e => { DB.config.leadAgentFirst = e.target.checked; DB.config._v = now(); touch('config');
+      render(); toast('Saved', 'ok'); } }));
+  agentTg.appendChild(el('div', {}, [
+    el('div', { style: 'font-weight:600', text: 'Send every new lead to the calling agent' }),
+    el('div', { class: 'sub', html: 'The agent calls within minutes, which no roster can, and works the lead ' +
+      'to a booked demo. At <b>' + esc(LEAD_HANDOVER_AT) + '</b> the lead is handed to the rep for its emirate — ' +
+      'Dubai to the Dubai team, Abu Dhabi to the Abu Dhabi team, anything else to the backstop — and they are emailed. ' +
+      'Leads reps already hold are not touched.' })
+  ]));
+  c.body.appendChild(agentTg);
+
+  if (!agents.length) {
+    c.body.appendChild(el('div', { class: 'keynote', style: 'margin-bottom:var(--sp-3)', html:
+      'There is no calling agent on the team yet, so this cannot be switched on. ' +
+      'Add one and it will be left out of Rep Performance, the leaderboard, the regions and the targets.' }));
+    c.body.appendChild(el('button', { class: 'btn', style: 'margin-bottom:var(--sp-3)',
+      html: ico('plus', 14) + ' Add the calling agent to the team', onclick: () => agentOwnerNew() }));
+  } else {
+    const aSel = el('select', { class: 'inp', onchange: e => {
+      DB.config.leadAgentOwner = e.target.value; DB.config._v = now(); touch('config');
+      render(); toast('Saved', 'ok'); } });
+    agents.forEach(o => aSel.appendChild(el('option', { value: o.id, text: o.name,
+      selected: String(o.id) === leadAgentOwner() || null })));
+    c.body.appendChild(fld('Which agent', aSel,
+      'It shows as the owner on the leads it is working, and is excluded from every report.'));
+    const held = live('leads').filter(l => l.withAgent).length;
+    c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 var(--sp-3)',
+      text: held ? held + ' lead' + (held === 1 ? ' is' : 's are') + ' with the agent right now.'
+                 : 'No leads are with the agent right now.' }));
+  }
+
   /* ---- what a new lead opens ---- */
   const stSel = el('select', { class: 'inp', onchange: e => {
     DB.config.leadDealStageId = e.target.value; DB.config._v = now(); touch('config');
@@ -18520,9 +18798,11 @@ function routingSettingsCard() {
       render(); toast('Saved', 'ok'); } }));
   dealTg.appendChild(el('div', {}, [
     el('div', { style: 'font-weight:600', text: 'Open a deal as soon as a lead arrives' }),
-    el('div', { class: 'sub', html: 'Contact first, then a deal on <b>' +
-      esc(nowStage ? nowStage.label : 'the first open stage') + '</b>, whoever sent the lead — the sheet, a rep, or the agent. ' +
-      'Off, and a deal is only created once the lead reaches ' + esc(LEAD_DEAL_AT.join(' or ')) + '.' })
+    el('div', { class: 'sub', html: 'Off by default, and worth leaving off: a deal is created when the lead reaches <b>' +
+      LEAD_DEAL_AT.map(esc).join('</b> or <b>') + '</b>, so the pipeline holds conversations that actually happened. ' +
+      'Booking a demo is not the same as sitting through one. ' +
+      'On, and every lead opens a deal on <b>' + esc(nowStage ? nowStage.label : 'the first open stage') +
+      '</b> the moment it lands, whoever sent it.' })
   ]));
   c.body.appendChild(dealTg);
   c.body.appendChild(fld('Stage a new lead opens on', stSel));
@@ -18570,15 +18850,19 @@ function routingSettingsCard() {
    never sent anywhere by this tool, and only its last four characters are kept. */
 function agentKeyNew() {
   const name = el('input', { class: 'inp', placeholder: 'Calling agent' });
+  /* A calling agent's job is Marketing Leads and nothing else, so that is what
+     is ticked. The deal scopes are here because a different kind of integration
+     might need them, not because this one does — a lead's deal belongs to the
+     rep it was handed to. */
   const scopes = [
-    ['leads:read',   'Read the call queue — name, phone, emirate, language, what they asked for'],
-    ['leads:write',  'Post call outcomes, notes and stage changes on a lead'],
-    ['leads:create', 'Create a new lead, which opens a contact and a deal'],
-    ['deals:read',   'Read the deal a lead opened — stage, owner, next step'],
-    ['deals:write',  'Add a note to that deal']
+    ['leads:read',   'Read the call queue — name, phone, emirate, language, what they asked for', true],
+    ['leads:write',  'Post call outcomes, notes and stage changes, as far as ' + LEAD_DEAL_AT[0], true],
+    ['leads:create', 'Create a new lead, which opens a contact and routes it', true],
+    ['deals:read',   'Read the deal a lead opened — stage, owner, next step', false],
+    ['deals:write',  'Add a note to that deal', false]
   ];
-  const boxes = scopes.map(([k, d]) => {
-    const cb = el('input', { type: 'checkbox', checked: true, style: 'margin-top:3px' });
+  const boxes = scopes.map(([k, d, on]) => {
+    const cb = el('input', { type: 'checkbox', checked: on || null, style: 'margin-top:3px' });
     return { k, cb, node: el('label', { style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:6px 0' },
       [cb, el('div', {}, [ el('div', { style: 'font-weight:600' , text: k }), el('div', { class: 'sub', text: d }) ])]) };
   });
@@ -18617,6 +18901,37 @@ function agentKeyNew() {
           catch (e) { toast('Select it and copy by hand', 'err'); } } }));
     } })
   ], true);
+}
+
+/* The calling agent as a team member. It is a bot: it never signs in, it has
+   no region, no target and no place on the leaderboard — but it owns leads,
+   so it has to be an owner for the owner column, the filters and the board to
+   work on it without a special case everywhere. isAgent is what keeps it out
+   of the numbers. */
+function agentOwnerNew() {
+  const name = el('input', { class: 'inp', value: 'Voice Agent' });
+  modal('Add the calling agent', el('div', {}, [
+    fld('Name', name, 'How it shows as the owner of a lead, and in the leads board.'),
+    el('div', { class: 'keynote', style: 'margin-top:var(--sp-4)', html:
+      'This is not a person. It is left out of <b>Rep Performance</b>, the leaderboard, ' +
+      '<b>Per Month Commit vs. Forecast</b>, the sales regions and the targets, so it cannot ' +
+      'distort anyone’s numbers. It cannot sign in — it reaches the CRM only through the API, ' +
+      'with a key you register below.' })
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Add it', onclick: () => {
+      const nm = name.value.trim() || 'Voice Agent';
+      /* the team list lives in config.json, not in a record shard, so it is
+         pushed the same way editOwner() pushes a person */
+      const rec = { id: uid('AG'), name: nm, active: true,
+        role: AGENT_ROLE, isAgent: true, order: 900 };
+      DB.owners.push(rec);
+      DB.config.leadAgentOwner = rec.id;
+      DB.config._v = now(); touch('config', 'owners');
+      closeAll(); render();
+      toast(nm + ' added. Switch on "Send every new lead to the calling agent" when you are ready.', 'ok');
+    } })
+  ]);
 }
 /* ================================================================
    RENDER + BOOT
