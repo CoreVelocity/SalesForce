@@ -1146,6 +1146,82 @@ a.mfact:hover b{text-decoration:underline}
 }
 
 /* ---- quarter commitment ---- */
+/* ---------------------------------- commitment-against-target heat map ---
+   The ramp is ONE hue (the sequential slot, --s1) mixed with the card
+   surface in even steps, so lightness climbs monotonically and both themes
+   come from the same definition — a dark-mode ramp that is an automatic flip
+   of the light one goes muddy at the top, and two hand-picked sets drift
+   apart. "Target met" is the reserved good step, and it is the only cell that
+   carries a tick, so the state is never read from colour alone. Every cell
+   prints its own number besides. */
+.qheat{display:flex;flex-direction:column;gap:4px;overflow-x:auto}
+.qheat .qhrow{display:grid;grid-template-columns:minmax(132px,1.4fr) repeat(4,minmax(74px,1fr)) minmax(82px,.9fr);
+  gap:4px;align-items:stretch;min-width:560px;text-align:left;
+  background:none;border:0;padding:0;font:inherit;color:inherit}
+.qheat button.qhrow{cursor:pointer}
+.qheat .qhrow.head{font-size:var(--fs-xs);color:var(--ink-3);font-weight:600;padding-bottom:2px}
+.qheat .qhrow.head .n{align-self:end;text-align:center}
+.qheat .qhrow>.who{display:flex;align-items:center;padding:0 4px;font-weight:600;font-size:var(--fs-sm);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qheat .qhrow.group>.who{text-transform:uppercase;letter-spacing:.06em;font-size:var(--fs-xs);color:var(--ink-3)}
+.qheat .qhrow.total>.who{font-weight:700}
+.qheat .qhrow.group,.qheat .qhrow.total{margin-top:6px}
+.qheat button.qhrow:hover .qhcell{outline:1px solid var(--accent);outline-offset:-1px}
+.qhcell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  padding:7px 4px;border-radius:var(--r-sm);border:1px solid var(--line-soft);
+  background:var(--surface-2);min-height:40px}
+.qhcell .v{font-size:var(--fs-sm);font-weight:650;line-height:1.1;color:var(--ink-1)}
+.qhcell .p{font-size:10px;color:var(--ink-3);line-height:1;letter-spacing:.02em}
+.qhcell .tick{display:grid;place-items:center;color:var(--good-ink,var(--good));line-height:1}
+/* THE RAMP — FOUR STEPS OFF THE DESIGN SYSTEM'S OWN SEQUENTIAL SCALE.
+   Each mode gets its own steps rather than one set flipped: on the light
+   surface the ramp runs light to dark (seq-6 down to seq-3); on the dark one
+   it has to run the other way (seq-1 up to seq-4), because a ramp that gets
+   darker on a dark surface loses its first two steps into the background —
+   measured at a 0.005 luminance gap between "nothing" and "a fifth of
+   target", which is no gap at all. */
+.qhcell.s-none{background:var(--surface-2)}
+.qhcell.s-q1{background:var(--seq-6)}
+.qhcell.s-q2{background:var(--seq-5)}
+.qhcell.s-q3{background:var(--seq-4)}
+.qhcell.s-q4{background:var(--seq-3)}
+.qhcell.s-q1 .v,.qhcell.s-q1 .p,.qhcell.s-q2 .v,.qhcell.s-q2 .p{color:#0B1220}
+.qhcell.s-q3 .v,.qhcell.s-q3 .p,.qhcell.s-q4 .v,.qhcell.s-q4 .p{color:#fff}
+:root[data-theme="dark"] .qhcell.s-q1{background:var(--seq-1)}
+:root[data-theme="dark"] .qhcell.s-q2{background:var(--seq-2)}
+:root[data-theme="dark"] .qhcell.s-q3{background:var(--seq-3)}
+:root[data-theme="dark"] .qhcell.s-q4{background:var(--seq-4)}
+:root[data-theme="dark"] .qhcell.s-q1 .v,:root[data-theme="dark"] .qhcell.s-q2 .v{color:var(--ink-1)}
+:root[data-theme="dark"] .qhcell.s-q1 .p,:root[data-theme="dark"] .qhcell.s-q2 .p{color:var(--ink-2)}
+.qhcell.s-met{background:color-mix(in srgb,var(--good) 26%,var(--surface-1));
+  border-color:color-mix(in srgb,var(--good) 45%,var(--surface-1))}
+.qhcell.s-na{background:repeating-linear-gradient(45deg,var(--surface-2),var(--surface-2) 5px,
+  var(--surface-3) 5px,var(--surface-3) 10px)}
+.qheat .gap{display:flex;align-items:center;justify-content:flex-end;padding:0 6px;
+  font-size:var(--fs-sm);font-weight:650}
+.qheat .gap.short{color:var(--critical-ink,var(--critical))}
+.qheat .gap.done{color:var(--good-ink,var(--good));font-weight:600}
+.qhkey{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-3);
+  font-size:var(--fs-xs);color:var(--ink-3)}
+.qhkey .lbl{font-weight:600}
+.qhkey .k{display:inline-flex;align-items:center;gap:5px}
+.qhkey .k i{width:16px;height:12px;border-radius:3px;border:1px solid var(--line-soft);display:block}
+.qhkey .k i.s-none{background:var(--surface-2)}
+.qhkey .k i.s-q1{background:var(--seq-6)}
+.qhkey .k i.s-q2{background:var(--seq-5)}
+.qhkey .k i.s-q3{background:var(--seq-4)}
+.qhkey .k i.s-q4{background:var(--seq-3)}
+:root[data-theme="dark"] .qhkey .k i.s-q1{background:var(--seq-1)}
+:root[data-theme="dark"] .qhkey .k i.s-q2{background:var(--seq-2)}
+:root[data-theme="dark"] .qhkey .k i.s-q3{background:var(--seq-3)}
+:root[data-theme="dark"] .qhkey .k i.s-q4{background:var(--seq-4)}
+.qhkey .k i.s-met{background:color-mix(in srgb,var(--good) 26%,var(--surface-1))}
+@media (max-width:760px){
+  .qheat .qhrow{grid-template-columns:minmax(104px,1.2fr) repeat(4,minmax(58px,1fr)) minmax(66px,.9fr);
+    min-width:470px}
+  .qhcell .v{font-size:var(--fs-xs)}
+}
+
 .qtbl{display:flex;flex-direction:column;gap:4px}
 .qtbl .qhead,.qtbl .qrow{display:grid;
   grid-template-columns:minmax(120px,1.4fr) 62px repeat(var(--qcols,2),58px) minmax(90px,1fr) minmax(90px,1fr);
@@ -2205,7 +2281,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.42.0';
+const VERSION = '1.43.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -15695,6 +15771,10 @@ function viewQuarter(root) {
     return;
   }
 
+  /* How the commitment sits against the numbers it has to cover, and when in
+     the quarter it is meant to land — before the deal-by-deal cards. */
+  root.appendChild(qHeat(qk, onlyRep));
+
   /* ---- one card per rep, under their region ---- */
   qRepGroups().forEach(({ region, owners }) => {
     const mine = onlyRep ? owners.filter(o => o.id === onlyRep) : owners;
@@ -16034,6 +16114,149 @@ function exportQuarter(qk) {
   ]);
   download(`corev-quarter-commitment-${qk}.csv`, toCSV(rows, cols), 'text/csv');
   toast(`${rows.length} rows exported`, 'ok');
+}
+
+/* ================================================================
+   HEAT MAP — COMMITMENT AGAINST TARGET
+   ================================================================
+   The side-by-side table says what each rep committed. It does not say
+   whether that is enough, and it does not say when in the quarter it is meant
+   to land — so a rep who has named five big deals that all close in the last
+   fortnight reads exactly like one who is spread across the three months.
+
+   Rows are reps under their region; columns are the three months of the
+   quarter, then the quarter itself. A cell is shaded by how much of that
+   period's target the commitment covers, and the last column is the plain
+   number Ahmed asked for: what is still missing to hit the quarter.
+
+   Colour is sequential — one hue, light to dark — because coverage is a
+   magnitude. Target met is the reserved "good" step and carries a tick, so it
+   is never colour alone; every cell also prints its own value, so the shading
+   is a second reading of a number that is already there. Built with
+   color-mix against the chart surface, so the ramp stays monotonic in both
+   themes from one definition rather than two hand-picked sets.             */
+const Q_HEAT_STEPS = [
+  [0,    'none', 'nothing committed'],
+  [0.25, 'q1',   'under a quarter of target'],
+  [0.50, 'q2',   'under half of target'],
+  [0.75, 'q3',   'over half of target'],
+  [1,    'q4',   'nearly there'],
+];
+/* which step a coverage ratio falls in; >= 1 is its own, reserved, step */
+function qHeatStep(cov) {
+  if (cov == null) return null;
+  if (cov >= 1) return 'met';
+  if (cov <= 0) return 'none';
+  return (Q_HEAT_STEPS.find(s => cov <= s[0]) || Q_HEAT_STEPS[4])[1];
+}
+const qMonthsOf = qk => { const f = monthKey(qFrom(qk)); return [0, 1, 2].map(i => monthShift(f, i)); };
+/* A committed deal belongs to the month it is meant to close in. No close
+   date means it cannot be placed, so it sits in the quarter column only —
+   counted, but not pretending to a month it never named. */
+const qRecMonth = rec => { const d = getDl(rec.dealId); return d && d.closeDate ? monthKey(d.closeDate) : null; };
+
+function qHeatCell(committed, target, label) {
+  const cov = target > 0 ? committed / target : null;
+  const step = qHeatStep(cov);
+  const c = el('div', { class: 'qhcell' + (step ? ' s-' + step : ' s-na') });
+  c.appendChild(el('span', { class: 'v mono', text: committed ? money(committed, { compact: true }) : '—' }));
+  if (step === 'met') c.appendChild(el('span', { class: 'tick', html: ico('check', 11) }));
+  else if (cov != null) c.appendChild(el('span', { class: 'p', text: Math.round(cov * 100) + '%' }));
+  const gap = target > 0 ? Math.max(0, target - committed) : 0;
+  c.addEventListener('mousemove', ev => tipShow(
+    `<b>${esc(label)}</b>` +
+    `<div class="r"><span>Committed</span><b>${CFG.currency} ${money(committed, { dash: false })}</b></div>` +
+    (target > 0
+      ? `<div class="r"><span>Target</span><b>${CFG.currency} ${money(target, { dash: false })}</b></div>` +
+        `<div class="r"><span>Covers</span><b>${Math.round(cov * 100)}%</b></div>` +
+        (gap ? `<div class="r"><span>Still to find</span><b>${CFG.currency} ${money(gap, { dash: false })}</b></div>`
+             : `<div class="r"><span>Target met</span><b>yes</b></div>`)
+      : `<div class="r"><span>No target set for this period</span></div>`), ev));
+  c.addEventListener('mouseleave', tipHide);
+  return c;
+}
+
+function qHeat(qk, onlyRep) {
+  const months = qMonthsOf(qk);
+  const rng = qRange(qk);
+  const c = card('Commitment against target',
+    'What each rep has named, by the month it is meant to land · ' + qLabel(qk));
+
+  const rows = [];      // for the table view, which is how this is read without colour
+  const tbl = el('div', { class: 'qheat' });
+  const head = el('div', { class: 'qhrow head' });
+  head.appendChild(el('span', { class: 'who', text: 'Sales rep' }));
+  months.forEach(m => head.appendChild(el('span', { class: 'n', text: fdate(m + '-01', 'month') })));
+  head.appendChild(el('span', { class: 'n', text: qLabel(qk) }));
+  head.appendChild(el('span', { class: 'n', text: 'Still to find' }));
+  tbl.appendChild(head);
+
+  const line = (name, recs, targetFor, kind, onclick) => {
+    const row = el(onclick ? 'button' : 'div', { class: 'qhrow' + (kind ? ' ' + kind : '') });
+    if (onclick) row.addEventListener('click', onclick);
+    row.appendChild(el('span', { class: 'who', text: name, title: name }));
+    const cells = {};
+    months.forEach(m => {
+      const v = sum(recs.filter(r => qRecMonth(r) === m), qValue);
+      cells[m] = v;
+      row.appendChild(qHeatCell(v, targetFor(mBounds(m + '-01')), name + ' · ' + fdate(m + '-01', 'month')));
+    });
+    const total = sum(recs, qValue);
+    const qt = targetFor(rng);
+    row.appendChild(qHeatCell(total, qt, name + ' · ' + qLabel(qk)));
+    const gap = qt > 0 ? Math.max(0, qt - total) : 0;
+    row.appendChild(el('span', { class: 'n mono gap' + (gap ? ' short' : qt ? ' done' : ''),
+      title: qt ? (gap ? `${name} needs ${CFG.currency} ${money(gap, { dash: false })} more committed to cover ${qLabel(qk)}`
+                       : `${name} has the quarter covered`)
+                : 'No target set for ' + name,
+      text: qt ? (gap ? money(gap, { compact: true }) : 'covered') : '—' }));
+    tbl.appendChild(row);
+    rows.push({ who: name, months: cells, total, target: qt, gap });
+  };
+
+  qRepGroups().forEach(({ region, owners }) => {
+    const mine = onlyRep ? owners.filter(o => o.id === onlyRep) : owners;
+    if (!mine.length) return;
+    if (!onlyRep && qRepGroups().length > 1) {
+      const recs = qCommits(qk).filter(r => mine.some(o => o.id === String(r.ownerId)));
+      line(region, recs, b => sum(mine, o => repTarget(o.id, b)), 'group');
+    }
+    mine.forEach(o => line(o.name, qCommits(qk, o.id), b => repTarget(o.id, b), 'rep',
+      onlyRep ? null : () => { VIEW.rep = o.id; render(); }));
+  });
+  if (!onlyRep) line('Everyone', qCommits(qk), b => repTarget('all', b), 'total');
+
+  c.body.appendChild(tbl);
+
+  /* the legend: identity is never colour alone, and the ramp needs naming */
+  const key = el('div', { class: 'qhkey' });
+  key.appendChild(el('span', { class: 'lbl', text: 'Share of target committed' }));
+  Q_HEAT_STEPS.forEach(([v, s], i) => {
+    key.appendChild(el('span', { class: 'k' }, [
+      el('i', { class: 's-' + s }),
+      el('span', { text: i === 0 ? '0' : Math.round(v * 100) + '%' })
+    ]));
+  });
+  key.appendChild(el('span', { class: 'k' }, [
+    el('i', { class: 's-met' }), el('span', { html: ico('check', 11) + ' target met' })
+  ]));
+  c.body.appendChild(key);
+
+  /* Read without the colour: the same grid as numbers. */
+  const t = el('div', { class: 'chart-tbl' });
+  t.innerHTML = tblHTML(
+    [{ h: 'Sales rep', f: r => r.who }]
+      .concat(months.map(m => ({ h: fdate(m + '-01', 'month'), num: true,
+        f: r => money(r.months[m], { dash: false }) })))
+      .concat([{ h: 'Committed', num: true, f: r => money(r.total, { dash: false }) },
+               { h: 'Target', num: true, f: r => r.target ? money(r.target, { dash: false }) : '—' },
+               { h: 'Still to find', num: true, f: r => r.target ? (r.gap ? money(r.gap, { dash: false }) : 'covered') : '—' }]),
+    rows);
+  const btn = el('button', { class: 'btn sm ghost', text: 'Table view',
+    style: 'margin-top:8px;color:var(--ink-3)',
+    onclick: () => { t.classList.toggle('on'); btn.textContent = t.classList.contains('on') ? 'Hide table' : 'Table view'; } });
+  c.body.appendChild(btn); c.body.appendChild(t);
+  return c.node;
 }
 /* ================================================================
    THE MEDIA LIBRARY
