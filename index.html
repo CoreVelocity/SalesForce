@@ -1154,6 +1154,22 @@ a.mfact:hover b{text-decoration:underline}
    apart. "Target met" is the reserved good step, and it is the only cell that
    carries a tick, so the state is never read from colour alone. Every cell
    prints its own number besides. */
+/* ------------------- "also close the other side" in a loss dialog ---
+   A tick, not a second dialog: the decision belongs in the one the rep is
+   already looking at. */
+.alsorow{display:flex;align-items:flex-start;gap:var(--sp-3);margin-top:var(--sp-4);
+  padding:11px 13px;border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--surface-2);cursor:pointer}
+.alsorow:hover{border-color:var(--accent)}
+.alsorow input{margin-top:2px;flex:none;width:17px;height:17px;accent-color:var(--accent);cursor:pointer}
+.alsorow b{display:block;font-weight:650;font-size:var(--fs-sm)}
+.alsorow .sub{display:block;font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;line-height:1.45}
+.alsowarn{display:flex;align-items:flex-start;gap:var(--sp-2);margin-top:var(--sp-4);
+  padding:11px 13px;border:1px solid var(--warning);border-radius:var(--r-md);
+  background:color-mix(in srgb,var(--warning) 12%,var(--surface-1));
+  font-size:var(--fs-sm);line-height:1.5}
+.alsowarn svg{flex:none;margin-top:2px;color:var(--warning)}
+
 .qheat{display:flex;flex-direction:column;gap:4px;overflow-x:auto}
 .qheat .qhrow{display:grid;grid-template-columns:minmax(132px,1.4fr) repeat(4,minmax(74px,1fr)) minmax(82px,.9fr);
   gap:4px;align-items:stretch;min-width:560px;text-align:left;
@@ -2281,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.45.0';
+const VERSION = '1.46.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -6672,6 +6688,14 @@ function openDeal(id, tab) {
       { onclick: () => openDeal(d.id, 'Products'),
         title: amountAuto(d) ? 'Deal value follows the estimate' : 'Deal value set by hand' }) : null,
     co ? mfact('Company', co.name, { onclick: () => openCompany(co.id) }) : null,
+    /* Where it came from, and a way back to it. The lead side has shown "Open
+       the deal" for a while; this is the other direction, which is how you
+       find out a deal you are about to close still has a lead behind it. */
+    (() => { const l = typeof leadOfDeal === 'function' ? leadOfDeal(d) : null;
+      return l ? mfact('From lead', (l.name || 'Marketing lead') +
+        (l.stage === 'Lost' ? ' · lost' : ''),
+        { onclick: () => { VIEW.name = 'leads'; VIEW.leadOpen = l.id; closeAll(); render(); },
+          title: 'Open the marketing lead this deal came from' }) : null; })(),
     mfact('Owner', ownerName(d.ownerId)),
     d.closeDate ? mfact('Close', fdate(d.closeDate, 'long'), { num: true }) : null,
     d.demoDate ? mfact('Demo', fdate(d.demoDate, 'long'), { num: true }) : null
@@ -7135,6 +7159,10 @@ function askLoss(d, lostId) {
     el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Close date' }), dt ])
   ]));
   body.appendChild(el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'What we learned (optional)' }), note ]));
+  /* If this deal came from a marketing lead that is still in play, the lead
+     goes with it unless the rep says otherwise. */
+  const link = dealLinkRow(d);
+  if (link) body.appendChild(link.node);
   const save = el('button', { class: 'btn danger', text: 'Mark lost', onclick: () => {
     const r = sel.value === 'Other' ? (other.value.trim() || 'Other') : sel.value;
     if (!r) { sel.focus(); toast('Pick a reason first', 'err'); return; }
@@ -7145,7 +7173,9 @@ function askLoss(d, lostId) {
     upsert('deals', d);
     logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'lost',
       html: `Marked <b>${esc(d.name)}</b> <b style="color:var(--critical-ink)">lost</b> — ${esc(r)}${d.lostTo ? ' (to ' + esc(d.lostTo) + ')' : ''}` });
-    closeAll(); render(); toast('Marked lost — ' + r);
+    const alsoLead = link && link.on() ? closeLeadBehind(d, r, { quiet: true }) : null;
+    closeAll(); render();
+    toast('Marked lost — ' + r + (alsoLead ? ' · the marketing lead too' : ''));
   } });
   modal('Mark lost — ' + d.name, body, [ el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }), save ]);
 }
@@ -12419,7 +12449,7 @@ function leadSetStage(id, stg) {
   const l = getLead(id); if (!l) return;
   const was = l.stage;
   l.stage = stg;
-  if (stg === 'Lost' && !l.lostReason) { leadAskLost(l); return; }
+  if (stg === 'Lost' && !l.lostReason) { leadAskLost(l, was); return; }
   if (stg !== 'Lost') l.lostReason = null;
   let handedTo = null;
   if (stg === LEAD_HANDOVER_AT) handedTo = leadHandover(l);
@@ -12432,16 +12462,26 @@ function leadSetStage(id, stg) {
     (l.dealId && !LEAD_DEAL_AT.includes(was) && LEAD_DEAL_AT.includes(stg)
       ? ' · a deal is now in the pipeline' : ''), 'ok');
 }
-function leadAskLost(l) {
+function leadAskLost(l, was) {
   const sel = el('select', { class: 'inp' });
   MLEAD_LOST.forEach(r => sel.appendChild(el('option', { value: r, text: r })));
   const note = el('textarea', { class: 'inp', rows: 2, placeholder: 'Anything worth knowing next time' });
-  modal('Why was it lost?', el('div', {}, [ fld('Reason', sel), fld('Note', note) ]), [
-    el('button', { class: 'btn', text: 'Cancel', onclick: () => { l.stage = 'Contacted'; closeAll(); render(); } }),
+  /* The deal in the pipeline behind this lead goes with it, unless the rep
+     says otherwise — or, if that deal was won, a warning instead. */
+  const link = typeof leadLinkRow === 'function' ? leadLinkRow(l) : null;
+  const body = el('div', {}, [ fld('Reason', sel), fld('Note', note), link ? link.node : null ].filter(Boolean));
+  modal('Why was it lost?', body, [
+    /* Cancelling used to drop the lead into "Contacted" wherever it had been,
+       which quietly rewound a lead that was at Demo booked. Put it back. */
+    el('button', { class: 'btn', text: 'Cancel',
+      onclick: () => { l.stage = was || l.stage || 'Contacted'; closeAll(); render(); } }),
     el('button', { class: 'btn primary', text: 'Save', onclick: () => {
       l.lostReason = sel.value;
       if (note.value.trim()) leadAddUpdate(l, 'Lost — ' + sel.value + ': ' + note.value.trim(), true);
-      leadSave(l); closeAll(); render(); toast('Marked lost', '');
+      leadSave(l);
+      const alsoDeal = link && link.on() ? closeDealBehind(l, sel.value, { quiet: true }) : null;
+      closeAll(); render();
+      toast('Marked lost' + (alsoDeal ? ' · the deal too' : ''), '');
     } })
   ]);
 }
@@ -18758,6 +18798,11 @@ function dealBulkStageAsk() {
     el('div', { style: 'margin-top:var(--sp-3)' }, [
       el('label', { class: 'fl', text: 'A note for all of them' }), bulkNote ])
   ]);
+  /* Whichever of them came from a marketing lead that is still in play — the
+     leads go with the deals unless the rep says otherwise. Inside the reason
+     block, so it only appears when the move is to Lost. */
+  const leadLink = typeof bulkLinkRow === 'function' ? bulkLinkRow(picked.map(d => d.id)) : null;
+  if (leadLink) reasonWrap.appendChild(leadLink.node);
 
   const dt = el('input', { class: 'inp', type: 'date', value: TODAY() });
   const dtWrap = el('div', { style: 'display:none' }, [
@@ -18814,14 +18859,19 @@ function dealBulkStageAsk() {
     if (!sel.value) { sel.focus(); return toast('Pick a stage first', 'err'); }
     const s = stage(sel.value);
     if (s.kind === 'lost' && !lossReason()) { other.focus(); return toast('Pick the reason first', 'err'); }
-    const n = dealBulkStage(picked.map(d => d.id), sel.value, {
+    const ids = picked.map(d => d.id);
+    const n = dealBulkStage(ids, sel.value, {
       reason: s.kind === 'lost' ? lossReason() : null,
       closeDate: s.kind !== 'open' ? dt.value : null,
       note: bulkNote.value.trim() || null
     });
-    closeAll();
+    let leads = 0;
+    if (s.kind === 'lost' && leadLink && leadLink.on())
+      batch(() => ids.forEach(id => { if (closeLeadBehind(getDl(id), lossReason(), { quiet: true })) leads++; }));
+    closeAll(); render();
     toast(`${n} deal${n === 1 ? '' : 's'} moved to ${s.label}` +
-      (s.kind === 'lost' ? ' — ' + lossReason() : ''), 'ok');
+      (s.kind === 'lost' ? ' — ' + lossReason() : '') +
+      (leads ? ` · ${leads} marketing lead${leads === 1 ? '' : 's'} closed too` : ''), 'ok');
   });
   modal('Move ' + picked.length + ' deal' + (picked.length === 1 ? '' : 's'), body, [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
@@ -19062,6 +19112,148 @@ function installCard() {
     el('button', { class: 'btn', html: ico('copy', 14) + ' Copy the link',
       onclick: () => copyText(url, 'link') }) ]));
   return c.node;
+}
+/* ================================================================
+   A MARKETING LEAD AND ITS DEAL ARE ONE THING
+   ================================================================
+   A lead that books a demo becomes a deal, and from then on the same customer
+   exists twice: once in Marketing Leads and once in the pipeline. Losing them
+   is one event, but it was being recorded on whichever side the rep happened
+   to be looking at — so Marketing Leads showed people still in play who had
+   been written off weeks ago in the pipeline, and the pipeline carried deals
+   for people the calling agent had already given up on.
+
+   The link itself already existed: leadToDeal() writes deal.leadId and
+   lead.dealId. Nothing read it in the other direction. These two do.
+
+   Nothing propagates silently. Each dialog that closes one side offers to
+   close the other, named, with the count, ticked by default — so the common
+   case is one tick and the unusual case is one untick. A deal that is already
+   won is never touched by a lost lead; it is pointed out instead, because a
+   won deal and a lost lead is a contradiction somebody should look at rather
+   than something to quietly resolve.                                       */
+
+/* Either side may hold the link on its own: records made before the back
+   reference existed have only one of the two, and a rep can re-link by hand.
+   Look both ways. */
+function leadOfDeal(d) {
+  if (!d) return null;
+  const rows = live('leads');
+  return (d.leadId && rows.find(l => l.id === String(d.leadId))) ||
+         rows.find(l => l.dealId && String(l.dealId) === String(d.id)) || null;
+}
+function dealOfLead(l) {
+  if (!l) return null;
+  const rows = live('deals');
+  return (l.dealId && rows.find(d => d.id === String(l.dealId))) ||
+         rows.find(d => d.leadId && String(d.leadId) === String(l.id)) || null;
+}
+const leadIsLost = l => !!l && l.stage === 'Lost';
+/* worth closing = it exists, and it is not already closed */
+const openLeadOfDeal = d => { const l = leadOfDeal(d); return l && !leadIsLost(l) ? l : null; };
+const openDealOfLead = l => { const d = dealOfLead(l); return d && isOpen(d) ? d : null; };
+
+/* The two sides keep different vocabularies — the pipeline's reasons are
+   configurable per team, the lead's are a fixed short list — so a reason is
+   translated to the nearest equivalent and the words actually used are kept
+   verbatim in the note. Nothing is invented and nothing is lost. */
+const LEAD_LOST_FROM_DEAL = [
+  [/budget|price|cost|expensive|afford/i, 'Above budget'],
+  [/competitor|lost to|another supplier/i, 'Went with a competitor'],
+  [/no response|unreachable|ghost|no show|no reply/i, 'No show'],
+  [/timing|postpone|later|on hold|delay|freeze/i, 'Asked to drop it'],
+  [/not a fit|not interested|wrong|not suitable/i, 'Not interested']
+];
+function leadReasonFor(reason) {
+  const r = String(reason || '');
+  if (MLEAD_LOST.includes(r)) return r;
+  const hit = LEAD_LOST_FROM_DEAL.find(([re]) => re.test(r));
+  return hit ? hit[1] : 'Not interested';
+}
+
+/* ---------------------------------------------------- deal -> its lead */
+function closeLeadBehind(d, reason, opt) {
+  const o = opt || {};
+  const l = openLeadOfDeal(d);
+  if (!l) return null;
+  const mapped = leadReasonFor(reason);
+  l.stage = 'Lost';
+  l.lostReason = mapped;
+  leadAddUpdate(l, `Lost with the deal ${d.name || ''} — ${reason || 'no reason recorded'}` +
+    (mapped !== reason ? ` (recorded here as "${mapped}")` : ''), true);
+  leadSave(l);
+  logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'lost',
+    html: `The marketing lead <b>${esc(l.name || '')}</b> was closed as lost with this deal` });
+  if (!o.quiet) toast(`${l.name || 'The lead'} marked lost too`, '');
+  return l;
+}
+
+/* ---------------------------------------------------- lead -> its deal */
+function closeDealBehind(l, reason, opt) {
+  const o = opt || {};
+  const d = openDealOfLead(l);
+  if (!d) return null;
+  const lost = DB.stages.find(s => s.kind === 'lost');
+  if (!lost) return null;
+  const from = stage(d.stageId);
+  d.stageId = lost.id;
+  d.lossReason = reason || 'Not recorded';
+  if (!d.closeDate || dnum(d.closeDate) > dnum(TODAY())) d.closeDate = TODAY();
+  upsert('deals', d);
+  logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'lost',
+    html: `Moved <b>${esc(d.name)}</b> from ${esc(from.label)} to <b>${esc(lost.label)}</b> — ` +
+      `${esc(reason || 'no reason recorded')}<br>Closed with the marketing lead <b>${esc(l.name || '')}</b>` });
+  if (!o.quiet) toast(`${d.name} marked lost too`, '');
+  return d;
+}
+
+/* ------------------------------------------------- the tick in a dialog
+   One row, only when there is something on the other side to close. It names
+   what will happen and defaults to doing it, because that is nearly always
+   what is meant — a customer who has said no has said no to both. */
+function alsoCloseRow(text, sub) {
+  const box = el('input', { type: 'checkbox', checked: true });
+  const row = el('label', { class: 'alsorow' }, [
+    box,
+    el('span', {}, [ el('b', { text: text }), sub ? el('span', { class: 'sub', text: sub }) : null ].filter(Boolean))
+  ]);
+  return { row, box, on: () => box.checked };
+}
+/* Shown instead of the tick when the other side is a deal that was WON.
+   There is nothing sensible to do automatically with that. */
+function wonDealWarning(d) {
+  return el('div', { class: 'alsowarn', html: ico('warn', 14) +
+    ` The deal <b>${esc(d.name)}</b> behind this lead is marked <b>won</b>. ` +
+    'It is left exactly as it is — worth a look, because a won deal and a lost lead ' +
+    'cannot both be right.' });
+}
+/* What a lost-lead dialog should show: a tick, a warning, or nothing. */
+function leadLinkRow(l) {
+  const d = dealOfLead(l);
+  if (!d) return null;
+  if (isWon(d)) return { node: wonDealWarning(d), on: () => false };
+  if (!isOpen(d)) return null;                       // already lost: nothing to do
+  const r = alsoCloseRow('Also mark the deal lost',
+    `${d.name} · ${stage(d.stageId).label}${d.amount ? ' · ' + CFG.currency + ' ' + money(d.amount) : ''}`);
+  return { node: r.row, on: r.on };
+}
+/* And the mirror, for a lost-deal dialog. */
+function dealLinkRow(d) {
+  const l = leadOfDeal(d);
+  if (!l || leadIsLost(l)) return null;
+  const r = alsoCloseRow('Also mark the marketing lead lost',
+    `${l.name || 'Lead'}${l.company ? ' · ' + l.company : ''} · ${l.stage || 'New'}`);
+  return { node: r.row, on: r.on };
+}
+/* For a batch: how many of the picked deals have a lead still in play. */
+function bulkLinkRow(ids) {
+  const leads = ids.map(id => openLeadOfDeal(getDl(id))).filter(Boolean);
+  if (!leads.length) return null;
+  const r = alsoCloseRow(
+    `Also mark ${leads.length} marketing lead${leads.length === 1 ? '' : 's'} lost`,
+    leads.slice(0, 3).map(l => l.name || 'Lead').join(', ') +
+      (leads.length > 3 ? ` and ${leads.length - 3} more` : ''));
+  return { node: r.row, on: r.on, count: leads.length };
 }
 /* ================================================================
    SETTINGS — team & targets, stages, loss reasons, data, sync
