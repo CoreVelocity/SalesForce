@@ -2281,7 +2281,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.44.0';
+const VERSION = '1.45.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -8791,56 +8791,6 @@ function viewReview(root) {
     onRow: x => { VIEW.rep = x.o.id; renderTopControls(); render(); }
   });
   root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [gr.node]));
-
-  // ---- two charts: where the commitment sits, and how the calls have gone
-  const g = el('div', { class: 'grid2', style: 'margin-bottom:var(--sp-3)' });
-
-  const allC = W.reduce((a, x) => a.concat(x.cRecs), []);
-  const allB = W.reduce((a, x) => a.concat(x.bRecs), []);
-  const c1 = card('Committed and best-case deals by stage',
-    `${allC.length + allB.length} deals picked for ${weekLabel(wk)}`);
-  const byStage = openStages().map(s => {
-    const cd = allC.filter(c => { const d = getDl(c.dealId); return d && d.stageId === s.id; });
-    const bdl = allB.filter(c => { const d = getDl(c.dealId); return d && d.stageId === s.id; });
-    return { s, cv: sum(cd, commitValue), bv: sum(bdl, commitValue), n: cd.length + bdl.length };
-  }).filter(x => x.n);
-  if (!byStage.length) c1.body.appendChild(el('p', { class: 'sub', style: 'margin:0',
-    html: 'Nothing has been committed for this week yet. Use <b>Commit deals</b> above, or the <b>Commit this week</b> button inside any deal.' }));
-  else chartBar(c1.body, byStage.map(x => ({
-    label: x.s.label, short: x.s.label.split(' ')[0],
-    value: Math.round(x.cv + x.bv),
-    note: `${CFG.currency} ${money(x.cv, {compact:true})} commit · ${CFG.currency} ${money(x.bv, {compact:true})} best case · weight ${Math.round(x.s.probability*100)}%`
-  })), { yLabel: CFG.currency, xLabel: 'Stage' });
-  g.appendChild(c1.node);
-
-  const c2 = card('Called versus closed, week by week', 'Does the commitment hold up? Eight weeks of history');
-  const wks = []; for (let i = 7; i >= 0; i--) wks.push(weekShift(wk, -i));
-  const repIds = reps.map(o => String(o.id));
-  const inScope = c => VIEW.rep === 'all' || repIds.includes(String(c.ownerId));
-  chartLine(c2.body, [
-    { name: 'Commit', color: 'var(--s1)',
-      data: wks.map(k => sum(commitsIn(k, null, 'commit').filter(inScope), commitValue)) },
-    { name: 'Closed won', color: 'var(--s3)', dash: '5 4',
-      data: wks.map(k => { const rr = weekRange(k);
-        return sum(live('deals').filter(d => isWon(d) && inPeriod(d.closeDate, { from: rr.from, to: rr.to }) &&
-          (VIEW.rep === 'all' || ownedBy(d, VIEW.rep))), d => d.amount); }) }
-  ], wks.map(k => weekRange(k).from.slice(5).replace('-', '/')), { xLabel: 'Week beginning', height: 280 });
-  g.appendChild(c2.node);
-  root.appendChild(g);
-
-  // ---- movement this week, from the activity log
-  const moved = DB.activities.filter(a => !a._del && a.kind === 'stage' && a.at &&
-    a.at.slice(0,10) >= rng.from && a.at.slice(0,10) <= rng.to);
-  const mv = card('Stage movement this week', `${moved.length} stage changes logged between ${fdate(rng.from)} and ${fdate(rng.to)}`);
-  if (!moved.length) mv.body.appendChild(el('p', { class: 'sub', style: 'margin:0',
-    text: 'No stage changes were logged in this week. Movement is recorded automatically when a deal is dragged on the board.' }));
-  else {
-    const tl = el('div', { class: 'tl' });
-    moved.slice(0, 14).forEach(a => tl.appendChild(el('div', { class: 'it stage', html:
-      `<div class="w">${esc(fdate(a.at))} · ${esc(ownerName(a.ownerId))}</div><div class="t">${a.html || esc(a.text || '')}</div>` })));
-    mv.body.appendChild(tl);
-  }
-  root.appendChild(el('div', { style: 'margin-bottom:var(--sp-3)' }, [mv.node]));
 
   // ---- per-rep cards, grouped by region and in the team's own running order
   const groups = ownersByRegion(reps);
