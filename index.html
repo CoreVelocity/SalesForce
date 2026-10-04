@@ -2281,7 +2281,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.43.0';
+const VERSION = '1.44.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -5152,20 +5152,31 @@ function repTargetInfo(rep, b) {
     return { value: 0, basis: null, from: null };
   }
   if (g === 'quarter') {
-    const fy = fyBounds(b.from), yv = targetAt(rep, fy.label);
-    if (yv) return { value: yv / 4, basis: 'derived', from: `${fy.label} ÷ 4` };
-    /* A quarter used to look only at the year above it, so a team that sets
-       targets month by month — which is how this one does it — got "no target"
-       for every quarter while all three months underneath had one. Add them
-       up, the same way a range of months already does. */
+    /* A QUARTER IS ITS THREE MONTHS, ADDED UP — NOT THE YEAR CUT IN FOUR.
+       This used to reach for the year first, so a team that sets targets month
+       by month — which is how this one does it — had every monthly number
+       ignored the moment a yearly figure existed anywhere: three months of
+       500k reported a 45k quarter, because a 180k year ÷ 4 got there first.
+       Each month is resolved the way any month is (its own figure, else the
+       quarter ÷ 3, else the year ÷ 12) and the three are added. A quarter with
+       nothing monthly set still lands on the year ÷ 4, because each of its
+       months does — the old behaviour falls out of the new rule instead of
+       pre-empting it. And a quarter with only one month filled in no longer
+       reports that one month as the whole quarter: the other two come from
+       the year, like they should. */
     let v = 0, allSet = true, any = false, k = monthKey(b.from);
     for (let i = 0; i < 3; i++) {
-      const mv = targetAt(rep, mBounds(k + '-01').label);
-      if (mv) { v += mv; any = true; } else allSet = false;
+      const mi = repTargetInfo(rep, Object.assign(mBounds(k + '-01'), { grain: 'month' }));
+      v += mi.value;
+      if (mi.value) any = true;
+      if (mi.basis !== 'set') allSet = false;
       k = monthShift(k, 1);
     }
-    if (any) return { value: v, basis: allSet ? 'derived' : 'derived',
-      from: allSet ? 'its three months' : 'the months of it that have one' };
+    /* Derived, not "set", even when all three months are typed in: nobody
+       typed a Q4 figure, and the line that explains where a target came from
+       would otherwise claim they did. */
+    if (any) return { value: v, basis: 'derived',
+      from: allSet ? 'its three months added up' : 'its three months, some of them derived from the year' };
     return { value: 0, basis: null, from: null };
   }
   if (g === 'week') {
@@ -5178,13 +5189,21 @@ function repTargetInfo(rep, b) {
     return { value: mi.value * wdays / dim, basis: 'derived',
       from: `${mb.label} pro-rated over ${wdays} of ${dim} days` };
   }
-  // a year with nothing set: add up whatever the quarters or months hold
+  /* A year with nothing set is its twelve months, for the same reason a
+     quarter is its three: whatever grain the numbers were actually typed at
+     is the one that counts, and a partly-filled year must not report only the
+     part that happens to be filled. */
   const y = String(b.from).slice(0, 4);
-  let v = 0, any = false;
-  for (let q = 1; q <= 4; q++) { const qv = targetAt(rep, `Q${q} ${y}`); if (qv) { v += qv; any = true; } }
-  if (any) return { value: v, basis: 'derived', from: `the quarters of ${y}` };
-  for (let mm = 1; mm <= 12; mm++) { const mv = targetAt(rep, `${MON[mm-1]} ${y}`); if (mv) { v += mv; any = true; } }
-  if (any) return { value: v, basis: 'derived', from: `the months of ${y}` };
+  let v = 0, any = false, allSet = true, k = monthKey(b.from);
+  for (let i = 0; i < 12; i++) {
+    const mi = repTargetInfo(rep, Object.assign(mBounds(k + '-01'), { grain: 'month' }));
+    v += mi.value;
+    if (mi.value) any = true;
+    if (mi.basis !== 'set') allSet = false;
+    k = monthShift(k, 1);
+  }
+  if (any) return { value: v, basis: 'derived',
+    from: allSet ? `the twelve months of ${y} added up` : `the months of ${y}` };
   return { value: 0, basis: null, from: null };
 }
 const repTarget = (rep, b) => repTargetInfo(rep, b).value;
