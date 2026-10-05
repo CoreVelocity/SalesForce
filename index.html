@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.47.0';
+const VERSION = '1.48.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -2978,13 +2978,43 @@ function mBounds(d) {
   return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${lastDay}`, label: `${MON[m-1]} ${y}` };
 }
 /* ISO week key, e.g. 2026-W39 — the unit the weekly review runs on */
+/* WHICH DAY A WEEK STARTS ON.
+   This was ISO — Monday — everywhere, which put Sunday at the END of a week.
+   In the Gulf the week runs Sunday to Saturday, so on Monday morning a lead
+   that came in on Sunday was not in "this week", it was in last week: the
+   board emptied and the filter looked broken when it was only disagreeing
+   about where the week begins. It is a setting now, Sunday by default.
+   Numbering still follows the ISO rule — the week holding 4 January is week 1
+   — so the keys already stored against commitments keep their meaning, and
+   setting it back to Monday reproduces the old behaviour exactly. */
+const WEEK_FIRST = () => {
+  const v = String((DB.config && DB.config.weekStart) || 'sun').toLowerCase();
+  return v === 'mon' ? 1 : v === 'sat' ? 6 : 0;          // JS day numbers
+};
+/* how far into its week a date sits, 0..6 */
+const weekOffset = t => (t.getUTCDay() - WEEK_FIRST() + 7) % 7;
+function weekFirstDay(t) {
+  const d = new Date(t); d.setUTCDate(d.getUTCDate() - weekOffset(d)); return d;
+}
+/* THE KEY IS NUMBERED BY THE MONDAY INSIDE THE WEEK, WHATEVER DAY IT STARTS.
+   Every seven-day week contains exactly one Monday, so numbering by that
+   Monday's ISO week keeps the key stable when the setting changes: a
+   commitment filed on a Wednesday is in the same numbered week whether the
+   team counts weeks from Sunday or from Monday. Numbering off the week's own
+   first day instead would renumber the whole year and shift every stored
+   commitment forward by one — which is a quiet way to lose a quarter of
+   history. Only a Sunday changes which week it is in, which it must, because
+   that is the day that actually moves. */
+const MONDAY_IN_WEEK = () => (1 - WEEK_FIRST() + 7) % 7;   // days from the first day to Monday
 function weekKey(d) {
-  const t = new Date((d || TODAY()) + 'T00:00:00Z');
-  const day = (t.getUTCDay() + 6) % 7;            // Mon = 0
-  t.setUTCDate(t.getUTCDate() - day + 3);         // nearest Thursday
-  const y = t.getUTCFullYear();
+  const start = weekFirstDay(new Date((d || TODAY()) + 'T00:00:00Z'));
+  const mon = new Date(start); mon.setUTCDate(start.getUTCDate() + MONDAY_IN_WEEK());
+  /* plain ISO from here: the Thursday of that Monday's week names the year */
+  const th = new Date(mon); th.setUTCDate(mon.getUTCDate() + 3);
+  const y = th.getUTCFullYear();
   const jan4 = new Date(Date.UTC(y, 0, 4));
-  const w = 1 + Math.round(((t - jan4) / 864e5 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+  const jan4Mon = new Date(jan4); jan4Mon.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
+  const w = 1 + Math.round((mon - jan4Mon) / (7 * 864e5));
   return `${y}-W${String(w).padStart(2,'0')}`;
 }
 function weekRange(key) {
@@ -2993,10 +3023,14 @@ function weekRange(key) {
   const m = /^(\d{4})-W(\d{1,2})$/.exec(String(key == null ? '' : key));
   if (!m) return weekRange(weekKey());
   const [y, w] = [+m[1], +m[2]];
+  /* the exact inverse: find that key's Monday the ISO way, then step back to
+     whichever day the week is set to begin on */
   const jan4 = new Date(Date.UTC(y, 0, 4));
-  const mon = new Date(jan4); mon.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + (w - 1) * 7);
-  const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
-  return { from: mon.toISOString().slice(0,10), to: sun.toISOString().slice(0,10) };
+  const jan4Mon = new Date(jan4); jan4Mon.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
+  const mon = new Date(jan4Mon); mon.setUTCDate(jan4Mon.getUTCDate() + (w - 1) * 7);
+  const from = new Date(mon); from.setUTCDate(mon.getUTCDate() - MONDAY_IN_WEEK());
+  const to = new Date(from); to.setUTCDate(from.getUTCDate() + 6);
+  return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
 }
 function weekShift(key, n) { const r = weekRange(key); return weekKey(addDays(r.from, n * 7)); }
 function weekLabel(key) { const r = weekRange(key); return `${fdate(r.from)} – ${fdate(r.to)}`; }
@@ -19494,6 +19528,9 @@ function viewSettings(root) {
       () => { delete DB.config.thresholds; DB.config._v = now(); touch('config'); render(); toast('Thresholds reset'); }) }));
   g.appendChild(cT.node);
 
+  /* ---- which day a week starts on ---- */
+  g.appendChild(weekStartCard());
+
   /* ---- how a new lead is routed, and who outside may work it ---- */
   g.appendChild(routingSettingsCard());
 
@@ -21028,6 +21065,45 @@ function quotePayTermsEdit(mode, label) {
    Two things on one card because they are one decision: who a new lead
    belongs to, and who outside the building is allowed to work it.
    ================================================================ */
+
+/* ================================================================
+   WHICH DAY THE WEEK STARTS ON
+   ================================================================
+   Everything used to assume Monday, the ISO rule. In the Gulf the week runs
+   Sunday to Saturday, so on a Monday morning a lead that came in on Sunday
+   was not in "this week" — the board emptied and the filter looked broken
+   when it was only disagreeing about where the week begins. */
+const WEEK_STARTS = [
+  ['sun', 'Sunday', 'Sunday to Saturday — the Gulf calendar week'],
+  ['mon', 'Monday', 'Monday to Sunday — the ISO week, and the UAE working week'],
+  ['sat', 'Saturday', 'Saturday to Friday — keeps the weekend together']
+];
+const weekStartKey = () => {
+  const v = String((DB.config && DB.config.weekStart) || 'sun').toLowerCase();
+  return WEEK_STARTS.some(x => x[0] === v) ? v : 'sun';
+};
+function weekStartCard() {
+  const c = card('The working week', 'Which day a week begins on, everywhere in the tool');
+  const cur = weekStartKey();
+  const seg = el('div', { class: 'seg' });
+  WEEK_STARTS.forEach(([v, label, hint]) => seg.appendChild(el('button', {
+    class: cur === v ? 'on' : '', text: label, title: hint,
+    onclick: () => {
+      if (isReadOnly()) return toast('You have read-only access', 'err');
+      DB.config.weekStart = v; DB.config._v = now();
+      SYNC.dirty.add('config'); touch('config'); render();
+      toast('A week now starts on ' + label, 'ok');
+    } })));
+  c.body.appendChild(seg);
+  const r = weekRange(weekKey());
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6',
+    html: `This week is <b>${esc(fdate(r.from, 'long'))}</b> to <b>${esc(fdate(r.to, 'long'))}</b>. ` +
+      'It sets "this week" on the dashboard, the marketing-lead filters and the weekly ' +
+      'Sales Commitment. Commitments already picked keep the week they were filed under; ' +
+      'only the dates that week covers move.' }));
+  return c.node;
+}
+
 function routingSettingsCard() {
   const c = card('Lead routing & the calling agent',
     'Where a new lead goes, what it opens in the pipeline, and the key an outside agent uses to reach it');
