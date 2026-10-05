@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.48.0';
+const VERSION = '1.49.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -12555,8 +12555,17 @@ function leadScope() {
   const me = currentOwnerId();
   let rows = live('leads');
   if (!leadSeeAll()) rows = rows.filter(l => String(l.assignee) === me || String(l.owner) === me);
+  /* ASSIGNEE ONLY — NOT `owner`.
+     `owner` is whoever created or imported the lead, which for a sheet sync
+     is one person for the entire file. Matching it here meant picking a rep
+     returned every lead they had ever imported, assigned to anyone: the board
+     filled with other reps' names while their own avatars sat on the cards.
+     The permission line above still honours `owner`, because that is a
+     different question — what a rep is allowed to see, not whose work it is.
+     The summary's by-rep table has always counted by assignee; this agrees
+     with it. */
   if (VIEW.rep && VIEW.rep !== 'all')
-    rows = rows.filter(l => String(l.assignee) === String(VIEW.rep) || String(l.owner) === String(VIEW.rep));
+    rows = rows.filter(l => String(l.assignee) === String(VIEW.rep));
   return rows;
 }
 
