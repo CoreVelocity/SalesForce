@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.46.0';
+const VERSION = '1.47.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -12509,10 +12509,20 @@ function leadNotify(l, kind) {
 
 /* ---------------------------------------------------- visibility */
 const leadSeeAll = () => isAdmin() || myRole() === 'office';
+/* WHO THE SCREEN IS ABOUT.
+   Two different questions used to be confused here. leadSeeAll() answers "is
+   this person allowed to see everyone's leads" — a permission. VIEW.rep is the
+   picker in the top bar, and it answers "whose leads am I looking at right
+   now" — a filter the whole app obeys. Marketing Leads was reading the first
+   and ignoring the second, so picking a rep up there changed the deals, the
+   dashboard and the forecast but left the lead summary showing all 309 leads
+   for the whole team. */
 function leadScope() {
   const me = currentOwnerId();
   let rows = live('leads');
   if (!leadSeeAll()) rows = rows.filter(l => String(l.assignee) === me || String(l.owner) === me);
+  if (VIEW.rep && VIEW.rep !== 'all')
+    rows = rows.filter(l => String(l.assignee) === String(VIEW.rep) || String(l.owner) === String(VIEW.rep));
   return rows;
 }
 
@@ -13849,7 +13859,11 @@ function viewLeads(root) {
      the number you clicked and the number you land on are the same one. */
   if (f.period && f.period !== 'all') {
     const b = leadPeriodBounds(f.period);
-    rows = rows.filter(l => inPeriod(String(l.createdAt || '').slice(0, 10), b));
+    /* leadDay(), not a raw slice of the timestamp: a lead that arrives at
+       01:00 in Dubai is stored as the previous day in UTC, and slicing the
+       string filed it under yesterday. The summary's day-by-day chart has
+       always used leadDay; this now agrees with it. */
+    rows = rows.filter(l => inPeriod(leadDay(l), b));
   }
 
   /* Overdue first, then priority, then whatever moved most recently — the
@@ -13869,6 +13883,14 @@ function viewLeads(root) {
       seg.appendChild(el('button', { class: mode === v ? 'on' : '', text: lbl,
         onclick: () => { VIEW.leadView = v; render(); } })));
     root.appendChild(seg);
+    /* AN EMPTY BOARD HAS TO SAY WHY IT IS EMPTY.
+       Nine columns of "Drag a lead here" is what a filter that matched nothing
+       used to look like, and it reads as a broken screen rather than an
+       answer. Today and This week filter on the day a lead ARRIVED, so on a
+       Monday morning they are legitimately empty while This month is full —
+       which is exactly what it was mistaken for. Say so, say how many the
+       wider windows hold, and offer them. */
+    if (mode === 'board' && !rows.length && base.length) root.appendChild(leadWhyEmpty(f, base));
     if (mode === 'board') return leadBoard(root, rows);
   }
 
@@ -13946,6 +13968,31 @@ function viewLeads(root) {
   root.appendChild(c.node);
 }
 
+
+/* What the filters have taken out, in words, with the way back. */
+function leadWhyEmpty(f, base) {
+  const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
+  n.appendChild(el('span', { class: 'ic', html: ico('warn', 18) }));
+  const per = f.period && f.period !== 'all' ? leadPeriodBounds(f.period) : null;
+  const inPer = p => base.filter(l => inPeriod(leadDay(l), leadPeriodBounds(p))).length;
+  const other = Object.keys(f).filter(k => k !== 'period' && f[k]).length;
+  const why = el('div', { style: 'flex:1;line-height:1.55' });
+  why.appendChild(el('b', { text: per
+    ? `No lead arrived ${per.label}`
+    : 'Nothing matches these filters' }));
+  why.appendChild(el('div', { class: 'sub', html: per
+    ? `The period filters on the day a lead <b>arrived</b>, not on what is due. ` +
+      `This week holds <b>${inPer('w0')}</b>, this month <b>${inPer('m0')}</b>, all time <b>${base.length}</b>.` +
+      (other ? ' Other filters are on as well.' : '')
+    : `There ${base.length === 1 ? 'is' : 'are'} <b>${base.length}</b> lead${base.length === 1 ? '' : 's'} behind the filters.` }));
+  n.appendChild(why);
+  if (per) n.appendChild(el('button', { class: 'btn sm', text: 'This month',
+    onclick: () => { f.period = 'm0'; VIEW.page = {}; render(); } }));
+  n.appendChild(el('button', { class: 'btn sm', text: 'Clear the filters',
+    onclick: () => { VIEW.leadFilter = {}; VIEW.page = {}; render(); } }));
+  return n;
+}
+
 /* One bar, both tabs. The two lists want the same questions asked of them —
    which rep, which emirate, which status — so they get the same controls. */
 /* "It is hard to tell which one is new" — with a few hundred leads in the list
@@ -13957,6 +14004,11 @@ const LEAD_LIST_PERIODS = [['d0', 'Today'], ['w0', 'This week'], ['m0', 'This mo
 const LEAD_PERIOD_SAME = { m: 'm0', w: 'w0', d: 'd0' };
 function leadPeriodSeg(f) {
   const cur = LEAD_PERIOD_SAME[f.period] || f.period || 'all';
+  /* "Today" beside a card that says "due today" was read as a due filter.
+     It is an arrival filter, so the buttons say so. */
+  const wrap = el('div', { style: 'display:flex;align-items:center;gap:var(--sp-2)' });
+  wrap.appendChild(el('span', { style: 'font-size:var(--fs-xs);color:var(--ink-3);font-weight:600',
+    title: 'The day the lead came in, not the day something is due on it', text: 'Arrived' }));
   const seg = el('div', { class: 'seg' });
   LEAD_LIST_PERIODS.forEach(([v, lbl]) => seg.appendChild(el('button', {
     class: cur === v ? 'on' : '', text: lbl,
@@ -13969,7 +14021,8 @@ function leadPeriodSeg(f) {
   seg.appendChild(el('button', { class: other ? 'on' : '',
     html: ico('cal', 12) + ' ' + esc(other ? leadPeriodBounds(cur).label : 'Custom…'),
     title: 'Pick the dates yourself', onclick: () => leadPeriodPicker(f) }));
-  return seg;
+  wrap.appendChild(seg);
+  return wrap;
 }
 function leadPeriodPicker(f) {
   const b = leadPeriodBounds(f.period === 'all' || !f.period ? 'm0' : f.period);
@@ -14022,10 +14075,20 @@ function leadFilterBar(f, base, lost) {
     v => { f.recon = v || null; render(); }, 190));
 
   if (leadSeeAll()) {
-    const reps = activeOwnersAll().filter(o => base.some(l => String(l.assignee) === o.id));
-    pk.appendChild(selectFilter('Rep', f.rep || '',
+    /* ONE REP, TWO PLACES TO SET IT.
+       This used to be a second, private rep filter beside the one in the top
+       bar: set one and the other disagreed, and the summary obeyed neither.
+       It now reads and writes the same VIEW.rep the rest of the app uses.
+       "Nobody yet" is the exception - it is not a rep, so it stays a filter of
+       its own and clears the rep while it is on. */
+    const reps = activeOwnersAll().filter(o => live('leads').some(l => String(l.assignee) === o.id));
+    pk.appendChild(selectFilter('Rep', f.rep === '__none' ? '__none' : (VIEW.rep === 'all' ? '' : VIEW.rep),
       [['', 'All reps'], ['__none', 'Nobody yet']].concat(reps.map(o => [o.id, o.name])),
-      v => { f.rep = v || null; render(); }, 165));
+      v => {
+        if (v === '__none') { f.rep = '__none'; VIEW.rep = 'all'; }
+        else { f.rep = null; VIEW.rep = v || 'all'; }
+        VIEW.page = {}; renderTopControls(); render();
+      }, 165));
   }
   pk.appendChild(selectFilter('Type', f.type || '',
     [['', 'B2B and B2C'], ['B2B', 'B2B only'], ['B2C', 'B2C only']],
@@ -15528,8 +15591,10 @@ function viewLeadSummary(root, all) {
     tbl.appendChild(gr);
     mine.forEach(o => {
       const mineRows = rows.filter(l => String(l.assignee) === o.id);
+      /* the same rep the top bar holds, so the two never disagree */
       const r = el('button', { class: 'rrow', onclick: () => {
-        VIEW.leadTab = 'active'; VIEW.leadFilter = { rep: o.id }; render(); } });
+        VIEW.leadTab = 'active'; VIEW.leadFilter = {}; VIEW.rep = o.id;
+        renderTopControls(); render(); } });
       r.appendChild(el('span', { class: 'who' }, [
         el('span', { class: 'av sm', style: `background:${ownerColor(o.id)}`, text: initials(o.name) }),
         el('span', { class: 'nm', text: o.name })
