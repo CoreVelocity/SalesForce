@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.50.0';
+const VERSION = '1.51.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -12466,6 +12466,41 @@ function leadToDeal(l, opt) {
 function leadSave(l) { l.updatedAt = new Date().toISOString(); return upsert('leads', l); }
 const getLead = id => live('leads').find(l => l.id === String(id));
 
+/* ================================================================
+   ONE PERSON, ONE RECORD — EVEN WHEN TWO BROWSERS CREATE THEM AT ONCE
+   ================================================================
+   The sheet sync polls every fifteen minutes in EVERY browser that has the
+   tool open. Each one reads the sheet, compares it against its own copy of
+   the leads, and creates whatever it thinks is new — and a lead's id used to
+   be a timestamp plus five random characters. So one new row in the sheet
+   became three records with three different ids, created by three people's
+   browsers within the same few minutes, and because each browser also ran the
+   rotation, each copy went to a different rep. That is why one customer was
+   being called by two.
+
+   The records merge on id, so the answer is for the id to come from the lead
+   rather than from chance: every browser computes the same one and the merge
+   collapses them into a single record without anybody coordinating anything.
+
+   Only for a lead with an email or a phone, which is what makes a key strong
+   enough to bet an identity on. Two different people called "Ahmed" with
+   neither would otherwise become one person, and that is a worse bug than the
+   one being fixed — those keep a random id and show up in Duplicates for a
+   human to judge. */
+function leadIdFor(l) {
+  const k = leadKey(l);
+  if (!/^[ep]:/.test(k)) return null;              // name-only: not safe to key on
+  /* FNV-1a, twice over, for 64 bits of spread — enough that a collision in a
+     few thousand leads is not a thing that happens. */
+  let a = 0x811c9dc5, b = 0x01000193;
+  for (let i = 0; i < k.length; i++) {
+    const c = k.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x85ebca6b) >>> 0;
+  }
+  return 'L' + a.toString(36) + b.toString(36);
+}
+
 function leadCreate(p, opt) {
   const o = opt || {};
   const l = {
@@ -12479,6 +12514,22 @@ function leadCreate(p, opt) {
     source: p.source || 'Manual', note: p.note || '', assignee: p.assignee || '',
     updates: []
   };
+  /* Before routing: if this person is already here under a key we trust, the
+     record that exists wins and nothing new is created. The caller's snapshot
+     of "what is already here" can be minutes old by the time it gets to this
+     line — another browser's sync may have landed in between. */
+  const fixed = leadIdFor(l);
+  if (fixed) {
+    const already = live('leads').find(x => x.id === fixed);
+    if (already) {
+      /* fill in anything the existing record was missing, leave the rest */
+      ['company','email','phone','address','emirate','model','demoAsk','note','source']
+        .forEach(f => { if (!already[f] && l[f]) already[f] = l[f]; });
+      leadSave(already);
+      return already;
+    }
+    l.id = fixed;
+  }
   if (!l.assignee) leadAutoAssign(l); else { l.region = l.region || leadRegionOf(l.address || l.note); l.routeNeeded = false; }
   l.touches = leadTouches(l);
   const saved = leadSave(l);
@@ -13789,7 +13840,8 @@ function leadDupes(rows) {
 }
 /* Keep the oldest — it holds the history — and fold everything the others
    learned into it before they go. */
-function leadMerge(group) {
+function leadMerge(group, opt) {
+  const _o = opt || {};
   const keep = group[0], rest = group.slice(1);
   batch(() => {
     rest.forEach(o => {
@@ -13818,6 +13870,7 @@ function leadMerge(group) {
     leadAddUpdate(keep, `Merged ${rest.length} duplicate${rest.length === 1 ? '' : 's'} into this lead`, true);
     leadSave(keep);
   });
+  if (_o.quiet) return;
   render();
   toast(`Merged ${rest.length} duplicate${rest.length === 1 ? '' : 's'}`, 'ok');
 }
@@ -15750,12 +15803,49 @@ function viewLeadDupes(root, all) {
   c.body.appendChild(el('p', { style: 'margin:0 0 var(--sp-3);line-height:1.6;color:var(--ink-2)', html:
     'Merging keeps the <b>oldest</b> one — it holds the history — and folds the others into it: any field it was ' +
     'missing, every update, every step already sent, and the furthest-along stage. The others are then removed.' }));
+
+  /* A sync that ran in several browsers at once made these by the dozen, and
+     clicking through sixty sets one at a time is not a fix anybody performs.
+     The sets matched on an email or a phone are safe to do in one go; the
+     ones matched on a name alone are not, so they are left for a person. */
+  /* Safe to do unattended only when the match is an email or a phone. A set
+     grouped on leadKey "n:<name>|<company>" is NOT flagged weak — it comes
+     out of the first pass like any other — so filtering on that flag alone
+     would have merged two different people called the same thing. Key on the
+     key. */
+  const strongKey = g => /^[ep]:/.test(String(g.key || ''));
+  const strong = groups.filter(strongKey);
+  if (!isReadOnly() && strong.length > 1) {
+    const n = strong.reduce((a, g) => a + g.rows.length - 1, 0);
+    const bar = el('div', { class: 'alert', style: 'margin:0 0 var(--sp-3)' });
+    bar.appendChild(el('span', { class: 'ic', html: ico('warn', 18) }));
+    bar.appendChild(el('div', { style: 'flex:1;line-height:1.55', html:
+      `<b>${strong.length} sets matched on an email or a phone number</b><div class="sub">` +
+      `Merging them all folds ${n} record${n === 1 ? '' : 's'} into the ${strong.length} oldest. ` +
+      (groups.length > strong.length
+        ? `The ${groups.length - strong.length} matched on a name alone are left for you — two people can share a name.`
+        : '') + '</div>' }));
+    bar.appendChild(el('button', { class: 'btn sm primary', text: `Merge all ${strong.length} sets`,
+      onclick: () => confirmDo(`Merge ${strong.length} sets`,
+        `${n} record${n === 1 ? '' : 's'} folded into the oldest of each set. Nothing matched on a name ` +
+        'alone is touched. This cannot be undone.', 'Merge them all', () => {
+          let done = 0;
+          batch(() => strong.forEach(g => { try { leadMerge(g.rows, { quiet: true }); done++; } catch (e) {} }));
+          render();
+          toast(`${done} set${done === 1 ? '' : 's'} merged`, 'ok');
+        }) }));
+    c.body.appendChild(bar);
+  }
   groups.slice(0, 60).forEach(g => {
     const box = el('div', { class: 'dupset' });
     const hd = el('div', { class: 'dh' });
     hd.appendChild(el('span', { class: 'nm', text: g.rows[0].name || 'Unnamed' }));
-    hd.appendChild(el('span', { class: 'tag ' + (g.weak ? 'warn' : ''), text: g.weak
-      ? 'same name only' : g.key.startsWith('e:') ? 'same email' : 'same phone' }));
+    /* a name-only group arrives from the first pass without the weak flag,
+       and used to be labelled "same phone" — which it is not */
+    const byEmail = String(g.key || '').startsWith('e:');
+    const byPhone = String(g.key || '').startsWith('p:');
+    hd.appendChild(el('span', { class: 'tag ' + (byEmail || byPhone ? '' : 'warn'),
+      text: byEmail ? 'same email' : byPhone ? 'same phone' : 'same name only' }));
     hd.appendChild(el('span', { class: 'sub', text: `${g.rows.length} records` }));
     hd.appendChild(el('div', { style: 'flex:1' }));
     if (!isReadOnly()) hd.appendChild(el('button', { class: 'btn sm primary', text: 'Merge into the oldest',
