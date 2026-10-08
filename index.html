@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.49.0';
+const VERSION = '1.50.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -11156,6 +11156,28 @@ function requestText(r) {
     `\nApprove or decline here:\n${requestLink(r)}\n`;
 }
 
+/* ================================================================
+   WHO THE TEAM'S EMAIL COMES FROM
+   ================================================================
+   Every mail this tool sends went out through /me/sendMail — the mailbox of
+   whoever happened to have the CRM open. The agency sheet syncs in whichever
+   browser is running, so a new lead's handover arrived from Gladys, or from
+   whichever rep had the tab open, rather than from one address the team
+   recognises. Nobody chose that; it is just what /me means.
+
+   Set an address here and the mail goes out through /users/<that one> so it
+   always comes from the same place. Microsoft requires the signed-in person
+   to hold Send As on that mailbox — an Exchange admin grants it once, and a
+   shared mailbox is the usual home for it. If they do not hold it, Graph
+   refuses and we fall back to their own mailbox rather than dropping a
+   handover on the floor: a mail from the wrong address beats no mail. */
+const mailFrom = () => String((DB.config && DB.config.mailFrom) || '').trim();
+const myMail = () => String((AUTH.user && AUTH.user.username) || '').trim();
+const MAIL_DENIED = /ErrorSendAsDenied|SendAsDenied|ErrorAccessDenied|MailboxNotEnabled/i;
+/* what the last send actually did, so the UI can stop guessing */
+let MAIL_LAST = null;
+
+const mailLastSend = () => MAIL_LAST;
 async function graphSendMail(to, subject, html, cc, files) {
   const tok = await mailToken();
   const addr = a => ({ emailAddress: { address: String(a).trim() } });
@@ -11175,11 +11197,27 @@ async function graphSendMail(to, subject, html, cc, files) {
   if ((files || []).length) message.attachments = files.map(f => ({
     '@odata.type': '#microsoft.graph.fileAttachment',
     name: f.name, contentType: f.contentType || 'application/pdf', contentBytes: f.bytes }));
-  const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+  const shared = mailFrom();
+  const useShared = !!shared && shared.toLowerCase() !== myMail().toLowerCase();
+  const post = who => fetch(
+    who ? `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(who)}/sendMail`
+        : 'https://graph.microsoft.com/v1.0/me/sendMail', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, saveToSentItems: true })
   });
+
+  let res = await post(useShared ? shared : null);
+  MAIL_LAST = { from: useShared ? shared : (myMail() || 'me'), fellBack: false };
+  /* Send As not granted yet: send it from them instead, and say so, rather
+     than silently not telling a rep about their lead. */
+  if (!res.ok && useShared) {
+    const first = (await res.clone().text().catch(() => '')).slice(0, 400);
+    if (res.status === 403 || MAIL_DENIED.test(first)) {
+      res = await post(null);
+      MAIL_LAST = { from: myMail() || 'me', fellBack: true, wanted: shared };
+    }
+  }
   if (!res.ok) {
     const raw = (await res.text()).slice(0, 400);
     /* Graph's own words are no use to a rep. These three are the ones that
@@ -11187,7 +11225,9 @@ async function graphSendMail(to, subject, html, cc, files) {
     let why = `Graph ${res.status}`;
     if (res.status === 403) why = 'your Microsoft account has not been allowed to send mail from this app — an admin grants Mail.Send once';
     else if (res.status === 401) why = 'the sign-in needs refreshing — sign out and back in';
-    else if (/ErrorSendAsDenied|SendAsDenied/i.test(raw)) why = 'this account is not allowed to send as that address';
+    else if (MAIL_DENIED.test(raw)) why = useShared
+      ? `your account is not allowed to send as ${shared} — an Exchange admin grants Send As on that mailbox`
+      : 'this account is not allowed to send as that address';
     else if (res.status === 429) why = 'Microsoft is rate-limiting the mailbox — try again in a minute';
     throw new Error(why);
   }
@@ -19540,6 +19580,9 @@ function viewSettings(root) {
   /* ---- which day a week starts on ---- */
   g.appendChild(weekStartCard());
 
+  /* ---- the address every email the tool sends comes from ---- */
+  g.appendChild(mailFromCard());
+
   /* ---- how a new lead is routed, and who outside may work it ---- */
   g.appendChild(routingSettingsCard());
 
@@ -21091,6 +21134,76 @@ const weekStartKey = () => {
   const v = String((DB.config && DB.config.weekStart) || 'sun').toLowerCase();
   return WEEK_STARTS.some(x => x[0] === v) ? v : 'sun';
 };
+
+/* ================================================================
+   WHO THE TEAM'S EMAIL COMES FROM
+   ================================================================
+   Microsoft sends from whoever is signed in. The agency sheet syncs in
+   whichever browser is open, so a new lead's handover went out from Gladys,
+   or from whichever rep had the tab up — never from one address the team
+   recognises. Name an address here and every mail goes out through it.    */
+function mailFromCard() {
+  const c = card('Who the team\u2019s email comes from',
+    'Lead handovers, deal assignments, quotes and approvals — all from one address');
+  const cur = String(DB.config.mailFrom || '').trim();
+  const inp = el('input', { class: 'inp', type: 'email', value: cur,
+    placeholder: 'crm@core-velocity.com — leave empty to send from each person\u2019s own mailbox' });
+  const status = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6' });
+
+  const paint = () => {
+    const v = String(DB.config.mailFrom || '').trim();
+    status.innerHTML = v
+      ? `Everything goes out as <b>${esc(v)}</b>. Each person who sends needs <b>Send As</b> on ` +
+        'that mailbox, which an Exchange admin grants once — a shared mailbox is the usual home ' +
+        'for it. Anyone without it still gets their mail delivered, from their own address, and ' +
+        'the lead records that it happened.'
+      : 'Mail goes out from whoever is signed in at the time. Because the agency sheet syncs in ' +
+        'whichever browser happens to be open, that is effectively whoever had the tool up — ' +
+        'which is why handovers arrive from different people.';
+    status.style.color = v ? 'var(--ink-2)' : 'var(--warning)';
+  };
+
+  c.body.appendChild(fld('Send everything from', inp,
+    'One address for the whole team. Leave it empty to keep sending from each person\u2019s own mailbox.'));
+  const row = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' });
+  row.appendChild(el('button', { class: 'btn primary', text: 'Save', onclick: () => {
+    if (isReadOnly()) return toast('You have read-only access', 'err');
+    const v = inp.value.trim();
+    if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return toast('That is not an email address', 'err');
+    DB.config.mailFrom = v; DB.config._v = now();
+    SYNC.dirty.add('config'); touch('config'); render();
+    toast(v ? 'Everything now sends from ' + v : 'Back to sending from each person\u2019s own mailbox', 'ok');
+  } }));
+  /* The only way to know whether Send As is actually granted is to send one. */
+  row.appendChild(el('button', { class: 'btn', html: ico('mail', 14) + ' Send a test to me',
+    title: 'Sends one email to you through whatever is set above, and says which mailbox it actually left from',
+    onclick: () => mailFromTest() }));
+  c.body.appendChild(row);
+  c.body.appendChild(status);
+  paint();
+  return c.node;
+}
+async function mailFromTest() {
+  const me = String((AUTH.user && AUTH.user.username) || '').trim();
+  if (!me) return toast('Sign in with Microsoft first', 'err');
+  const want = String(DB.config.mailFrom || '').trim();
+  toast('Sending…', '');
+  try {
+    await graphSendMail([me], 'CoreV SalesForce \u00b7 sender test',
+      '<p>This is the test from <b>Settings \u2192 Who the team\u2019s email comes from</b>.</p>' +
+      `<p>It was meant to come from <b>${esc(want || 'your own mailbox')}</b>. ` +
+      'Look at the From line above to see where it actually came from.</p>');
+    const r = mailLastSend();
+    if (r && r.fellBack) {
+      toast(`Sent, but from ${r.from} — ${r.wanted} refused. An admin needs to grant you Send As on it.`, 'err');
+    } else {
+      toast('Sent from ' + ((r && r.from) || me) + ' — check your inbox', 'ok');
+    }
+  } catch (e) {
+    toast('Could not send it: ' + String(e.message || e).slice(0, 140), 'err');
+  }
+}
+
 function weekStartCard() {
   const c = card('The working week', 'Which day a week begins on, everywhere in the tool');
   const cur = weekStartKey();
