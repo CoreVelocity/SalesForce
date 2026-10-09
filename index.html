@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.51.0';
+const VERSION = '1.52.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -12827,6 +12827,32 @@ function leadDemoAsk(text) {
   if (/\bfree\b|facility|showroom|at our place|in our/.test(t)) return 'free';
   return '';
 }
+/* ---------------------------------------------------- the name as typed
+   An agency form has one box for a name and people put whatever they like in
+   it: "Saloua Tiar | Entrepreneur | Business Consultant" is one person with
+   their own job title after their name. The person is the part before the
+   first separator; the rest is a title, which already has somewhere to live. */
+function splitNameTitle(raw) {
+  const s = String(raw || '').replace(/\s+/g, ' ').trim();
+  const i = s.search(/\s*[|/·•]\s*/);
+  if (i <= 0) return { name: s, title: '' };
+  const name = s.slice(0, i).trim();
+  const title = s.slice(i).replace(/^\s*[|/·•]\s*/, '').replace(/\s*[|/·•]\s*/g, ' · ').trim();
+  return name ? { name, title } : { name: s, title: '' };
+}
+/* "Linda Khalifa Linda Khalifa". The sheet's one Full Name column was mapped
+   to both the first-name and the last-name field, so every name arrived
+   twice over. Only undo it when the repeated part is more than one word —
+   "Ali Ali" is a name somebody actually has. */
+function undoubleName(raw) {
+  const t = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!t || t.indexOf(' ') < 0) return t;
+  const half = t.length >> 1;
+  const a = t.slice(0, half).trim(), b = t.slice(half).trim();
+  if (a && a.indexOf(' ') > 0 && a.toLowerCase() === b.toLowerCase()) return a;
+  return t;
+}
+
 function leadNormalise(o) {
   o = o || {};
   const blob = [o.note, o.phone, o.email, o.address, o.source, o.company].filter(Boolean).join('\n');
@@ -13067,6 +13093,16 @@ let SHEET_BUSY = 0;
 function sheetJunk(l) {
   const name = String(l.name || '').trim();
   if (!name && !l.phone && !l.email) return 'nothing to identify it';
+  /* A LEAD WITH A PHONE NUMBER IS A LEAD, WHATEVER IS IN THE NAME BOX.
+     These rules are for the wreckage an agency sheet accumulates — blank
+     rows, repeated headings, half-filled forms. They were also throwing away
+     real people: "Saloua Tiar | Entrepreneur | Business Consultant" doubled
+     by a column mapping went over ninety characters and was dropped, phone
+     number and all. Something callable is never junk; its name is tidied
+     instead. */
+  const callable = String(l.phone || '').replace(/\D/g, '').length >= 7 ||
+                   /@/.test(String(l.email || ''));
+  if (callable) return null;
   if (name.length > 90) return 'the name is a whole row of text';
   if ((name.match(/,/g) || []).length >= 3) return 'the name is full of commas';
   if (/^[\s,;|-]*$/.test(name) && !l.phone && !l.email) return 'the name is punctuation';
@@ -15223,14 +15259,27 @@ function migRowToLead(src, map) {
     return flat[k] !== undefined ? flat[k] : migGet(src, k); };
   const g = f => { const v = rawOf(f);
     return v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v)); };
-  const name = [g('name'), g('name2')].filter(Boolean).join(' ').trim();
+  /* ONE COLUMN MUST NOT FILL BOTH NAME FIELDS.
+     The agency sheet has a single "Full Name" column, and it had been mapped
+     to the first-name field AND the last-name field — so every name arrived
+     written out twice ("Linda Khalifa Linda Khalifa"), and a name with a job
+     title after it doubled past the junk filter's length limit and was
+     dropped altogether. If the two fields point at the same column, or carry
+     the same text, the second one is not a surname. */
+  const n1 = g('name'), n2 = g('name2');
+  const sameColumn = map.name && map.name2 && String(map.name) === String(map.name2);
+  const joined = [n1, (sameColumn || !n2 || n2.trim().toLowerCase() === n1.trim().toLowerCase())
+    ? '' : n2].filter(Boolean).join(' ').trim();
+  const parted = splitNameTitle(undoubleName(joined));
+  const name = parted.name;
   const l = leadNormalise({ name, company: g('company'), phone: g('phone'), email: g('email'),
     address: g('address'), source: g('source') || migSourceName(),
     note: g('note'), type: g('type'), language: g('language'), model: g('model') });
   /* A B2B list carries the person's job title, and "owner" or "MD" is the
      first thing a rep wants to see. It has nowhere of its own to live, so it
      goes at the top of the note rather than being thrown away. */
-  const title = g('title').trim();
+  /* the sheet's own title column, else whatever was typed after the name */
+  const title = (g('title').trim() || parted.title).trim();
   if (title && !/^(na|n\/a|none|-)$/i.test(title))
     l.note = 'Job title: ' + title + (l.note ? ' \u00b7 ' + l.note : '');
   l.stage = migStage(g('stage'));
@@ -21695,6 +21744,34 @@ function runMigrationsInner() {
   });
   if (p) console.log(`Priority normalised on ${p} deals`);
   if (c || p) SYNC.dirty.add('deals');
+
+  /* EVERY NAME WRITTEN OUT TWICE.
+     The agency sheet's single "Full Name" column had been mapped to both the
+     first-name and the last-name field, so the whole lead list came in as
+     "Linda Khalifa Linda Khalifa". The mapping is fixed, but the records it
+     already made are still here. Undo it once, on the leads and on the
+     contacts they created — only where the repeated part is more than one
+     word, so a name somebody really has is left alone. Anything typed after
+     the name, like a job title, is moved into the note where titles live. */
+  let nf = 0, cf = 0;
+  DB.leads.forEach(l => {
+    if (l._del || !l.name) return;
+    const part = splitNameTitle(undoubleName(l.name));
+    if (!part.name || part.name === l.name) return;
+    if (part.title && !/job title:/i.test(String(l.note || '')))
+      l.note = 'Job title: ' + part.title + (l.note ? ' \u00b7 ' + l.note : '');
+    l.name = part.name; nf++;
+  });
+  if (nf) {
+    DB.contacts.forEach(ct => {
+      if (ct._del || !ct.isLead || !ct.name) return;
+      const fixed = splitNameTitle(undoubleName(ct.name)).name;
+      if (fixed && fixed !== ct.name) { ct.name = fixed; cf++; }
+    });
+    console.log(`Doubled names fixed on ${nf} leads and ${cf} contacts`);
+    SYNC.dirty.add('leads');
+    if (cf) SYNC.dirty.add('contacts');
+  }
   // the running order the team asked for, applied once and only into a blank
   const teamFix = migrateTeamOrder();
   if (teamFix.changed) console.log(`Sales regions set on ${teamFix.changed} people`);
