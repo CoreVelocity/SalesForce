@@ -2297,7 +2297,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.52.0';
+const VERSION = '1.53.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -6359,7 +6359,7 @@ function viewContacts(root) {
   tl.appendChild(t('Contacts', scoped.length, null, 'user',
     VIEW.rep === 'all' ? 'in the current period' : ownerName(VIEW.rep)));
   tl.appendChild(t('Missing email', noEmail, 'noEmail', 'mail', pct(noEmail, scoped.length) + '% of these contacts'));
-  tl.appendChild(t('Missing phone', noPhone, 'noPhone', 'phone', pct(noPhone, scoped.length) + '% of these contacts'));
+  tl.appendChild(t('No phone number', noPhone, 'noPhone', 'phone', pct(noPhone, scoped.length) + '% — optional, worth filling in'));
   tl.appendChild(t('No lead status', noStatus, 'noStatus', 'flag', 'not yet staged'));
   tl.appendChild(t('No way to reach them', noReach, null, 'warn', 'no email and no phone'));
   root.appendChild(tl);
@@ -6394,8 +6394,10 @@ function viewContacts(root) {
         r: c => { const co = getCo(c.companyId); return co ? esc(co.name) : '<span class="cellsub">—</span>'; } },
       { h: 'Email', v: c => c.email || '', r: c => c.email
           ? `<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>` : '<span class="tag warn">missing</span>' },
+      /* a phone number is optional, so its absence is a gap to fill when
+         convenient, not a fault with the record */
       { h: 'Phone', v: c => c.phone || '', r: c => c.phone
-          ? `<span class="mono">${esc(c.phone)}</span>` : '<span class="tag warn">missing</span>' },
+          ? `<span class="mono">${esc(c.phone)}</span>` : '<span class="cellsub">—</span>' },
       { h: 'Lead status', v: c => { const i = leadStages().findIndex(x => x.id === c.leadStatus); return i < 0 ? 99 : i; },
         r: c => leadStatusCell(c) },
       { h: 'Owner', v: c => ownerName(c.ownerId), r: c => ownerCell(c.ownerId) },
@@ -6489,7 +6491,7 @@ function contactCard(c) {
   if (co) m.appendChild(el('span', { text: co.name, title: co.name }));
   else if (c.jobTitle) m.appendChild(el('span', { text: c.jobTitle }));
   if (!c.email) m.appendChild(el('span', { class: 'tag warn', style: 'font-size:9px;padding:1px 5px', text: 'no email' }));
-  if (!c.phone) m.appendChild(el('span', { class: 'tag warn', style: 'font-size:9px;padding:1px 5px', text: 'no phone' }));
+  if (!c.phone) m.appendChild(el('span', { class: 'tag', style: 'font-size:9px;padding:1px 5px', text: 'no phone' }));
   m.appendChild(el('span', { class: 'avatar', style: `background:${ownerColor(c.ownerId)};width:18px;height:18px;font-size:8px;margin-left:auto;flex:none`,
     text: initials(ownerName(c.ownerId)), title: ownerName(c.ownerId) }));
   n.appendChild(m);
@@ -7813,9 +7815,9 @@ function editContact(c, pre) {
   const cp = coPicker(c.companyId);
   const body = el('div');
   body.appendChild(el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-3);font-size:var(--fs-sm);line-height:1.55',
-    text: 'Name, email and phone are all required — a contact you cannot reach is one nobody can work.' }));
+    text: 'Name and email are required. A phone number is optional, but add it when you have one — it is what gets the contact called.' }));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('First name *', f.firstName), fld('Last name *', f.lastName) ]));
-  body.appendChild(el('div', { class: 'field-row' }, [ fld('Email *', f.email), fld('Phone *', f.phone) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [ fld('Email *', f.email), fld('Phone', f.phone) ]));
   body.appendChild(fld('Job title', f.jobTitle));
   body.appendChild(fld('Company', cp.node));
   body.appendChild(el('div', { class: 'field-row' }, [ fld('City', f.city), fld('Country', f.country) ]));
@@ -7827,9 +7829,13 @@ function editContact(c, pre) {
     el('div', { style: 'flex:1' }),
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
     el('button', { class: 'btn primary', text: isNew ? 'Create' : 'Save', onclick: () => {
-      /* A contact nobody can reach is a contact nobody works, so the four
-         fields that make one usable are required on the form. Records that
-         came in from HubSpot short of them are left alone until edited. */
+      /* Name and email are required — without them there is no contact to
+         speak of. The phone number is optional: plenty of real contacts come
+         in from a web form or a sheet with only an email, and refusing to
+         save them meant they lived nowhere. If one IS typed it still has to
+         be dialable, so a half-entered number cannot be saved. Records that
+         came in from HubSpot short of any of this are left alone until
+         edited. */
       const problems = [];
       const mark = (node, bad) => node.style.borderColor = bad ? 'var(--critical)' : '';
       const first = f.firstName.value.trim(), last = f.lastName.value.trim();
@@ -7839,9 +7845,9 @@ function editContact(c, pre) {
       const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
       mark(f.email, !emailOk);
       if (!email) problems.push('email'); else if (!emailOk) problems.push('a valid email');
-      const phoneOk = phone.replace(/[^0-9]/g, '').length >= 7;
+      const phoneOk = !phone || phone.replace(/[^0-9]/g, '').length >= 7;
       mark(f.phone, !phoneOk);
-      if (!phone) problems.push('phone'); else if (!phoneOk) problems.push('a usable phone number');
+      if (!phoneOk) problems.push('a usable phone number');
       if (problems.length) {
         const firstBad = [f.firstName, f.lastName, f.email, f.phone].find(n => n.style.borderColor);
         if (firstBad) firstBad.focus();
