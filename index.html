@@ -1,3 +1,4 @@
+<!--corev-build:1.54.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2297,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.53.0';
+const VERSION = '1.54.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -11184,6 +11185,24 @@ const MAIL_DENIED = /ErrorSendAsDenied|SendAsDenied|ErrorAccessDenied|MailboxNot
 let MAIL_LAST = null;
 
 const mailLastSend = () => MAIL_LAST;
+/* Can the person at this browser actually send as the team address? */
+const canSendAsTeam = () => {
+  const s = mailFrom();
+  return !s || s.toLowerCase() === myMail().toLowerCase();
+};
+/* "Hold it rather than send it from the wrong person."
+   Falling back keeps the mail moving but puts a rep's name on it, which is
+   the thing Ahmed was trying to stop. With this on, a browser that cannot
+   send as the team address does not send at all — it leaves the handover
+   waiting for one that can. */
+const mailStrict = () => !!(DB.config && DB.config.mailFromStrict);
+/* Thrown when strict mode holds a mail back. Carries a flag rather than a
+   message to match on, so the caller can tell "held" from "broken". */
+function mailHeldError(shared) {
+  const e = new Error(`held — this browser cannot send as ${shared}, so it is waiting for one that can`);
+  e.held = true; e.wanted = shared;
+  return e;
+}
 async function graphSendMail(to, subject, html, cc, files) {
   const tok = await mailToken();
   const addr = a => ({ emailAddress: { address: String(a).trim() } });
@@ -11214,14 +11233,20 @@ async function graphSendMail(to, subject, html, cc, files) {
   });
 
   let res = await post(useShared ? shared : null);
-  MAIL_LAST = { from: useShared ? shared : (myMail() || 'me'), fellBack: false };
-  /* Send As not granted yet: send it from them instead, and say so, rather
-     than silently not telling a rep about their lead. */
+  MAIL_LAST = { from: useShared ? shared : (myMail() || 'me'), fellBack: false,
+    by: myMail() || 'me', ver: VERSION, at: new Date().toISOString() };
+  /* Send As not granted yet. Either send it from them and say so loudly, or
+     — if the team would rather wait than have the wrong name on it — hold it
+     for a browser that can. What is NOT allowed any more is sending it from
+     the wrong address and telling nobody, which is what made this look fixed
+     when it was not. */
   if (!res.ok && useShared) {
     const first = (await res.clone().text().catch(() => '')).slice(0, 400);
     if (res.status === 403 || MAIL_DENIED.test(first)) {
+      if (mailStrict()) throw mailHeldError(shared);
       res = await post(null);
-      MAIL_LAST = { from: myMail() || 'me', fellBack: true, wanted: shared };
+      MAIL_LAST = { from: myMail() || 'me', fellBack: true, wanted: shared,
+        by: myMail() || 'me', ver: VERSION, at: new Date().toISOString() };
     }
   }
   if (!res.ok) {
@@ -13228,7 +13253,11 @@ async function sheetSync(opt) {
     /* The rep has to be told. A lead that arrives, routes itself and then sits
        in a tool nobody has open is the same as a lead that never arrived. */
     const posted = await leadsEmailHandover(made, { quiet: !!o.quiet });
-    return { added, routed, rows, skipped, tabs: per, errors: errs, mailed: posted.sent };
+    /* And anything an earlier browser had to leave behind, if this one is
+       allowed to send as the team address. */
+    const freed = await leadsSendHeld({ quiet: !!o.quiet });
+    return { added, routed, rows, skipped, tabs: per, errors: errs,
+      mailed: posted.sent + freed.sent, held: posted.held || 0 };
   } finally { SHEET_BUSY = 0; }
 }
 
@@ -13496,6 +13525,13 @@ setInterval(() => {
   if (sheetAuto() && sheetTabList().length && canWrite && !isReadOnly()) sheetSync({ quiet: true });
 }, 15 * 60 * 1000);
 
+/* A handover that another browser had to hold back goes out as soon as
+   somebody who IS allowed to send as the team address has the tool open —
+   whether or not they are the one reading the sheet. */
+setInterval(() => {
+  if (canWrite && !isReadOnly()) leadsSendHeld({ quiet: false });
+}, 4 * 60 * 1000);
+
 /* ================================================================
    THE COLD DRIP
    A lead that has gone through all seven steps without answering is not
@@ -13734,6 +13770,52 @@ function leadsMailDigestBody(rows) {
 </div>`;
 }
 
+/* WHAT THE MAIL ACTUALLY WENT OUT AS.
+   Settings can say "everything goes out as ahmed@" and be wrong, because
+   Microsoft refuses the Send As and the tool quietly posts from the rep's own
+   mailbox instead. That refusal used to leave no trace at all: the lead said
+   "emailed", the rep's name was on it, and the only way to find out was to go
+   and look in Outlook. Every handover now records the address it really left
+   from, who was signed in, and which build of this tool sent it — so Settings
+   can show exactly who still needs the permission, and whose browser is
+   running an old copy. */
+function mailStamp(l, to, cc) {
+  const r = mailLastSend() || {};
+  l.mailedAt = r.at || new Date().toISOString();
+  l.mailedTo = (to || []).join(', ');
+  l.mailedCc = (cc || []).join(', ');
+  l.mailedFrom = r.from || null;
+  l.mailedBy = r.by || null;
+  l.mailedVer = r.ver || null;
+  l.mailHeld = null;
+  if (r.fellBack) leadAddUpdate(l,
+    `Handover sent from ${r.from} — Microsoft would not let that account send as ${r.wanted}. ` +
+    'An Exchange admin grants Send As on that mailbox once.', true);
+  return r;
+}
+/* The handover could not go out from the right address and the team chose to
+   wait rather than have the wrong name on it. Mark it and leave it. */
+function mailHold(l, e) {
+  l.mailHeld = { at: new Date().toISOString(), wanted: e.wanted || mailFrom(), by: myMail() || 'local' };
+  leadAddUpdate(l, `Handover is waiting to be sent as ${l.mailHeld.wanted} — this browser is not allowed to.`, true);
+  leadSave(l);
+}
+const leadsHeld = () => live('leads').filter(l => l.mailHeld && !l.mailedAt);
+/* Any browser signed in as the team address clears the backlog. Called after
+   a sheet sync and once on load, so a held handover goes out the moment
+   somebody who can send it opens the tool. */
+async function leadsSendHeld(opt) {
+  const o = opt || {};
+  if (!mailFrom() || !canSendAsTeam() || SYNC.mode !== 'onedrive') return { sent: 0 };
+  const waiting = leadsHeld();
+  if (!waiting.length) return { sent: 0 };
+  let sent = 0;
+  for (const l of waiting) if (await leadEmailRep(l.id, { quiet: true })) sent++;
+  if (sent && !o.quiet) { render(); toast(sent + ' held handover' + (sent === 1 ? '' : 's') +
+    ' sent as ' + mailFrom(), 'ok'); }
+  return { sent };
+}
+
 async function leadEmailRep(id, opt) {
   const o = opt || {};
   const l = getLead(id); if (!l) return false;
@@ -13756,13 +13838,26 @@ async function leadEmailRep(id, opt) {
     : `${rep ? rep.name.split(' ')[0] + ', this' : 'This'} lead is yours. Please contact them immediately.`;
   try {
     await graphSendMail(to.length ? to : cc, subject, leadMailBody(l, intro), to.length ? cc : []);
-    l.mailedAt = new Date().toISOString(); l.mailedTo = (to.length ? to : cc).join(', ');
-    l.mailedCc = to.length ? cc.join(', ') : '';
+    const r = mailStamp(l, to.length ? to : cc, to.length ? cc : []);
     leadSave(l);
-    if (!o.quiet) { render(); toast('Emailed ' + (to.length ? rep.name : cc[0]) +
-      (to.length && cc.length ? ' · copied to ' + cc.join(', ') : ''), 'ok'); }
+    if (!o.quiet) {
+      render();
+      /* A fallback is not a success worth a green tick — the whole point of
+         setting one address was that this stops happening. */
+      if (r.fellBack) toast(`Sent, but from ${r.from} — Microsoft will not let you send as ` +
+        `${r.wanted}. An Exchange admin grants Send As on that mailbox.`, 'err');
+      else toast('Emailed ' + (to.length ? rep.name : cc[0]) +
+        (to.length && cc.length ? ' · copied to ' + cc.join(', ') : '') +
+        (r.from && mailFrom() ? ' · from ' + r.from : ''), 'ok');
+    }
     return true;
   } catch (e) {
+    if (e && e.held) {
+      mailHold(l, e);
+      if (!o.quiet) { render(); toast('Held — this will go out as ' + (e.wanted || mailFrom()) +
+        ' from a browser that is allowed to send as it.', ''); }
+      return false;
+    }
     const why = String(e.message || e);
     leadAddUpdate(l, 'Could not email the handover: ' + why, true); leadSave(l);
     if (o.quiet) return false;
@@ -13787,7 +13882,7 @@ async function leadsEmailHandover(leads, opt) {
     const k = String(l.assignee);
     byRep.set(k, (byRep.get(k) || []).concat([l]));
   });
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, held = 0, wrongFrom = 0, cameFrom = null;
   for (const [repId, rows] of byRep) {
     const rep = DB.owners.find(x => x.id === repId);
     const mail = rep && String(rep.email || '').trim();
@@ -13795,25 +13890,36 @@ async function leadsEmailHandover(leads, opt) {
     if (!to.length && !cc.length) continue;
     try {
       if (rows.length <= 3) {
-        for (const l of rows) { if (await leadEmailRep(l.id, { quiet: true })) sent++; else failed++; }
+        for (const l of rows) {
+          if (await leadEmailRep(l.id, { quiet: true })) { sent++; if (l.mailedFrom !== mailFrom() && mailFrom()) { wrongFrom++; cameFrom = l.mailedFrom; } }
+          else if (l.mailHeld) held++;
+          else failed++;
+        }
       } else {
         await graphSendMail(to.length ? to : cc,
           `${rows.length} new leads · contact immediately` + (rep ? ' · ' + rep.name : ''),
           leadsMailDigestBody(rows), to.length ? cc : []);
-        const at = new Date().toISOString();
-        rows.forEach(l => { l.mailedAt = at; l.mailedTo = (to.length ? to : cc).join(', ');
-          l.mailedCc = to.length ? cc.join(', ') : ''; leadSave(l); });
+        rows.forEach(l => { const r = mailStamp(l, to.length ? to : cc, to.length ? cc : []);
+          if (r.fellBack) { wrongFrom++; cameFrom = r.from; } leadSave(l); });
         sent += rows.length;
       }
     } catch (e) {
+      if (e && e.held) { held += rows.length; rows.forEach(l => mailHold(l, e)); continue; }
       failed += rows.length;
       rows.forEach(l => { leadAddUpdate(l, 'Could not email the handover: ' + String(e.message || e), true); leadSave(l); });
     }
   }
-  if (!o.quiet && (sent || failed)) toast(
+  if (!o.quiet && (sent || failed || held)) toast(
     (sent ? sent + ' lead' + (sent === 1 ? '' : 's') + ' emailed to the rep' + (cc.length ? ' · copied to ' + cc.join(', ') : '') : '') +
-    (failed ? (sent ? ' · ' : '') + failed + ' could not be emailed' : ''), failed && !sent ? 'err' : 'ok');
-  return { sent, failed };
+    (held ? (sent ? ' · ' : '') + held + ' held for ' + mailFrom() : '') +
+    (failed ? (sent || held ? ' · ' : '') + failed + ' could not be emailed' : ''),
+    failed && !sent ? 'err' : 'ok');
+  /* The one thing a rep must not be allowed to miss: their own name went out
+     on it when it was supposed to be the team address. */
+  if (wrongFrom && !o.quiet) toast(
+    `${wrongFrom} of those went out from ${cameFrom}, not ${mailFrom()} — Microsoft will not let ` +
+    'this account send as it. An Exchange admin grants Send As on that mailbox.', 'err');
+  return { sent, failed, held, wrongFrom };
 }
 const leadMailAuto = () => (DB.config || {}).leadMailAuto !== false;
 
@@ -21298,10 +21404,10 @@ function mailFromCard() {
   const paint = () => {
     const v = String(DB.config.mailFrom || '').trim();
     status.innerHTML = v
-      ? `Everything goes out as <b>${esc(v)}</b>. Each person who sends needs <b>Send As</b> on ` +
-        'that mailbox, which an Exchange admin grants once — a shared mailbox is the usual home ' +
-        'for it. Anyone without it still gets their mail delivered, from their own address, and ' +
-        'the lead records that it happened.'
+      ? `Setting this is a request, not a guarantee. Microsoft only honours it for a person who ` +
+        `holds <b>Send As</b> on <b>${esc(v)}</b> — an Exchange admin grants that once, per ` +
+        'person, and a shared mailbox is the usual home for it. What actually happened on the ' +
+        'last handovers is below.'
       : 'Mail goes out from whoever is signed in at the time. Because the agency sheet syncs in ' +
         'whichever browser happens to be open, that is effectively whoever had the tool up — ' +
         'which is why handovers arrive from different people.';
@@ -21325,8 +21431,109 @@ function mailFromCard() {
     onclick: () => mailFromTest() }));
   c.body.appendChild(row);
   c.body.appendChild(status);
+  if (cur) {
+    c.body.appendChild(mailStrictToggle());
+    c.body.appendChild(mailAuditBlock(cur));
+  }
   paint();
   return c.node;
+}
+
+/* Would the team rather wait than have the wrong name on it? */
+function mailStrictToggle() {
+  const on = !!DB.config.mailFromStrict;
+  const wrap = el('div', { style: 'margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--line)' });
+  const lab = el('label', { style: 'display:flex;gap:10px;align-items:flex-start;cursor:pointer' });
+  const box = el('input', { type: 'checkbox', checked: on || null, style: 'margin-top:3px;flex:none',
+    onchange: e => {
+      if (isReadOnly()) { e.target.checked = on; return toast('You have read-only access', 'err'); }
+      DB.config.mailFromStrict = !!e.target.checked; DB.config._v = now();
+      SYNC.dirty.add('config'); touch('config'); render();
+      toast(e.target.checked
+        ? 'Handovers will wait rather than go out from the wrong address'
+        : 'Handovers will go out from the sender’s own address if Send As is refused', 'ok');
+    } });
+  lab.appendChild(box);
+  lab.appendChild(el('div', {}, [
+    el('div', { style: 'font-weight:600', text: 'Never send from anyone else’s address' }),
+    el('div', { class: 'sub', style: 'line-height:1.55', html:
+      'Without this, a rep whose account is refused still gets the handover out — from their own ' +
+      'mailbox. With it, that mail is <b>held</b> instead, and goes out the moment a browser ' +
+      'signed in as the team address has the tool open. Safer for the name on the mail, slower ' +
+      'for the lead.' })
+  ]));
+  wrap.appendChild(lab);
+  const waiting = (typeof leadsHeld === 'function' ? leadsHeld() : []);
+  if (waiting.length) {
+    const can = canSendAsTeam();
+    wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;color:var(--warning)',
+      text: `${waiting.length} handover${waiting.length === 1 ? ' is' : 's are'} waiting to be sent. ` +
+        (can ? 'This browser can send them.' : 'This browser is not allowed to send as that address.') }));
+    if (can) wrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)',
+      html: ico('mail', 13) + ' Send them now', onclick: () => leadsSendHeld({ quiet: false }) }));
+  }
+  return wrap;
+}
+
+/* WHAT THE MAIL ACTUALLY WENT OUT AS.
+   The setting above says what should happen. This says what did. Every
+   handover records the address it really left from, so a refusal that used
+   to be invisible — mail quietly posted from the rep's own mailbox — now
+   shows up here, named, with the person who needs the permission. */
+function mailAuditBlock(want) {
+  const wrap = el('div', { style: 'margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--line)' });
+  wrap.appendChild(el('div', { style: 'font-weight:600;margin-bottom:var(--sp-2)',
+    text: 'What the last handovers actually came from' }));
+  const sent = live('leads').filter(l => l.mailedAt)
+    .sort((a, b) => String(b.mailedAt).localeCompare(String(a.mailedAt))).slice(0, 60);
+  if (!sent.length) {
+    wrap.appendChild(el('p', { class: 'sub', style: 'margin:0',
+      text: 'Nothing has been emailed yet. Send a test to yourself, or wait for the next lead.' }));
+    return wrap;
+  }
+  /* Leads mailed by a build older than this one carry no record at all —
+     which is itself worth saying, because an old tab is the other reason a
+     rep's name ends up on the mail. */
+  const old = sent.filter(l => !l.mailedFrom);
+  const by = new Map();
+  sent.filter(l => l.mailedFrom).forEach(l => {
+    const k = String(l.mailedFrom).toLowerCase();
+    const e = by.get(k) || { from: l.mailedFrom, n: 0, who: new Set(), ver: new Set(), last: '' };
+    e.n++; if (l.mailedBy) e.who.add(l.mailedBy); if (l.mailedVer) e.ver.add(l.mailedVer);
+    if (String(l.mailedAt) > e.last) e.last = String(l.mailedAt);
+    by.set(k, e);
+  });
+  const rows = [...by.values()].sort((a, b) => b.n - a.n);
+  const list = el('div', { style: 'display:flex;flex-direction:column;gap:6px' });
+  rows.forEach(r => {
+    const right = r.from.toLowerCase() === want.toLowerCase();
+    const line = el('div', { style: 'display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;' +
+      'padding:7px 10px;border-radius:var(--r-2);background:var(--surface-2)' });
+    line.appendChild(el('span', { class: 'tag' + (right ? ' ok' : ' warn'),
+      text: right ? 'correct' : 'wrong sender' }));
+    line.appendChild(el('span', { class: 'mono', style: 'font-weight:600', text: r.from }));
+    line.appendChild(el('span', { class: 'cellsub', text: r.n + ' handover' + (r.n === 1 ? '' : 's') }));
+    if (!right && r.who.size) line.appendChild(el('span', { class: 'cellsub',
+      text: '· needs Send As: ' + [...r.who].join(', ') }));
+    if (r.ver.size) line.appendChild(el('span', { class: 'cellsub',
+      style: 'margin-left:auto', text: 'build ' + [...r.ver].join(', ') }));
+    list.appendChild(line);
+  });
+  wrap.appendChild(list);
+  const wrong = rows.filter(r => r.from.toLowerCase() !== want.toLowerCase());
+  if (wrong.length) {
+    const who = [...new Set(wrong.flatMap(r => [...r.who]))];
+    wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6;color:var(--warning)',
+      html: 'Microsoft refused the Send As for ' + (who.length ? '<b>' + who.map(esc).join('</b>, <b>') + '</b>' : 'these accounts') +
+        `, so their mail went out under their own name. An Exchange admin fixes it once per person — ` +
+        `in the Exchange admin centre, open the <b>${esc(want)}</b> mailbox → <b>Delegation</b> → ` +
+        '<b>Send as</b>, and add them. Or tick the box above and nothing goes out under the wrong name.' }));
+  }
+  if (old.length) wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.6',
+    text: `${old.length} of these were sent by a browser running an older build of this tool, which kept no ` +
+      'record of the sender. Ask whoever leaves the tool open all day to reload the page — an old tab ' +
+      'keeps running the old code, and the old code always sent from its own mailbox.' }));
+  return wrap;
 }
 async function mailFromTest() {
   const me = String((AUTH.user && AUTH.user.username) || '').trim();
@@ -22104,6 +22311,52 @@ try {
     boot();
   } catch (e) { /* fall through to the sign-in gate */ }
 })();
+
+/* ================================================================
+   A TAB LEFT OPEN IS A TAB RUNNING OLD CODE
+
+   This tool is one file served from a static host, and nobody reloads it.
+   A rep who opened it on Monday is still running Monday's build on Friday —
+   so a fix shipped on Tuesday is live for everyone who happened to reload
+   and nobody else. That is quiet and confusing: the setting looks right in
+   one browser and does nothing in another.
+
+   The first line of the file carries the version, so checking for a newer
+   one is a hundred-byte request. When one appears, say so and offer the
+   reload rather than forcing it — somebody may be mid-quote.
+   ================================================================ */
+let UPDATE_SEEN = null;
+async function checkForUpdate() {
+  if (UPDATE_SEEN || document.hidden) return;
+  if (!/^https?:/.test(location.protocol)) return;   /* a file:// copy has no server to ask */
+  try {
+    const url = location.href.split('#')[0].split('?')[0] + '?v=' + Date.now();
+    const res = await fetch(url, { cache: 'no-store', headers: { Range: 'bytes=0-119' } });
+    if (!res.ok && res.status !== 206) return;
+    const m = /corev-build:([0-9.]+)/.exec(await res.text());
+    if (!m || m[1] === VERSION) return;
+    UPDATE_SEEN = m[1];
+    showUpdateBar(m[1]);
+  } catch (e) { /* offline, or the host will not do ranges — try again later */ }
+}
+function showUpdateBar(ver) {
+  if ($('#updbar')) return;
+  const bar = el('div', { id: 'updbar', style:
+    'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + var(--safe-b,0px));' +
+    'z-index:9000;display:flex;gap:12px;align-items:center;padding:10px 14px;' +
+    'border-radius:var(--r-3);background:var(--accent);color:#fff;font-size:var(--fs-sm);' +
+    'box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:min(92vw,520px)' });
+  bar.appendChild(el('span', { style: 'line-height:1.45',
+    html: `Version <b>${esc(ver)}</b> is live — this tab is still running ${esc(VERSION)}.` }));
+  bar.appendChild(el('button', { class: 'btn sm', style: 'background:#fff;color:var(--accent);flex:none',
+    text: 'Reload', onclick: () => location.reload(true) }));
+  bar.appendChild(el('button', { class: 'btn sm ghost', style: 'color:#fff;flex:none', text: 'Later',
+    onclick: () => bar.remove() }));
+  document.body.appendChild(bar);
+}
+setTimeout(checkForUpdate, 90 * 1000);
+setInterval(checkForUpdate, 30 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
 </script>
 </body>
 </html>
