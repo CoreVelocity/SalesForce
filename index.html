@@ -1,4 +1,4 @@
-<!--corev-build:1.54.0-->
+<!--corev-build:1.55.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.54.0';
+const VERSION = '1.55.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3819,8 +3819,16 @@ const BILLING = [
 const billingLabel = id => (BILLING.find(b => b.id === id) || BILLING[0]).label;
 const activeProducts = () => live('products').filter(p => p.active !== false)
   .sort((a, b) => (a.category || '').localeCompare(b.category || '') || (a.name || '').localeCompare(b.name || ''));
-const lineNet = it => Math.max(0, (Number(it.qty) || 0) * (Number(it.unitPrice) || 0) *
-  (1 - (Number(it.discountPct) || 0) / 100));
+/* A line discount is an AMOUNT off, not a percentage.
+   It used to be a percentage, which reads fine on a spreadsheet and badly in
+   a negotiation: nobody offers "eight per cent", they offer "ten thousand
+   off". The amount is held against the whole line, not the unit, so it does
+   not quietly multiply when the quantity goes up — and it is clamped at the
+   line's own value, so a stale discount cannot push a line below zero.
+   Records written before this carry discountPct and are converted on load. */
+const lineGross = it => (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+const lineDisc = it => Math.min(lineGross(it), Math.max(0, Number(it.discountAmt) || 0));
+const lineNet = it => Math.max(0, lineGross(it) - lineDisc(it));
 /* One-time value, recurring monthly value, and the contract total that the
    deal amount follows when it is on auto. */
 function estimate(d) {
@@ -8375,7 +8383,7 @@ function dealProducts(d) {
     const box = el('div', { class: 'card', style: 'padding:var(--sp-3)' });
     box.appendChild(el('div', { class: 'li-head' }, [
       el('span', { text: 'Product' }), el('span', { text: 'Qty' }),
-      el('span', { text: 'Unit ' + CFG.currency }), el('span', { text: 'Disc %' }),
+      el('span', { text: 'Unit ' + CFG.currency }), el('span', { text: 'Disc ' + CFG.currency }),
       el('span', { text: 'Line total' }), el('span', { text: '' })
     ]));
     items.forEach((it, idx) => {
@@ -8387,14 +8395,24 @@ function dealProducts(d) {
         value: it[key] == null ? '' : it[key], 'aria-label': key + ' for ' + it.name,
         onchange: ev => {
           const v = ev.target.value === '' ? 0 : Number(ev.target.value);
-          it[key] = key === 'discountPct' ? Math.max(0, Math.min(100, v)) : Math.max(0, v);
+          it[key] = Math.max(0, v);
+          /* More off than the line is worth is a typo, not an intention —
+             say so rather than quietly showing a zero. */
+          if (key === 'discountAmt' && it[key] > lineGross(it)) {
+            it[key] = lineGross(it);
+            toast('The discount cannot be more than the line is worth — capped at ' +
+              CFG.currency + ' ' + money(lineGross(it), { dash: false }), 'err');
+          }
           d.items = items; upsert('deals', d); syncDealAmount(d);
           openDealTab(d, 'Products');
         } });
       row.appendChild(mk('qty', '1'));
       row.appendChild(mk('unitPrice', '100'));
-      row.appendChild(mk('discountPct', '5'));
-      row.appendChild(el('div', { class: 'tot', text: money(lineNet(it), { dash: false }) }));
+      row.appendChild(mk('discountAmt', '100'));
+      row.appendChild(el('div', { class: 'tot',
+        title: lineDisc(it) ? CFG.currency + ' ' + money(lineGross(it), { dash: false }) +
+          ' less ' + CFG.currency + ' ' + money(lineDisc(it), { dash: false }) : '',
+        text: money(lineNet(it), { dash: false }) }));
       row.appendChild(el('button', { class: 'btn icon ghost', html: ico('trash',13),
         'aria-label': 'Remove ' + it.name,
         onclick: () => {
@@ -8452,7 +8470,8 @@ function dealProducts(d) {
         toCSV(items, [
           { h: 'SKU', f: i => i.sku || '' }, { h: 'Product', f: i => i.name },
           { h: 'Billing', f: i => billingLabel(i.billing) }, { h: 'Qty', f: i => i.qty },
-          { h: 'Unit ' + CFG.currency, f: i => i.unitPrice }, { h: 'Discount %', f: i => i.discountPct || 0 },
+          { h: 'Unit ' + CFG.currency, f: i => i.unitPrice },
+          { h: 'Discount ' + CFG.currency, f: i => Math.round(lineDisc(i)) },
           { h: 'Line total', f: i => Math.round(lineNet(i)) }
         ]), 'text/csv');
       toast('Estimate exported', 'ok'); } }),
@@ -8468,7 +8487,7 @@ function addLineItem(d, custom) {
   const nameIn = el('input', { class: 'inp', placeholder: 'e.g. Custom bundle discount' });
   const qty = el('input', { class: 'inp', type: 'number', min: '1', step: '1', value: '1' });
   const price = el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: '' });
-  const disc = el('input', { class: 'inp', type: 'number', min: '0', max: '100', step: '5', value: '0' });
+  const disc = el('input', { class: 'inp', type: 'number', min: '0', step: '100', value: '' });
   const bill = el('select', { class: 'inp' });
   BILLING.forEach(b => bill.appendChild(el('option', { value: b.id, text: b.label })));
   let chosen = null;
@@ -8494,7 +8513,9 @@ function addLineItem(d, custom) {
   body.appendChild(fld(custom ? 'Description *' : 'Shown as', nameIn));
   body.appendChild(el('div', { class: 'field-row' }, [
     fld('Quantity', qty), fld(`Unit price (${CFG.currency})`, price) ]));
-  body.appendChild(el('div', { class: 'field-row' }, [ fld('Discount %', disc), fld('Billing', bill) ]));
+  body.appendChild(el('div', { class: 'field-row' }, [
+    fld(`Discount (${CFG.currency})`, disc, 'Off the whole line, not per unit. Leave it empty for none.'),
+    fld('Billing', bill) ]));
 
   modal(custom ? 'Add a custom line' : 'Add a product', body, [
     el('button', { class: 'btn', text: 'Cancel', onclick: () => { closeAll(); openDealTab(d, 'Products'); } }),
@@ -8506,9 +8527,14 @@ function addLineItem(d, custom) {
         id: uid('L'), productId: chosen ? chosen.id : null, sku: chosen ? chosen.sku : null,
         name: nm, qty: Math.max(1, Number(qty.value) || 1),
         unitPrice: price.value === '' ? 0 : Number(price.value),
-        discountPct: Math.max(0, Math.min(100, Number(disc.value) || 0)),
+        discountAmt: Math.max(0, Number(disc.value) || 0),
         billing: bill.value
       };
+      if (it.discountAmt > lineGross(it)) {
+        disc.focus();
+        return toast('The discount is more than the line is worth — ' + CFG.currency + ' ' +
+          money(lineGross(it), { dash: false }) + ' before it', 'err');
+      }
       d.items = (d.items || []).concat([it]);
       if (d.amountMode == null) d.amountMode = 'auto';
       upsert('deals', d); syncDealAmount(d);
@@ -21985,6 +22011,26 @@ function runMigrationsInner() {
     SYNC.dirty.add('leads');
     if (cf) SYNC.dirty.add('contacts');
   }
+  /* Line discounts used to be a percentage and are now an amount. Convert
+     once, at the quantity and price the line was written at, so every
+     estimate keeps the figure it already showed. */
+  let dpc = 0;
+  DB.deals.forEach(d => {
+    if (d._del || !Array.isArray(d.items)) return;
+    let touched = false;
+    d.items.forEach(it => {
+      if (it.discountAmt != null || it.discountPct == null) { delete it.discountPct; return; }
+      const pct = Number(it.discountPct) || 0;
+      it.discountAmt = pct > 0
+        ? Math.round((Number(it.qty) || 0) * (Number(it.unitPrice) || 0) * pct / 100 * 100) / 100
+        : 0;
+      delete it.discountPct; touched = true;
+    });
+    if (touched) dpc++;
+  });
+  if (dpc) { console.log(`Line discounts converted from % to an amount on ${dpc} deals`);
+    SYNC.dirty.add('deals'); }
+
   // the running order the team asked for, applied once and only into a blank
   const teamFix = migrateTeamOrder();
   if (teamFix.changed) console.log(`Sales regions set on ${teamFix.changed} people`);
