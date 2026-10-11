@@ -1,4 +1,4 @@
-<!--corev-build:1.55.0-->
+<!--corev-build:1.57.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.55.0';
+const VERSION = '1.57.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -11217,11 +11217,16 @@ const canSendAsTeam = () => {
   return !s || s.toLowerCase() === myMail().toLowerCase();
 };
 /* "Hold it rather than send it from the wrong person."
-   Falling back keeps the mail moving but puts a rep's name on it, which is
-   the thing Ahmed was trying to stop. With this on, a browser that cannot
-   send as the team address does not send at all — it leaves the handover
-   waiting for one that can. */
-const mailStrict = () => !!(DB.config && DB.config.mailFromStrict);
+
+   Falling back keeps the mail moving but puts a rep's name on it, and a
+   handover that arrives from Gladys about a lead belonging to Milena is
+   worse than one that arrives ten minutes later: nobody can tell who owns
+   what. So once an address is named, holding is the DEFAULT — the box has to
+   be cleared deliberately to allow the fallback again. */
+const mailStrict = () => {
+  const v = DB.config && DB.config.mailFromStrict;
+  return v == null ? !!mailFrom() : !!v;
+};
 /* Thrown when strict mode holds a mail back. Carries a flag rather than a
    message to match on, so the caller can tell "held" from "broken". */
 function mailHeldError(shared) {
@@ -11230,6 +11235,9 @@ function mailHeldError(shared) {
   return e;
 }
 async function graphSendMail(to, subject, html, cc, files) {
+  /* Decided before a token is even asked for: this browser is not the team
+     address and holding is on, so nothing is going out from here. */
+  if (!canSendAsTeam() && mailStrict()) throw mailHeldError(mailFrom());
   const tok = await mailToken();
   const addr = a => ({ emailAddress: { address: String(a).trim() } });
   const toList = (to || []).filter(Boolean);
@@ -13018,6 +13026,53 @@ function leadReplied(id, key) {
    ================================================================ */
 const sheetAuto = () => !!(DB.config && DB.config.leadSheetAuto);
 const sheetLast = () => (DB.config && DB.config.leadSheetAt) || '';
+/* HOW OFTEN, AND WHY IT IS NOT A PROMISE.
+
+   A lead landed with the agency at 8:12pm and reached the team at 2:03am.
+   Nothing was broken: there is no server here, so the sheet is only read
+   while somebody has this page open and their machine awake. The timer ran
+   when a laptop woke up, six hours later.
+
+   Two things follow. The cadence is driven by the clock rather than by a
+   long interval — browsers throttle a background tab's timers and stop them
+   altogether on a sleeping machine, so a 5-minute setInterval does not mean
+   5 minutes. A short heartbeat asking "how long since the last read?" picks
+   up the moment the machine comes back, as does the page becoming visible,
+   regaining focus, or the network returning.
+
+   And the honest ceiling: with every browser shut, nothing is read at all.
+   Overnight cover needs something always on. The staleness line in Settings
+   and on Marketing Leads says how long it has actually been, so nobody
+   assumes it is live when it is not. */
+const SHEET_EVERY_MIN = () => {
+  const v = Number((DB.config || {}).leadSheetEveryMin);
+  return v >= 1 && v <= 240 ? v : 5;
+};
+const sheetAgeMin = () => {
+  const at = sheetLast(); if (!at) return Infinity;
+  const t = Date.parse(at); if (!t) return Infinity;
+  return (Date.now() - t) / 60000;
+};
+const sheetStale = () => !sheetServerLive() && sheetAgeMin() > Math.max(30, SHEET_EVERY_MIN() * 4);
+/* IS SOMETHING ALWAYS-ON DOING THIS?
+   The Azure timer writes leadSheetBy into the same config the browsers read,
+   so a browser can tell whether the sheet is being looked after without
+   anybody configuring it twice. When it is, this page stops warning about
+   staleness and stops sending handovers — the service sends them, from one
+   address, and two senders racing over the same lead is how a rep gets told
+   twice. A service that has gone quiet for twenty minutes is treated as
+   absent, and the browsers quietly take over again. */
+const sheetServerLive = () =>
+  String((DB.config || {}).leadSheetBy || '') === 'api' && sheetAgeMin() < 20;
+function sheetAgeText() {
+  const m = sheetAgeMin();
+  if (!isFinite(m)) return 'never read';
+  if (m < 1.5) return 'read just now';
+  if (m < 60) return `read ${Math.round(m)} min ago`;
+  const h = m / 60;
+  if (h < 48) return `read ${Math.round(h)} hour${Math.round(h) === 1 ? '' : 's'} ago`;
+  return `read ${Math.round(h / 24)} days ago`;
+}
 
 /* MORE THAN ONE TAB.
 
@@ -13546,17 +13601,39 @@ function sheetPickTab(fn) {
   modal('Pick a tab', body, [el('button', { class: 'btn', text: 'Cancel', onclick: closeAll })]);
 }
 
-/* Poll while the tool is open, if it is switched on. */
-setInterval(() => {
-  if (sheetAuto() && sheetTabList().length && canWrite && !isReadOnly()) sheetSync({ quiet: true });
-}, 15 * 60 * 1000);
+/* THE HEARTBEAT.
+   Every minute, ask whether the sheet is overdue rather than trusting a long
+   timer to fire on time — a throttled or suspended tab does not. Two guards:
+   a failed read must not be retried every minute, and only one browser needs
+   to do the reading, so a sync that another browser finished seconds ago
+   (sheetAgeMin reads the shared config) satisfies this one too. */
+let SHEET_TRIED = 0;
+function sheetTick(why) {
+  if (!sheetAuto() || !sheetTabList().length) return;
+  if (!canWrite(true)) return;      /* quiet: a read-only tab just does not poll */
+  if (SYNC.mode !== 'onedrive' && SYNC.mode !== 'local') return;
+  if (Date.now() - SHEET_TRIED < 60000) return;       /* no hammering on errors */
+  if (sheetAgeMin() < SHEET_EVERY_MIN()) return;
+  SHEET_TRIED = Date.now();
+  sheetSync({ quiet: true, why: why || 'timer' });
+}
+setInterval(() => sheetTick('timer'), 60 * 1000);
+/* The moments a sleeping machine comes back. Each one is the difference
+   between a lead waiting five minutes and waiting until morning. */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sheetTick('visible'); });
+addEventListener('focus', () => sheetTick('focus'));
+addEventListener('online', () => sheetTick('online'));
 
 /* A handover that another browser had to hold back goes out as soon as
    somebody who IS allowed to send as the team address has the tool open —
    whether or not they are the one reading the sheet. */
 setInterval(() => {
-  if (canWrite && !isReadOnly()) leadsSendHeld({ quiet: false });
+  if (canWrite(true)) leadsSendHeld({ quiet: false });
 }, 4 * 60 * 1000);
+/* And the moment the person who IS the team address comes back to the tab. */
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && canWrite(true) && canSendAsTeam()) leadsSendHeld({ quiet: false });
+});
 
 /* ================================================================
    THE COLD DRIP
@@ -13833,6 +13910,7 @@ const leadsHeld = () => live('leads').filter(l => l.mailHeld && !l.mailedAt);
 async function leadsSendHeld(opt) {
   const o = opt || {};
   if (!mailFrom() || !canSendAsTeam() || SYNC.mode !== 'onedrive') return { sent: 0 };
+  if (sheetServerLive()) return { sent: 0, serverSends: true };
   const waiting = leadsHeld();
   if (!waiting.length) return { sent: 0 };
   let sent = 0;
@@ -13845,6 +13923,9 @@ async function leadsSendHeld(opt) {
 async function leadEmailRep(id, opt) {
   const o = opt || {};
   const l = getLead(id); if (!l) return false;
+  /* Already told. Only an automatic path is stopped here — a person pressing
+     "Email the rep" again means it. */
+  if (l.mailedAt && o.quiet) return false;
   const rep = DB.owners.find(x => x.id === String(l.assignee));
   const repMail = rep && String(rep.email || '').trim();
   const cc = leadMailCc();
@@ -13901,6 +13982,9 @@ async function leadEmailRep(id, opt) {
 async function leadsEmailHandover(leads, opt) {
   const o = opt || {};
   if (!leadMailAuto() || SYNC.mode !== 'onedrive') return { sent: 0, skipped: (leads || []).length };
+  /* The service sends these. Two senders over one lead is how a rep is told
+     about the same person twice, from two different addresses. */
+  if (sheetServerLive()) return { sent: 0, skipped: (leads || []).length, serverSends: true };
   const cc = leadMailCc();
   const byRep = new Map();
   (leads || []).forEach(l => {
@@ -14123,6 +14207,39 @@ function viewLeads(root) {
       onclick: leadImportModal }),
     isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('plus',14) + ' New lead',
       onclick: () => leadEdit(null) })
+  ]));
+
+  /* HOW FRESH IS ANY OF THIS.
+     The sheet is read by a browser, so "automatic every 5 minutes" is only
+     true while somebody has this open. Saying how long it has actually been
+     is the difference between trusting the list and being surprised by a
+     six-hour-old lead. Shown only when it matters: stale, or holding mail. */
+  if (sheetTabList().length && sheetAuto() && sheetStale())
+    root.appendChild(el('div', { class: 'card',
+      style: 'margin-bottom:var(--sp-3);border-color:var(--warning);padding:var(--sp-3)' }, [
+      el('div', { style: 'display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap' }, [
+        el('span', { html: ico('warn', 15), style: 'color:var(--warning);flex:none' }),
+        el('div', { style: 'flex:1;min-width:220px;line-height:1.5',
+          text: `The agency sheet was ${sheetAgeText()}. It is only read while somebody has this ` +
+            'page open and their machine awake, so a lead that arrived overnight is still waiting.' }),
+        isReadOnly() ? null : el('button', { class: 'btn sm', html: ico('sync', 13) + ' Read it now',
+          onclick: () => sheetSync() })
+      ].filter(Boolean))
+    ]));
+  const waiting = sheetServerLive() ? [] : leadsHeld();
+  if (waiting.length) root.appendChild(el('div', { class: 'card',
+    style: 'margin-bottom:var(--sp-3);border-color:var(--warning);padding:var(--sp-3)' }, [
+    el('div', { style: 'display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap' }, [
+      el('span', { html: ico('mail', 15), style: 'color:var(--warning);flex:none' }),
+      el('div', { style: 'flex:1;min-width:220px;line-height:1.5',
+        text: `${waiting.length} handover${waiting.length === 1 ? ' is' : 's are'} waiting to be sent as ` +
+          `${mailFrom()}. ` + (canSendAsTeam()
+            ? 'You are signed in as that address, so you can send them.'
+            : 'They go out when somebody signed in as that address opens the tool.') }),
+      canSendAsTeam() && !isReadOnly()
+        ? el('button', { class: 'btn sm primary', text: 'Send them now',
+            onclick: () => leadsSendHeld({ quiet: false }) }) : null
+    ].filter(Boolean))
   ]));
 
   /* ---- the tabs ---- */
@@ -21099,11 +21216,41 @@ function sheetSettingsCard() {
     } }));
 
   const auto = el('select', { class: 'inp' });
-  [['1', 'Yes — check every tab every 15 minutes while the tool is open'],
+  [['1', 'Yes — while somebody has the tool open'],
    ['0', 'No — only when somebody presses Sync']]
     .forEach(([v, t]) => auto.appendChild(el('option', { value: v, text: t,
       selected: String(sheetAuto() ? 1 : 0) === v || null })));
-  c.body.appendChild(fld('Read it automatically', auto));
+  const every = el('select', { class: 'inp' });
+  [5, 10, 15, 30, 60].forEach(m => every.appendChild(el('option', { value: String(m),
+    text: 'every ' + m + ' minutes', selected: SHEET_EVERY_MIN() === m || null })));
+  every.onchange = () => {
+    if (isReadOnly()) { every.value = String(SHEET_EVERY_MIN()); return toast('You have read-only access', 'err'); }
+    DB.config.leadSheetEveryMin = Number(every.value) || 5;
+    DB.config._v = now(); touch('config'); render(); toast('Checking every ' + every.value + ' minutes', 'ok');
+  };
+  c.body.appendChild(el('div', { class: 'field-row' }, [
+    fld('Read it automatically', auto), fld('How often', every) ]));
+
+  /* THE CEILING, SAID OUT LOUD.
+     A lead reached the agency at 8:12pm and the team at 2:03am. Nothing was
+     broken — every browser was shut, and there is nothing else to read the
+     sheet. Saying so here is the only honest thing; the alternative is
+     somebody believing in a five-minute promise the tool cannot keep. */
+  const fresh = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6' });
+  fresh.innerHTML = sheetServerLive()
+    ? `The sheet was <b>${esc(sheetAgeText())}</b>, <b>by the service</b> — the timer in Azure, ` +
+      'which runs whether or not anybody has this open. It also sends the handover emails, all ' +
+      'from one address, so this page does not send them while it is running. The setting above ' +
+      'still governs what a browser does as a backstop.'
+    : `The sheet was <b>${esc(sheetAgeText())}</b>. ` +
+      'It is being read by this page, not by a server — so it is only checked while somebody on ' +
+      'the team has the tool open and their machine awake. It catches up the moment a laptop ' +
+      'wakes, a tab comes back to the front or the network returns, but with every browser shut ' +
+      'nothing is read at all, and a lead that arrives at 8pm waits until morning. Overnight ' +
+      'cover needs something always on.';
+  fresh.style.color = sheetStale() ? 'var(--warning)'
+    : sheetServerLive() ? 'var(--good)' : 'var(--ink-2)';
+  c.body.appendChild(fresh);
 
   c.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' }, [
     el('button', { class: 'btn primary', text: 'Save', onclick: () => {
