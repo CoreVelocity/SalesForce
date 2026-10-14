@@ -1,4 +1,4 @@
-<!--corev-build:1.59.0-->
+<!--corev-build:1.60.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.59.0';
+const VERSION = '1.60.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -21874,39 +21874,71 @@ function mailAuditBlock(want) {
         `in the Exchange admin centre, open the <b>${esc(want)}</b> mailbox → <b>Delegation</b> → ` +
         '<b>Send as</b>, and add them. Or tick the box above and nothing goes out under the wrong name.' }));
   }
-  /* THE ONES WITH NO RECORD AT ALL.
-     "19 sent by an older build" is not actionable on its own: it does not say
-     whether that was last month or an hour ago, and it does not say whose
-     browser. Both are knowable — the record carries the time it was mailed
-     and the account that last wrote it — and both are what turns this from a
-     worry into one person to go and talk to. */
+  /* THE ONES WITH NO RECORD AT ALL — AND THE TWO VERY DIFFERENT REASONS.
+
+     The first version of this lumped them together and blamed stale tabs for
+     all of them, which was wrong and alarming in the wrong direction. There
+     are two populations:
+
+       · sent before this tool recorded the sender at all. Nobody's browser
+         kept a record then, because the code to keep one did not exist. That
+         is history. Nothing can be learned from it and nothing is wrong.
+       · sent after that, with no record. Only an out-of-date browser does
+         that, and it is the one worth chasing.
+
+     The dividing line is not hardcoded: it is the earliest send that DOES
+     carry a sender, which is by definition the moment recording began here.
+
+     The "last written by" hint is kept for the second group only, and an
+     account that also appears as a recorded sender is marked — that browser
+     demonstrably does keep records, so its name on an unrecorded send is
+     almost certainly just the last person to touch the lead. Without that
+     mark, the biggest name on the list was Ahmed's own, which is exactly the
+     one person it cannot have been. */
   if (old.length) {
-    const when = old.map(l => String(l.mailedAt)).sort();
-    const first = when[0].slice(0, 10), last = when[when.length - 1].slice(0, 10);
-    const recent = old.filter(l => Date.now() - Date.parse(l.mailedAt) < 36e5 * 24);
-    const hands = new Map();
-    old.forEach(l => {
-      const w = String(l._by || '').trim();
-      if (!w || w === 'local') return;
-      hands.set(w, (hands.get(w) || 0) + 1);
-    });
-    const names = [...hands.entries()].sort((a, b) => b[1] - a[1])
-      .map(([w, n]) => `${w} (${n})`);
-    const p = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6' });
-    p.innerHTML =
-      `<b>${old.length}</b> of these kept no record of the sender at all, which means the browser ` +
-      'that sent them was running a build older than this one — the build that always posted from ' +
-      'its own mailbox. ' +
-      (first === last ? `All on <b>${esc(fdate(first))}</b>. ` : `From <b>${esc(fdate(first))}</b> to <b>${esc(fdate(last))}</b>. `) +
-      (recent.length
-        ? `<b>${recent.length} in the last day — so an old tab is still open right now.</b> `
-        : 'None in the last day, so this is history rather than something still happening. ') +
-      (names.length ? 'Last written by <b>' + names.map(esc).join('</b>, <b>') +
-        '</b> — a hint at whose tab it was, not proof, because that is simply whoever touched ' +
-        'the record most recently. ' : '') +
-      'Reloading the page is all it takes; locking the sender above stops them regardless.';
-    p.style.color = recent.length ? 'var(--warning)' : 'var(--ink-2)';
-    wrap.appendChild(p);
+    const recordedFrom = sent.filter(l => l.mailedFrom).map(l => String(l.mailedAt)).sort()[0] || '';
+    const before = recordedFrom ? old.filter(l => String(l.mailedAt) < recordedFrom) : [];
+    const after = recordedFrom ? old.filter(l => String(l.mailedAt) >= recordedFrom) : old.slice();
+    const span = rs => {
+      const w = rs.map(l => String(l.mailedAt)).sort();
+      const a = w[0].slice(0, 10), b = w[w.length - 1].slice(0, 10);
+      return a === b ? `on <b>${esc(fdate(a))}</b>` : `between <b>${esc(fdate(a))}</b> and <b>${esc(fdate(b))}</b>`;
+    };
+    if (before.length) {
+      const p = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6' });
+      p.innerHTML = `<b>${before.length}</b> went out ${span(before)}, before this tool recorded the ` +
+        'sender at all — no browser kept a record then, because nothing in it did yet. Those are ' +
+        'history, and say nothing about who sent them.';
+      wrap.appendChild(p);
+    }
+    if (after.length) {
+      const recent = after.filter(l => Date.now() - Date.parse(l.mailedAt) < 36e5 * 24);
+      const knownGood = new Set(rows.map(r => [...r.who]).flat().map(w => String(w).toLowerCase()));
+      const hands = new Map();
+      after.forEach(l => {
+        const w = String(l._by || '').trim();
+        if (!w || w === 'local') return;
+        hands.set(w, (hands.get(w) || 0) + 1);
+      });
+      const names = [...hands.entries()].sort((a, b) => b[1] - a[1]).map(([w, n]) =>
+        `${w} (${n})` + (knownGood.has(w.toLowerCase()) ? ' — on a current build, so almost certainly just the last editor' : ''));
+      const p = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6' });
+      /* With nothing recorded anywhere there is no dividing line to be after,
+         so the stronger claim is not available and is not made. */
+      p.innerHTML = `<b>${after.length}</b> went out ${span(after)} with no record of the sender` +
+        (recordedFrom
+          ? ', after this tool had started keeping one — which only an out-of-date browser does. '
+          : '. Nothing in this window carries a sender at all, so there is nothing yet to compare ' +
+            'them against — the next handover from a current build gives this something to measure. ') +
+        (recent.length
+          ? `<b>${recent.length} in the last day, so a stale tab was still open then.</b> `
+          : 'None in the last day. ') +
+        (names.length ? 'Last written by <b>' + names.map(esc).join('</b>, <b>') +
+          '</b>. That is whoever touched the lead most recently, not necessarily who sent it. ' : '') +
+        'Reloading the page fixes a stale tab; the lock above stops one regardless.';
+      p.style.color = recent.length ? 'var(--warning)' : 'var(--ink-2)';
+      wrap.appendChild(p);
+    }
   }
   return wrap;
 }
