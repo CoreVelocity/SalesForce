@@ -1,4 +1,4 @@
-<!--corev-build:1.57.0-->
+<!--corev-build:1.58.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.57.0';
+const VERSION = '1.58.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -11223,7 +11223,33 @@ const canSendAsTeam = () => {
    worse than one that arrives ten minutes later: nobody can tell who owns
    what. So once an address is named, holding is the DEFAULT — the box has to
    be cleared deliberately to allow the fallback again. */
+/* THE LOCK, AND WHY IT IS TWO FLAGS RATHER THAN ONE.
+
+   Everything above only binds a browser that is running this code. A rep who
+   opened the tool three weeks ago and never reloaded is still running the
+   build from three weeks ago, which knows nothing about mailFrom and posts
+   every handover through /me — their own mailbox. No setting saved here can
+   reach into that tab, and that is the gap Ahmed kept seeing: the audit said
+   every recorded send was correct, and the wrong ones were the sends that
+   kept no record because the code writing them predates the record.
+
+   So the lock sets two things in the shared config:
+
+     leadMailOnlyFrom : true   — this build and later
+     leadMailAuto     : false  — every build that has ever had the switch
+
+   leadMailAuto has gated the automatic handover since the handover existed,
+   so switching it off stops an old tab dead. This build then reads
+   leadMailOnlyFrom and re-enables itself for exactly one browser: the one
+   signed in as the team address. Old tabs cannot re-enable themselves,
+   because they have never heard of the flag that would let them.
+
+   The cost is honest and stated on screen: while the lock is on, a handover
+   only goes out from Ahmed's browser or from the Azure service. Anything
+   else waits. */
+const mailLocked = () => !!(DB.config && DB.config.leadMailOnlyFrom) && !!mailFrom();
 const mailStrict = () => {
+  if (mailLocked()) return true;          /* the lock is not negotiable */
   const v = DB.config && DB.config.mailFromStrict;
   return v == null ? !!mailFrom() : !!v;
 };
@@ -14031,7 +14057,13 @@ async function leadsEmailHandover(leads, opt) {
     'this account send as it. An Exchange admin grants Send As on that mailbox.', 'err');
   return { sent, failed, held, wrongFrom };
 }
-const leadMailAuto = () => (DB.config || {}).leadMailAuto !== false;
+/* Under the lock, leadMailAuto is switched off deliberately — it is the one
+   switch every build obeys, including the ones that have never heard of a
+   team address. This build reads the lock instead and allows itself through
+   only where the mail would leave from the right mailbox. */
+const leadMailAuto = () => mailLocked()
+  ? canSendAsTeam()
+  : (DB.config || {}).leadMailAuto !== false;
 
 /* ================================================================
    PULLING THE DETAILS OUT OF A NOTE
@@ -21605,7 +21637,8 @@ function mailFromCard() {
   c.body.appendChild(row);
   c.body.appendChild(status);
   if (cur) {
-    c.body.appendChild(mailStrictToggle());
+    c.body.appendChild(mailLockCard(cur));
+    if (!mailLocked()) c.body.appendChild(mailStrictToggle());
     c.body.appendChild(mailAuditBlock(cur));
   }
   paint();
@@ -21613,6 +21646,59 @@ function mailFromCard() {
 }
 
 /* Would the team rather wait than have the wrong name on it? */
+/* THE LOCK.
+   The checkbox below it only binds browsers running this build. This one
+   binds every build, by switching off the one flag they have all always
+   checked — see mailLocked() in the approvals file for why it is two flags
+   and not one. */
+function mailLockCard(want) {
+  const on = mailLocked();
+  const wrap = el('div', { style: 'margin-top:var(--sp-4);padding:var(--sp-3);border-radius:var(--r-2);' +
+    'border:1px solid ' + (on ? 'var(--good)' : 'var(--warning)') + ';background:var(--surface-2)' });
+  wrap.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:6px' }, [
+    el('span', { html: ico(on ? 'check' : 'warn', 15),
+      style: 'color:' + (on ? 'var(--good)' : 'var(--warning)') + ';flex:none' }),
+    el('b', { text: on ? `Locked — only ${want} sends handovers`
+                       : 'Old tabs can still send from their own mailbox' })
+  ]));
+  wrap.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6', html: on
+    ? 'Every browser has stopped sending handovers automatically. This build lets exactly one ' +
+      'through — whichever browser is signed in as <b>' + esc(want) + '</b> — and the Azure ' +
+      'service, if it is running. Anything else holds the mail and waits.'
+    : 'The setting above is read by this build. A rep who has not reloaded the tool in weeks is ' +
+      'still running the build they loaded then, which has never heard of a team address and ' +
+      'posts every handover through their own mailbox. Locking it switches off the one flag ' +
+      'every build has always checked, so an old tab stops dead — then this build re-enables ' +
+      'itself only where the mail would come from <b>' + esc(want) + '</b>.' }));
+  wrap.appendChild(el('button', {
+    class: 'btn ' + (on ? '' : 'primary'),
+    html: ico(on ? 'x' : 'flag', 13) + (on ? ' Unlock' : ' Lock it to ' + esc(want)),
+    onclick: () => {
+      if (isReadOnly()) return toast('You have read-only access', 'err');
+      if (on) {
+        DB.config.leadMailOnlyFrom = false; DB.config.leadMailAuto = true;
+        DB.config._v = now(); SYNC.dirty.add('config'); touch('config'); render();
+        return toast('Unlocked — every browser can send handovers again', 'ok');
+      }
+      confirmDo('Lock the sender', `Handovers will only go out from ${want} — from a browser ` +
+        'signed in as that address, or from the Azure service. Every other browser, including ' +
+        'ones running an old build, stops sending them and holds instead. Nobody is left ' +
+        'uninformed as long as one of those two is running.', 'Lock it', () => {
+        DB.config.leadMailOnlyFrom = true;
+        DB.config.leadMailAuto = false;     /* the flag every build obeys */
+        DB.config.mailFromStrict = true;
+        DB.config._v = now(); SYNC.dirty.add('config'); touch('config');
+        closeAll(); render();
+        toast('Locked — only ' + want + ' sends handovers now', 'ok');
+      });
+    } }));
+  if (on && !canSendAsTeam()) wrap.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;color:var(--warning);line-height:1.55',
+    text: `You are signed in as ${myMail() || 'somebody else'}, so this browser is not sending ` +
+      'handovers. They are held for a browser signed in as ' + want + ', or for the service.' }));
+  return wrap;
+}
+
 function mailStrictToggle() {
   const on = !!DB.config.mailFromStrict;
   const wrap = el('div', { style: 'margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--line)' });
@@ -21702,10 +21788,40 @@ function mailAuditBlock(want) {
         `in the Exchange admin centre, open the <b>${esc(want)}</b> mailbox → <b>Delegation</b> → ` +
         '<b>Send as</b>, and add them. Or tick the box above and nothing goes out under the wrong name.' }));
   }
-  if (old.length) wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.6',
-    text: `${old.length} of these were sent by a browser running an older build of this tool, which kept no ` +
-      'record of the sender. Ask whoever leaves the tool open all day to reload the page — an old tab ' +
-      'keeps running the old code, and the old code always sent from its own mailbox.' }));
+  /* THE ONES WITH NO RECORD AT ALL.
+     "19 sent by an older build" is not actionable on its own: it does not say
+     whether that was last month or an hour ago, and it does not say whose
+     browser. Both are knowable — the record carries the time it was mailed
+     and the account that last wrote it — and both are what turns this from a
+     worry into one person to go and talk to. */
+  if (old.length) {
+    const when = old.map(l => String(l.mailedAt)).sort();
+    const first = when[0].slice(0, 10), last = when[when.length - 1].slice(0, 10);
+    const recent = old.filter(l => Date.now() - Date.parse(l.mailedAt) < 36e5 * 24);
+    const hands = new Map();
+    old.forEach(l => {
+      const w = String(l._by || '').trim();
+      if (!w || w === 'local') return;
+      hands.set(w, (hands.get(w) || 0) + 1);
+    });
+    const names = [...hands.entries()].sort((a, b) => b[1] - a[1])
+      .map(([w, n]) => `${w} (${n})`);
+    const p = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.6' });
+    p.innerHTML =
+      `<b>${old.length}</b> of these kept no record of the sender at all, which means the browser ` +
+      'that sent them was running a build older than this one — the build that always posted from ' +
+      'its own mailbox. ' +
+      (first === last ? `All on <b>${esc(fdate(first))}</b>. ` : `From <b>${esc(fdate(first))}</b> to <b>${esc(fdate(last))}</b>. `) +
+      (recent.length
+        ? `<b>${recent.length} in the last day — so an old tab is still open right now.</b> `
+        : 'None in the last day, so this is history rather than something still happening. ') +
+      (names.length ? 'Last written by <b>' + names.map(esc).join('</b>, <b>') +
+        '</b> — a hint at whose tab it was, not proof, because that is simply whoever touched ' +
+        'the record most recently. ' : '') +
+      'Reloading the page is all it takes; locking the sender above stops them regardless.';
+    p.style.color = recent.length ? 'var(--warning)' : 'var(--ink-2)';
+    wrap.appendChild(p);
+  }
   return wrap;
 }
 async function mailFromTest() {
