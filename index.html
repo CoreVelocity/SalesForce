@@ -1,4 +1,4 @@
-<!--corev-build:1.60.0-->
+<!--corev-build:1.61.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.60.0';
+const VERSION = '1.61.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -13965,22 +13965,133 @@ const HELD_DAYS = () => {
    A lead carrying neither inside the window is not a lead that arrived
    recently: it is the HubSpot migration, months old and never emailed because
    none of this existed then. Those stay out for good. */
+/* When a lead arrived here, and nothing else. A record with no usable date is
+   NOT treated as having arrived now — that is how a queue of hundreds came to
+   describe itself as "the oldest for under an hour", which read as reassuring
+   and was not true. Unknown is returned as unknown. */
+const leadArrivedAt = l => {
+  const t = Date.parse(l.handoverDue || l.createdAt || '');
+  return t || null;
+};
+/* Why a lead is in the queue, which is the thing the panel has to be able to
+   show before anybody presses send. */
+function leadsHeldWhy(l) {
+  if (l.mailHeld) return 'held by ' + ((l.mailHeld && l.mailHeld.by) || 'another browser');
+  return 'arrived here and was never emailed';
+}
 function leadsHeld() {
   const floor = Date.now() - HELD_DAYS() * 864e5;
+  /* A held marker used to exempt a lead from the age rule entirely, which
+     left no upper bound at all: one stray marker on a record from the
+     migration would keep it queued for ever. It now stretches the window
+     rather than removing it. */
+  const heldFloor = Date.now() - 30 * 864e5;
   return live('leads').filter(l => {
     if (l.mailedAt || l.withAgent || l.stage === 'Lost') return false;
     if (!l.assignee) return false;
-    if (l.mailHeld) return true;                       /* marked, whatever its age */
-    const at = Date.parse(l.handoverDue || l.createdAt || '');
+    const at = leadArrivedAt(l);
+    if (l.mailHeld) {
+      const held = Date.parse(l.mailHeld.at || '') || at;
+      return !!held && held >= heldFloor;
+    }
     return !!at && at >= floor;
   });
 }
-/* How long the oldest one has been sitting, in hours — the honest measure of
-   what the lock costs when no service is running behind it. */
+/* How long the oldest one has been sitting, in hours, or null when the queue
+   carries no usable dates at all — which is itself worth saying out loud. */
 function leadsHeldOldestH() {
-  const ts = leadsHeld().map(l => Date.parse((l.mailHeld && l.mailHeld.at) || l.createdAt || ''))
+  const ts = leadsHeld()
+    .map(l => Date.parse((l.mailHeld && l.mailHeld.at) || '') || leadArrivedAt(l))
     .filter(t => !!t);
-  return ts.length ? (Date.now() - Math.min(...ts)) / 36e5 : 0;
+  return ts.length ? (Date.now() - Math.min(...ts)) / 36e5 : null;
+}
+/* A queue this size is not a backlog, it is a fault. Nobody should be one
+   click away from emailing it. */
+const HELD_SANE = 50;
+const leadsHeldLooksWrong = () => {
+  const q = leadsHeld();
+  return q.length > HELD_SANE || (q.length > 0 && leadsHeldOldestH() === null);
+};
+
+/* WHAT WOULD GO OUT, BEFORE ANY OF IT GOES OUT.
+
+   "323 reps are waiting to be told about a lead" sat next to a button that
+   would have emailed them. A number on its own is not something anybody can
+   check, and when it is wrong — as that one plainly was — the only way to
+   find out is afterwards, from the reps. So the queue is a list now: every
+   lead that would be emailed, who it would go to, when it arrived, and why
+   it is in the queue at all. Sending happens from here, after looking. */
+function leadsHeldReview() {
+  const q = leadsHeld().sort((a, b) => (leadArrivedAt(a) || 0) - (leadArrivedAt(b) || 0));
+  const body = el('div');
+  if (!q.length) {
+    body.appendChild(el('p', { class: 'sub', text: 'Nothing is waiting. Every assigned lead has been emailed.' }));
+    return modal('Waiting to be told', body, [el('button', { class: 'btn', text: 'Close', onclick: closeAll })]);
+  }
+  const odd = leadsHeldLooksWrong();
+  if (odd) body.appendChild(el('div', { class: 'card',
+    style: 'margin-bottom:var(--sp-3);padding:var(--sp-3);border-color:var(--critical)' }, [
+    el('div', { style: 'display:flex;gap:10px;align-items:flex-start' }, [
+      el('span', { html: ico('warn', 16), style: 'color:var(--critical);flex:none;margin-top:2px' }),
+      el('div', { style: 'line-height:1.55' }, [
+        el('b', { text: 'This queue does not look like a backlog.' }),
+        el('div', { class: 'sub', style: 'line-height:1.55', text:
+          q.length > HELD_SANE
+            ? `${q.length} leads waiting is far more than a few days of marketing can produce. ` +
+              'Something is putting old or already-handled leads in here. Look through the list ' +
+              'before sending anything — the export below is the quickest way to see the pattern.'
+            : 'None of these carry a usable arrival date, so there is no way to tell how old they ' +
+              'are. That is itself the fault worth chasing before any of them are emailed.' })
+      ])
+    ])
+  ]));
+  const age = l => {
+    const t = Date.parse((l.mailHeld && l.mailHeld.at) || '') || leadArrivedAt(l);
+    if (!t) return 'no date on it';
+    const h = (Date.now() - t) / 36e5;
+    return h < 1 ? 'under an hour' : h < 48 ? Math.round(h) + ' hours' : Math.round(h / 24) + ' days';
+  };
+  const wrap = el('div', { style: 'max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r-2)' });
+  const t = el('table', { class: 'dt', style: 'width:100%' });
+  t.appendChild(el('thead', {}, [el('tr', {}, ['Lead', 'Goes to', 'Waiting', 'Why it is here']
+    .map(h => el('th', { text: h })))]));
+  const tb = el('tbody');
+  q.slice(0, 200).forEach(l => tb.appendChild(el('tr', { style: 'cursor:default' }, [
+    el('td', { text: l.name || '(unnamed)' }),
+    el('td', { text: ownerName(l.assignee) || '—' }),
+    el('td', { text: age(l) }),
+    el('td', { class: 'cellsub', text: leadsHeldWhy(l) })
+  ])));
+  t.appendChild(tb);
+  wrap.appendChild(t);
+  body.appendChild(wrap);
+  if (q.length > 200) body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0',
+    text: `Showing the first 200 of ${q.length}.` }));
+
+  const acts = [
+    el('button', { class: 'btn', html: ico('dl', 13) + ' Export the list', onclick: () => {
+      download('waiting-handovers-' + TODAY() + '.csv', toCSV(q, [
+        { h: 'Lead', f: l => l.name || '' }, { h: 'Company', f: l => l.company || '' },
+        { h: 'Phone', f: l => l.phone || '' }, { h: 'Rep', f: l => ownerName(l.assignee) },
+        { h: 'Stage', f: l => l.stage || '' },
+        { h: 'Arrived', f: l => l.handoverDue || l.createdAt || '' },
+        { h: 'Held at', f: l => (l.mailHeld && l.mailHeld.at) || '' },
+        { h: 'Held by', f: l => (l.mailHeld && l.mailHeld.by) || '' },
+        { h: 'Source', f: l => l.source || '' }, { h: 'Came from', f: l => l.srcTool || '' }
+      ]), 'text/csv');
+      toast('Exported — nothing was emailed', 'ok');
+    } }),
+    el('div', { style: 'flex:1' }),
+    el('button', { class: 'btn', text: 'Close', onclick: closeAll })
+  ];
+  /* The send is offered only where the queue is believable. Where it is not,
+     the way out is to look at the list, not to press a button. */
+  if (!odd && canSendAsTeam() && !isReadOnly()) {
+    const n = Math.min(q.length, 25);
+    acts.push(el('button', { class: 'btn primary', html: ico('mail', 13) + ' Email ' + n + ' of them',
+      onclick: () => { closeAll(); leadsSendHeld({ quiet: false, reviewed: true }); } }));
+  }
+  modal('Waiting to be told · ' + q.length, body, acts);
 }
 /* Any browser signed in as the team address clears the backlog. Called after
    a sheet sync and once on load, so a held handover goes out the moment
@@ -13989,6 +14100,11 @@ async function leadsSendHeld(opt) {
   const o = opt || {};
   if (!mailFrom() || !canSendAsTeam() || SYNC.mode !== 'onedrive') return { sent: 0 };
   if (sheetServerLive()) return { sent: 0, serverSends: true };
+  /* A queue that does not look like a backlog is not drained on a timer. The
+     catch-up runs every four minutes and on every return to the tab, so a
+     wrong queue would have emailed twenty-five reps a batch of stale leads,
+     over and over, with nobody pressing anything. It waits to be looked at. */
+  if (leadsHeldLooksWrong() && !o.reviewed) return { sent: 0, needsReview: leadsHeld().length };
   /* Oldest first, and capped: a browser that has been shut for a week should
      not open into a hundred sends at once. The rest go on the next pass. */
   const waiting = leadsHeld()
@@ -14067,6 +14183,19 @@ async function leadsEmailHandover(leads, opt) {
   /* The service sends these. Two senders over one lead is how a rep is told
      about the same person twice, from two different addresses. */
   if (sheetServerLive()) return { sent: 0, skipped: (leads || []).length, serverSends: true };
+  /* A sheet sync that suddenly produces hundreds of leads is a mapping gone
+     wrong or a tab re-read from scratch, not a morning's marketing. The
+     digest below would roll all of them into one email per rep and mark the
+     lot as told, and nobody would find out until a rep asked why they had
+     three hundred leads. It waits to be looked at instead. */
+  const fresh = (leads || []).filter(l => l && l.assignee && !l.mailedAt);
+  if (fresh.length > HELD_SANE) {
+    fresh.forEach(l => { if (!l.mailHeld) { l.mailHeld = { at: new Date().toISOString(),
+      wanted: mailFrom() || 'review', by: 'held for review' }; leadSave(l); } });
+    if (!o.quiet) toast(`${fresh.length} leads arrived at once — nobody has been emailed. ` +
+      'Open Marketing Leads and look at what is waiting before any of it goes out.', 'err');
+    return { sent: 0, skipped: fresh.length, needsReview: fresh.length };
+  }
   const cc = leadMailCc();
   const byRep = new Map();
   (leads || []).forEach(l => {
@@ -14327,9 +14456,8 @@ function viewLeads(root) {
           (canSendAsTeam()
             ? 'You are signed in as that address, so you can send them.'
             : 'They go out when somebody signed in as that address opens the tool.') }),
-      canSendAsTeam() && !isReadOnly()
-        ? el('button', { class: 'btn sm primary', text: 'Send them now',
-            onclick: () => leadsSendHeld({ quiet: false }) }) : null
+      el('button', { class: 'btn sm' + (leadsHeldLooksWrong() ? '' : ' primary'),
+        html: ico('list', 13) + ' See what is waiting', onclick: () => leadsHeldReview() })
     ].filter(Boolean))
   ]));
 
@@ -21771,15 +21899,22 @@ function mailLockCard(want) {
     const n = leadsHeld().length;
     if (n) {
       const h = leadsHeldOldestH();
-      const age = h < 1 ? 'under an hour' : h < 48 ? Math.round(h) + ' hours' : Math.round(h / 24) + ' days';
+      const odd = leadsHeldLooksWrong();
+      const age = h == null ? 'no usable date on any of them'
+        : h < 1 ? 'the oldest for under an hour'
+        : h < 48 ? 'the oldest for ' + Math.round(h) + ' hours'
+        : 'the oldest for ' + Math.round(h / 24) + ' days';
       const line = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
-        text: `${n} rep${n === 1 ? ' is' : 's are'} waiting to be told about a lead — the oldest ` +
-          `for ${age}.` + (canSendAsTeam() ? ' This browser can send them.' : '') });
-      line.style.color = h > 12 ? 'var(--warning)' : 'var(--ink-2)';
+        text: odd
+          ? `${n} leads are queued to be emailed — ${age}. That is more than a few days of ` +
+            'marketing produces, so look through the list before sending any of it.'
+          : `${n} rep${n === 1 ? ' is' : 's are'} waiting to be told about a lead — ${age}.` });
+      line.style.color = odd ? 'var(--critical)' : h > 12 ? 'var(--warning)' : 'var(--ink-2)';
       wrap.appendChild(line);
-      if (canSendAsTeam() && !isReadOnly()) wrap.appendChild(el('button', {
-        class: 'btn sm', style: 'margin-top:var(--sp-2)', html: ico('mail', 13) + ' Send them now',
-        onclick: () => leadsSendHeld({ quiet: false }) }));
+      /* Never a one-click send straight from a count. The list first. */
+      wrap.appendChild(el('button', { class: 'btn sm' + (odd ? '' : ' primary'),
+        style: 'margin-top:var(--sp-2)', html: ico('list', 13) + ' See what is waiting',
+        onclick: () => leadsHeldReview() }));
     }
   }
   return wrap;
