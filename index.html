@@ -1,4 +1,4 @@
-<!--corev-build:1.58.0-->
+<!--corev-build:1.59.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.58.0';
+const VERSION = '1.59.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -12622,6 +12622,9 @@ function leadCreate(p, opt) {
     l.id = fixed;
   }
   if (!l.assignee) leadAutoAssign(l); else { l.region = l.region || leadRegionOf(l.address || l.note); l.routeNeeded = false; }
+  /* When this lead actually arrived here, as opposed to the date its row
+     carries. The handover catch-up trusts this over anything in the sheet. */
+  l.handoverDue = l.handoverDue || new Date().toISOString();
   l.touches = leadTouches(l);
   const saved = leadSave(l);
   /* every lead is a contact from the moment it lands, and — unless the
@@ -13929,7 +13932,56 @@ function mailHold(l, e) {
   leadAddUpdate(l, `Handover is waiting to be sent as ${l.mailHeld.wanted} — this browser is not allowed to.`, true);
   leadSave(l);
 }
-const leadsHeld = () => live('leads').filter(l => l.mailHeld && !l.mailedAt);
+/* WHAT IS ACTUALLY WAITING TO BE TOLD.
+
+   The explicit marker is not enough. A browser running this build and
+   refused the team address marks the lead mailHeld and moves on — fine. But
+   under the lock, a browser running a build from before any of this simply
+   does nothing: it reads leadMailAuto, sees false, and returns. No marker,
+   no mail, no trace. Counting only the marked ones would mean exactly the
+   leads the lock is there to protect were the ones never emailed at all.
+
+   So "waiting" is the same test the Azure service uses — assigned to a
+   person, never mailed, not with the calling agent, not already lost.
+
+   With one guard that matters: the store holds leads going back to the
+   HubSpot migration, none of which were ever emailed because this feature
+   did not exist. Sending those would mean a rep opening their inbox to
+   hundreds of handovers for leads from months ago. Only leads from the last
+   few days qualify, plus anything explicitly held however old it is. */
+const HELD_DAYS = () => {
+  const v = Number((DB.config || {}).leadMailCatchUpDays);
+  return v >= 1 && v <= 30 ? v : 7;
+};
+/* The clock that decides, in order of how much it can be trusted:
+
+   handoverDue — stamped by whatever created the lead, at the moment it was
+     created here. Exact, and the only one of the three that cannot be
+     confused by what a sheet says.
+   createdAt — the date in the sheet's own column, for leads made by a build
+     that did not stamp the first one. An agency that backfills a row dates it
+     a few days back, which is why the window is a week and not a day.
+
+   A lead carrying neither inside the window is not a lead that arrived
+   recently: it is the HubSpot migration, months old and never emailed because
+   none of this existed then. Those stay out for good. */
+function leadsHeld() {
+  const floor = Date.now() - HELD_DAYS() * 864e5;
+  return live('leads').filter(l => {
+    if (l.mailedAt || l.withAgent || l.stage === 'Lost') return false;
+    if (!l.assignee) return false;
+    if (l.mailHeld) return true;                       /* marked, whatever its age */
+    const at = Date.parse(l.handoverDue || l.createdAt || '');
+    return !!at && at >= floor;
+  });
+}
+/* How long the oldest one has been sitting, in hours — the honest measure of
+   what the lock costs when no service is running behind it. */
+function leadsHeldOldestH() {
+  const ts = leadsHeld().map(l => Date.parse((l.mailHeld && l.mailHeld.at) || l.createdAt || ''))
+    .filter(t => !!t);
+  return ts.length ? (Date.now() - Math.min(...ts)) / 36e5 : 0;
+}
 /* Any browser signed in as the team address clears the backlog. Called after
    a sheet sync and once on load, so a held handover goes out the moment
    somebody who can send it opens the tool. */
@@ -13937,7 +13989,11 @@ async function leadsSendHeld(opt) {
   const o = opt || {};
   if (!mailFrom() || !canSendAsTeam() || SYNC.mode !== 'onedrive') return { sent: 0 };
   if (sheetServerLive()) return { sent: 0, serverSends: true };
-  const waiting = leadsHeld();
+  /* Oldest first, and capped: a browser that has been shut for a week should
+     not open into a hundred sends at once. The rest go on the next pass. */
+  const waiting = leadsHeld()
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
+    .slice(0, 25);
   if (!waiting.length) return { sent: 0 };
   let sent = 0;
   for (const l of waiting) if (await leadEmailRep(l.id, { quiet: true })) sent++;
@@ -14265,7 +14321,10 @@ function viewLeads(root) {
       el('span', { html: ico('mail', 15), style: 'color:var(--warning);flex:none' }),
       el('div', { style: 'flex:1;min-width:220px;line-height:1.5',
         text: `${waiting.length} handover${waiting.length === 1 ? ' is' : 's are'} waiting to be sent as ` +
-          `${mailFrom()}. ` + (canSendAsTeam()
+          `${mailFrom()}` + (() => { const h = leadsHeldOldestH();
+            return h < 1 ? '. ' : h < 48 ? ` — the oldest for ${Math.round(h)} hours. `
+                                         : ` — the oldest for ${Math.round(h / 24)} days. `; })() +
+          (canSendAsTeam()
             ? 'You are signed in as that address, so you can send them.'
             : 'They go out when somebody signed in as that address opens the tool.') }),
       canSendAsTeam() && !isReadOnly()
@@ -21661,10 +21720,21 @@ function mailLockCard(want) {
     el('b', { text: on ? `Locked — only ${want} sends handovers`
                        : 'Old tabs can still send from their own mailbox' })
   ]));
+  /* WHAT THE LOCK COSTS, WITH NOTHING ALWAYS-ON BEHIND IT.
+     With the Azure service running there is no cost worth mentioning: it
+     sends within five minutes whatever anybody's laptop is doing. Without
+     it, this address IS the only sender, and a handover that arrives while
+     that browser is shut waits for it to open. That is a real trade and it
+     belongs on the screen where the trade is made, not in a changelog. */
+  const server = sheetServerLive();
   wrap.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6', html: on
-    ? 'Every browser has stopped sending handovers automatically. This build lets exactly one ' +
-      'through — whichever browser is signed in as <b>' + esc(want) + '</b> — and the Azure ' +
-      'service, if it is running. Anything else holds the mail and waits.'
+    ? 'Every browser has stopped sending handovers automatically. Exactly one is let through — ' +
+      'whichever is signed in as <b>' + esc(want) + '</b>' +
+      (server ? ' — and the Azure service, which is running and does the sending.' :
+        '. There is no service running, so <b>that browser is the only sender</b>: a lead that ' +
+        'arrives while it is shut is still created, routed and waiting in Marketing Leads, but ' +
+        'its rep is not emailed until the browser is opened. The lock is doing its job either ' +
+        'way — this is what it costs.')
     : 'The setting above is read by this build. A rep who has not reloaded the tool in weeks is ' +
       'still running the build they loaded then, which has never heard of a team address and ' +
       'posts every handover through their own mailbox. Locking it switches off the one flag ' +
@@ -21696,6 +21766,22 @@ function mailLockCard(want) {
     style: 'margin:var(--sp-3) 0 0;color:var(--warning);line-height:1.55',
     text: `You are signed in as ${myMail() || 'somebody else'}, so this browser is not sending ` +
       'handovers. They are held for a browser signed in as ' + want + ', or for the service.' }));
+  /* The cost, as a number rather than a warning about one. */
+  if (on && typeof leadsHeld === 'function') {
+    const n = leadsHeld().length;
+    if (n) {
+      const h = leadsHeldOldestH();
+      const age = h < 1 ? 'under an hour' : h < 48 ? Math.round(h) + ' hours' : Math.round(h / 24) + ' days';
+      const line = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+        text: `${n} rep${n === 1 ? ' is' : 's are'} waiting to be told about a lead — the oldest ` +
+          `for ${age}.` + (canSendAsTeam() ? ' This browser can send them.' : '') });
+      line.style.color = h > 12 ? 'var(--warning)' : 'var(--ink-2)';
+      wrap.appendChild(line);
+      if (canSendAsTeam() && !isReadOnly()) wrap.appendChild(el('button', {
+        class: 'btn sm', style: 'margin-top:var(--sp-2)', html: ico('mail', 13) + ' Send them now',
+        onclick: () => leadsSendHeld({ quiet: false }) }));
+    }
+  }
   return wrap;
 }
 
