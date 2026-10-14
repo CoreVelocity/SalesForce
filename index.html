@@ -1,4 +1,4 @@
-<!--corev-build:1.61.0-->
+<!--corev-build:1.63.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.61.0';
+const VERSION = '1.63.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -5586,11 +5586,50 @@ function expandAllStages() {
 const DEAL_STATUS = [['open', 'Open only'], ['closed', 'Closed only'], ['all', 'Open + closed']];
 const dealStatus = () => (DEAL_STATUS.some(x => x[0] === VIEW.dealStatus) ? VIEW.dealStatus : 'open');
 const dealStatusLabel = () => (DEAL_STATUS.find(x => x[0] === dealStatus()) || DEAL_STATUS[0])[1];
+/* PRIORITY, AS A FILTER.
+
+   A deal has carried a priority since the beginning, and it was visible on
+   the deal itself and in the CSV export and nowhere else — so the only way
+   to answer "what are my high-priority deals" was to export the book and
+   open it in Excel.
+
+   The filter lives in dealScope() rather than on either view, because that
+   is the one place the board, the table, the tiles and the export all pass
+   through. Put it on the table and the board quietly disagrees with it; put
+   it here and there is one answer.
+
+   "Not set" is a real choice, not an omission: a few hundred deals came
+   across from HubSpot with nothing in the field, and finding them is the
+   first step to not having them. */
+const DEAL_PRIORITIES = [['high', 'High'], ['medium', 'Medium'], ['low', 'Low'], ['none', 'Not set']];
+const dealPriority = () => {
+  const v = String(VIEW.dealPriority || 'all');
+  return v === 'all' || DEAL_PRIORITIES.some(([k]) => k === v) ? v : 'all';
+};
+const dealPriorityLabel = () => {
+  const v = dealPriority();
+  if (v === 'all') return 'Any priority';
+  return (DEAL_PRIORITIES.find(([k]) => k === v) || [, v])[1];
+};
+/* Case and stray spacing are forgiven: the HubSpot import wrote "High" and
+   "high (high)" into the same column before it was normalised on load. */
+const dealPriorityOf = d => {
+  const m = /^\s*(low|medium|high)\b/i.exec(String(d.priority || ''));
+  return m ? m[1].toLowerCase() : '';
+};
+function dealPriorityFilter(deals) {
+  const v = dealPriority();
+  if (v === 'all') return deals;
+  if (v === 'none') return deals.filter(d => !dealPriorityOf(d));
+  return deals.filter(d => dealPriorityOf(d) === v);
+}
+
 function dealScope() {
   const status = dealStatus();
   let deals = scopedDeals();
   if (status === 'open')   deals = deals.filter(isOpen);
   if (status === 'closed') deals = deals.filter(d => !isOpen(d));
+  deals = dealPriorityFilter(deals);
   if (VIEW.pipePeriod === 'all') return { deals, hidden: 0, field: null, status };
   const b = periodBounds(VIEW.pipePeriod);
   const field = VIEW.dateBasis === 'created' ? 'createdAt' : 'closeDate';
@@ -5664,8 +5703,13 @@ function dealBoard(root, scope) {
   /* Rep and period behind one button on a phone, with a count of how many
      are actually narrowing anything — so you can see at a glance that you
      are looking at everything, without reading two pickers to find out. */
-  const narrowed = (VIEW.rep !== 'all' ? 1 : 0) + (VIEW.pipePeriod !== 'all' ? 1 : 0);
-  bar.appendChild(fold('Filters', [rep, periodSeg('pipePeriod')], narrowed, 'list'));
+  const pri = el('select', { class: 'inp', style: 'width:auto;min-width:148px', 'aria-label': 'Priority',
+    onchange: e => { VIEW.dealPriority = e.target.value; VIEW.page = {}; render(); } });
+  [['all', 'Any priority']].concat(DEAL_PRIORITIES).forEach(([v, l]) =>
+    pri.appendChild(el('option', { value: v, text: l, selected: dealPriority() === v || null })));
+  const narrowed = (VIEW.rep !== 'all' ? 1 : 0) + (VIEW.pipePeriod !== 'all' ? 1 : 0) +
+    (dealPriority() !== 'all' ? 1 : 0);
+  bar.appendChild(fold('Filters', [rep, pri, periodSeg('pipePeriod')], narrowed, 'list'));
   const basis = el('div', { class: 'seg phone-hide' });
   [['close', 'By close date'], ['created', 'By created date']].forEach(([v, l]) =>
     basis.appendChild(el('button', { class: VIEW.dateBasis === v ? 'on' : '', text: l,
@@ -5681,9 +5725,10 @@ function dealBoard(root, scope) {
                          : 'Highest value at the top of each column',
       onclick: () => { VIEW.boardSort = v; render(); } })));
   bar.appendChild(bsort);
-  if (VIEW.rep !== 'all' || VIEW.pipePeriod !== 'all')
+  if (VIEW.rep !== 'all' || VIEW.pipePeriod !== 'all' || dealPriority() !== 'all')
     bar.appendChild(el('button', { class: 'btn sm ghost', text: 'Reset filters',
-      onclick: () => { VIEW.rep = 'all'; VIEW.pipePeriod = 'all'; VIEW.dateBasis = 'close'; render(); } }));
+      onclick: () => { VIEW.rep = 'all'; VIEW.pipePeriod = 'all'; VIEW.dateBasis = 'close';
+        VIEW.dealPriority = 'all'; render(); } }));
   const mins = minStages().filter(id => st.some(s => s.id === id));
   if (mins.length) bar.appendChild(el('button', { class: 'btn sm',
     html: ico('board',13) + ` Expand ${mins.length} stage${mins.length > 1 ? 's' : ''}`,
@@ -5925,6 +5970,10 @@ function kcard(d, s) {
     text: initials(ownerName(cid)), title: 'Collaborator: ' + ownerName(cid) })));
   if (isCollabOnly(d, VIEW.rep)) foot.appendChild(el('span', { class: 'tag info',
     style: 'font-size:9px;padding:1px 6px', text: 'collab', title: 'Owned by ' + ownerName(d.ownerId) }));
+  /* High only. A tag on every card for "medium" is a tag on nothing, and the
+     board is already carrying a value, a company, a date and two avatars. */
+  if (dealPriorityOf(d) === 'high') foot.appendChild(el('span', { class: 'tag bad',
+    style: 'font-size:9px;padding:1px 6px', text: 'high', title: 'High priority' }));
   const tks = taskMap().get(d.id);
   if (tks) {
     const od = tks.late;
@@ -6090,6 +6139,9 @@ function dealTable(root, scope) {
     selectFilter('Sales rep', VIEW.rep || 'all',
       [['all', 'All sales reps']].concat(activeOwners().map(o => [o.id, o.name])),
       v => { VIEW.rep = v; VIEW.page = {}; render(); }, 150),
+    selectFilter('Priority', dealPriority(),
+      [['all', 'Any priority']].concat(DEAL_PRIORITIES),
+      v => { VIEW.dealPriority = v; VIEW.page.deals = 0; render(); }, 140),
     types.length ? selectFilter('Type', tf.type || '', [['','All types']].concat(types.map(t => [t, t])),
       v => { tf.type = v || null; VIEW.page.deals = 0; render(); }) : null,
     el('div', { style: 'flex:1' }),
@@ -6103,7 +6155,9 @@ function dealTable(root, scope) {
   dataTable(root, {
     /* Newest added first by default — column 6 below. It used to open on
        Value, which buries anything created today under the big old deals. */
-    key: 'deals', noun: 'deals', rows, per: 60, defaultSort: pick ? 7 : 6, defaultDir: -1,
+    /* The Priority column below sits after Owner, which pushes Added — the
+       default sort — one place to the right. */
+    key: 'deals', noun: 'deals', rows, per: 60, defaultSort: pick ? 8 : 7, defaultDir: -1,
     cols: [
       pick ? { h: '', sortable: false, v: () => 0, r: d => dealSelBox(d) } : null,
       { h: 'Deal', v: d => d.name, r: d => {
@@ -6113,6 +6167,13 @@ function dealTable(root, scope) {
         } },
       { h: 'Stage', v: d => stage(d.stageId).order, sv: d => stage(d.stageId).order, r: d => stageCell(d.stageId) },
       { h: 'Owner', v: d => ownerName(d.ownerId), r: d => ownerCell(d.ownerId) },
+      /* Sorted by weight rather than alphabetically, so High comes first and
+         the ones nobody has set come last — "high, low, medium, not set" is
+         not an order anybody wants. */
+      { h: 'Priority', v: d => ({ high: 0, medium: 1, low: 2 }[dealPriorityOf(d)] ?? 3),
+        r: d => { const p = dealPriorityOf(d);
+          if (!p) return '<span class="cellsub">—</span>';
+          return `<span class="tag ${p === 'high' ? 'bad' : p === 'medium' ? 'warn' : ''}">${p}</span>`; } },
       { h: 'Value', num: true, v: d => d.amount || 0,
         r: d => d.amount ? `<span class="mono">${money(d.amount)}</span>`
                          : `<span class="tag warn">not set</span>` },
@@ -21978,9 +22039,13 @@ function mailAuditBlock(want) {
   const by = new Map();
   sent.filter(l => l.mailedFrom).forEach(l => {
     const k = String(l.mailedFrom).toLowerCase();
-    const e = by.get(k) || { from: l.mailedFrom, n: 0, who: new Set(), ver: new Set(), last: '' };
+    const e = by.get(k) || { from: l.mailedFrom, n: 0, who: new Set(), ver: new Set(),
+      last: '', first: '', at: [] };
     e.n++; if (l.mailedBy) e.who.add(l.mailedBy); if (l.mailedVer) e.ver.add(l.mailedVer);
-    if (String(l.mailedAt) > e.last) e.last = String(l.mailedAt);
+    const t = String(l.mailedAt);
+    if (t > e.last) e.last = t;
+    if (!e.first || t < e.first) e.first = t;
+    e.at.push(Date.parse(t) || 0);
     by.set(k, e);
   });
   const rows = [...by.values()].sort((a, b) => b.n - a.n);
@@ -21993,6 +22058,19 @@ function mailAuditBlock(want) {
       text: right ? 'correct' : 'wrong sender' }));
     line.appendChild(el('span', { class: 'mono', style: 'font-weight:600', text: r.from }));
     line.appendChild(el('span', { class: 'cellsub', text: r.n + ' handover' + (r.n === 1 ? '' : 's') }));
+    /* WHEN, not just how many. Sixty handovers spread over a fortnight is a
+       team working its leads. Sixty inside an hour is a catch-up queue that
+       emptied itself into everybody's inbox — the same sixty, and the count
+       alone cannot tell them apart. */
+    const a = r.first.slice(0, 10), b = r.last.slice(0, 10);
+    line.appendChild(el('span', { class: 'cellsub',
+      text: '· ' + (a === b ? fdate(a) : fdate(a) + ' – ' + fdate(b)) }));
+    const times = r.at.filter(Boolean);
+    const spanH = times.length > 1 ? (Math.max(...times) - Math.min(...times)) / 36e5 : 0;
+    if (r.n >= 10 && spanH < 2) line.appendChild(el('span', { class: 'tag warn',
+      title: 'They were sent within ' + (spanH < 1 ? 'the hour' : 'two hours') +
+        ' of each other, which is a backlog going out at once rather than leads arriving',
+      text: 'all at once' }));
     if (!right && r.who.size) line.appendChild(el('span', { class: 'cellsub',
       text: '· needs Send As: ' + [...r.who].join(', ') }));
     if (r.ver.size) line.appendChild(el('span', { class: 'cellsub',
@@ -22000,6 +22078,16 @@ function mailAuditBlock(want) {
     list.appendChild(line);
   });
   wrap.appendChild(list);
+  /* And say what that means, once, rather than leaving a tag to be guessed at. */
+  const burst = rows.find(r => r.n >= 10 && r.at.filter(Boolean).length > 1 &&
+    (Math.max(...r.at.filter(Boolean)) - Math.min(...r.at.filter(Boolean))) / 36e5 < 2);
+  if (burst) wrap.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-3) 0 0;line-height:1.6;color:var(--warning)',
+    html: `<b>${burst.n}</b> of these went out within ${
+      (Math.max(...burst.at.filter(Boolean)) - Math.min(...burst.at.filter(Boolean))) / 36e5 < 1
+        ? 'an hour' : 'two hours'} of each other — a waiting queue emptying itself, not leads ` +
+      'arriving. The reps on the receiving end got them in one go, so it is worth telling them ' +
+      'why before they ask.' }));
   const wrong = rows.filter(r => r.from.toLowerCase() !== want.toLowerCase());
   if (wrong.length) {
     const who = [...new Set(wrong.flatMap(r => [...r.who]))];
