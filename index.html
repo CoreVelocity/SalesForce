@@ -1,4 +1,4 @@
-<!--corev-build:1.63.0-->
+<!--corev-build:1.64.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.63.0';
+const VERSION = '1.64.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -11307,7 +11307,23 @@ const canSendAsTeam = () => {
 
    The cost is honest and stated on screen: while the lock is on, a handover
    only goes out from Ahmed's browser or from the Azure service. Anything
-   else waits. */
+   else waits.
+
+   SCOPE, WHICH THE FIRST VERSION OF THIS GOT WRONG.
+
+   The hold was put in graphSendMail, which is the choke point for every
+   email this tool sends — so the lock did not stop handovers coming from
+   the wrong person, it stopped a rep's browser sending ANYTHING. A rep
+   building a quote and submitting it for approval had the request to the
+   approver thrown away, silently, because quoteNotify logs the failure and
+   carries on. Nobody was told, and the quote sat there.
+
+   The lock is about whose name is on a lead handover. It is not a reason to
+   hold a quote approval, an approval request or a deal assignment: those are
+   from the person who did the thing, which is exactly who they should look
+   like they came from, and holding one blocks the person waiting on it. So
+   only the handover paths ask for a hold — everything else sends as the team
+   address where it can and from the sender's own mailbox where it cannot. */
 const mailLocked = () => !!(DB.config && DB.config.leadMailOnlyFrom) && !!mailFrom();
 const mailStrict = () => {
   if (mailLocked()) return true;          /* the lock is not negotiable */
@@ -11321,10 +11337,13 @@ function mailHeldError(shared) {
   e.held = true; e.wanted = shared;
   return e;
 }
-async function graphSendMail(to, subject, html, cc, files) {
-  /* Decided before a token is even asked for: this browser is not the team
-     address and holding is on, so nothing is going out from here. */
-  if (!canSendAsTeam() && mailStrict()) throw mailHeldError(mailFrom());
+/* `opt.hold` is the lead handover asking to be held rather than sent under
+   the wrong name. Nothing else passes it, and nothing else is held. */
+async function graphSendMail(to, subject, html, cc, files, opt) {
+  const hold = !!(opt && opt.hold);
+  /* Decided before a token is even asked for: this is a handover, this
+     browser is not the team address, and holding is on. */
+  if (hold && !canSendAsTeam() && mailStrict()) throw mailHeldError(mailFrom());
   const tok = await mailToken();
   const addr = a => ({ emailAddress: { address: String(a).trim() } });
   const toList = (to || []).filter(Boolean);
@@ -11364,7 +11383,7 @@ async function graphSendMail(to, subject, html, cc, files) {
   if (!res.ok && useShared) {
     const first = (await res.clone().text().catch(() => '')).slice(0, 400);
     if (res.status === 403 || MAIL_DENIED.test(first)) {
-      if (mailStrict()) throw mailHeldError(shared);
+      if (hold && mailStrict()) throw mailHeldError(shared);
       res = await post(null);
       MAIL_LAST = { from: myMail() || 'me', fellBack: true, wanted: shared,
         by: myMail() || 'me', ver: VERSION, at: new Date().toISOString() };
@@ -14203,7 +14222,9 @@ async function leadEmailRep(id, opt) {
     ? `${ownerName(l.assignee)} took this lead. Contact immediately.`
     : `${rep ? rep.name.split(' ')[0] + ', this' : 'This'} lead is yours. Please contact them immediately.`;
   try {
-    await graphSendMail(to.length ? to : cc, subject, leadMailBody(l, intro), to.length ? cc : []);
+    /* hold: this is the handover, and the lock is about whose name is on it */
+    await graphSendMail(to.length ? to : cc, subject, leadMailBody(l, intro),
+      to.length ? cc : [], null, { hold: true });
     const r = mailStamp(l, to.length ? to : cc, to.length ? cc : []);
     leadSave(l);
     if (!o.quiet) {
@@ -14280,7 +14301,7 @@ async function leadsEmailHandover(leads, opt) {
       } else {
         await graphSendMail(to.length ? to : cc,
           `${rows.length} new leads · contact immediately` + (rep ? ' · ' + rep.name : ''),
-          leadsMailDigestBody(rows), to.length ? cc : []);
+          leadsMailDigestBody(rows), to.length ? cc : [], null, { hold: true });
         rows.forEach(l => { const r = mailStamp(l, to.length ? to : cc, to.length ? cc : []);
           if (r.fellBack) { wrongFrom++; cameFrom = r.from; } leadSave(l); });
         sent += rows.length;
@@ -18006,18 +18027,38 @@ async function quoteAnnounce(q, kind) {
   try {
     await graphSendMail([quoteApprover()], ev.subject(q),
       quoteMailHtml(q, ev.lead(q), 'Open it in the CRM'), [q.submittedByEmail].filter(Boolean));
-    q[ev.flag] = new Date().toISOString(); quoteSave(q);
+    q[ev.flag] = new Date().toISOString(); q.mailErr = null; quoteSave(q);
     return true;
-  } catch (e) { console.error(e); return false; }
+  } catch (e) {
+    /* This used to be console.error and nothing else. When the sender lock
+       started refusing every send from a rep's browser, the approver simply
+       stopped hearing about quotes — and because the only trace was in a
+       console nobody has open, it looked like the notifications had quietly
+       been switched off. A failure that nobody can see is the worst kind.
+       It is written on the quote now, where both sides can read it. */
+    q.mailErr = { at: new Date().toISOString(), kind, why: String(e.message || e).slice(0, 160) };
+    quoteSave(q);
+    console.error(e);
+    return false;
+  }
 }
 
 async function quoteMailApproval(q) {
   const cc = [q.submittedByEmail].filter(Boolean);
-  await graphSendMail([quoteApprover()],
-    `Quote approval needed (discount ${qMoney(q.discount, q)}): ${q.name} · ${q.ref}`,
-    quoteMailHtml(q, `${q.sender.name || 'A rep'} is asking for ${qMoney(q.discount, q)} off this quote. It cannot be sent until you decide.`,
-      'Open it in the CRM to approve or reject'), cc);
-  q.approvalMailedAt = new Date().toISOString(); quoteSave(q);
+  try {
+    await graphSendMail([quoteApprover()],
+      `Quote approval needed (discount ${qMoney(q.discount, q)}): ${q.name} · ${q.ref}`,
+      quoteMailHtml(q, `${q.sender.name || 'A rep'} is asking for ${qMoney(q.discount, q)} off this quote. It cannot be sent until you decide.`,
+        'Open it in the CRM to approve or reject'), cc);
+  } catch (e) {
+    /* The rep is told by the toast; the quote carries it for the approver,
+       who otherwise has no way of knowing a request was even attempted. */
+    q.mailErr = { at: new Date().toISOString(), kind: 'approval',
+      why: String(e.message || e).slice(0, 160) };
+    quoteSave(q);
+    throw e;
+  }
+  q.approvalMailedAt = new Date().toISOString(); q.mailErr = null; quoteSave(q);
   return true;
 }
 async function quoteMailDecision(q, decision) {
@@ -18387,6 +18428,33 @@ function quoteDetail(root, q) {
   if (q.importNote) head.body.appendChild(el('p', { class: 'sub',
     style: 'margin:var(--sp-3) 0 0;line-height:1.55', text: q.importNote }));
   root.appendChild(head.node);
+
+  /* A notification that failed is worth more on the screen than in a log.
+     Both sides see it: the rep learns the approver was never told, and the
+     approver — who would otherwise have no idea a request existed — can see
+     why it never arrived, and approve it from here anyway. */
+  if (q.mailErr) root.appendChild(el('div', { class: 'card',
+    style: 'margin-bottom:var(--sp-3);padding:var(--sp-3);border-color:var(--warning)' }, [
+    el('div', { style: 'display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap' }, [
+      el('span', { html: ico('warn', 15), style: 'color:var(--warning);flex:none;margin-top:2px' }),
+      el('div', { style: 'flex:1;min-width:240px;line-height:1.55' }, [
+        el('b', { text: quoteApprover() + ' was not emailed about this quote' }),
+        el('div', { class: 'sub', style: 'line-height:1.55',
+          text: `The ${q.mailErr.kind === 'approval' ? 'approval request' : q.mailErr.kind} could not be ` +
+            `sent on ${fdate(String(q.mailErr.at).slice(0, 10))} — ${q.mailErr.why}. The quote itself ` +
+            'is fine and still shows in Quotes; only the email failed.' })
+      ]),
+      canApproveQuotes() || mine ? el('button', { class: 'btn sm',
+        html: ico('mail', 13) + ' Try again',
+        onclick: async () => {
+          const ok = q.status === 'Pending Approval'
+            ? await quoteMailApproval(q).then(() => true).catch(() => false)
+            : await quoteAnnounce(q, 'auto');
+          render();
+          toast(ok ? quoteApprover() + ' has been told' : 'Still could not send it', ok ? 'ok' : 'err');
+        } }) : null
+    ].filter(Boolean))
+  ]));
 
   /* ---- what can be done with it, right now ---- */
   const acts = el('div', { class: 'qacts' });
