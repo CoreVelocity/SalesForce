@@ -1,4 +1,4 @@
-<!--corev-build:1.66.1-->
+<!--corev-build:1.66.2-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.66.1';
+const VERSION = '1.66.2';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14124,6 +14124,10 @@ const mailTooOld = l => {
 /* Why a lead is in the queue, which is the thing the panel has to be able to
    show before anybody presses send. */
 function leadsHeldWhy(l) {
+  /* Refused is not the same as waiting. A held lead is waiting for a sender
+     who may yet turn up; this one had a sender and was turned down, and the
+     reason is the only thing that gets it fixed. */
+  if (l.mailErr) return 'refused: ' + String((l.mailErr && l.mailErr.error) || 'unknown error');
   if (l.mailHeld) return 'held by ' + ((l.mailHeld && l.mailHeld.by) || 'another browser');
   return 'arrived here and was never emailed';
 }
@@ -22189,7 +22193,64 @@ function mailLockCard(want) {
         onclick: () => leadsHeldReview() }));
     }
   }
+  wrap.appendChild(mailServiceBlock());
   wrap.appendChild(mailLineCard());
+  return wrap;
+}
+
+/* WHAT THE SERVICE DID WITH THE MAIL, LAST TIME IT RAN.
+
+   A new lead routed to Wafiq correctly and no email arrived — not to him,
+   not as a copy to Ahmed. There was nothing to look at. The sheet panel
+   showed a green "read just now, by the service", because reading the sheet
+   had worked; the mail step runs after that and recorded nothing at all.
+   No Application Insights was ever provisioned on the Function app, so there
+   were no logs either. A refused handover looked, from every screen in this
+   tool, exactly like a handover that was never due.
+
+   The service now writes what the mail step did into the same shared config
+   it already stamps, and this is where it is read back. */
+function mailServiceBlock() {
+  const c = DB.config || {};
+  const wrap = el('div', { style: 'margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--line)' });
+  if (!c.leadMailAt) {
+    wrap.appendChild(el('div', { style: 'font-weight:600', text: 'The service and the mail' }));
+    wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.6',
+      html: typeof sheetServerLive === 'function' && sheetServerLive()
+        ? 'The service is reading the sheet but has <b>never reported what it did with the mail</b>. ' +
+          'That is what a build older than 1.66.1 looks like: it sends, or fails to, and says nothing ' +
+          'either way. Publish the current one and this line fills in on the next run.'
+        : 'No service has reported a mail run. Handovers are this page’s job for now.' }));
+    return wrap;
+  }
+  const mins = (Date.now() - (Date.parse(c.leadMailAt) || 0)) / 60000;
+  const ago = mins < 1.5 ? 'just now' : mins < 60 ? Math.round(mins) + ' min ago'
+    : mins < 2880 ? Math.round(mins / 60) + ' hours ago' : Math.round(mins / 1440) + ' days ago';
+  const sent = Number(c.leadMailSent) || 0;
+  const bad = Number(c.leadMailFailed) || 0;
+  const held = Number(c.leadMailQueued) || 0;
+  wrap.appendChild(el('div', { style: 'font-weight:600', text: 'The service and the mail' }));
+  const line = el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.6',
+    html: 'Last mail run <b>' + esc(ago) + '</b> — ' +
+      '<b>' + sent + '</b> sent' + (bad ? ', <b>' + bad + '</b> refused' : '') +
+      (held ? ', <b>' + held + '</b> queued and left alone' : '') + '.' });
+  line.style.color = bad || c.leadMailErr ? 'var(--critical)' : sent ? 'var(--good)' : 'var(--ink-2)';
+  wrap.appendChild(line);
+  if (c.leadMailErr) wrap.appendChild(el('p', { class: 'sub',
+    style: 'margin:var(--sp-2) 0 0;line-height:1.55;color:var(--critical-ink);' +
+      'background:var(--critical-bg);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-sm)',
+    text: String(c.leadMailErr) }));
+  /* Which leads, by name — a count nobody can act on. */
+  const refused = live('leads').filter(l => l.mailErr && !l.mailedAt);
+  if (refused.length) {
+    wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0',
+      text: refused.length + ' lead' + (refused.length === 1 ? '' : 's') +
+        ' carr' + (refused.length === 1 ? 'ies' : 'y') + ' a refusal: ' +
+        refused.slice(0, 5).map(l => l.name || 'unnamed').join(', ') +
+        (refused.length > 5 ? ' and ' + (refused.length - 5) + ' more' : '') }));
+    wrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)',
+      html: ico('list', 13) + ' See what is waiting', onclick: () => leadsHeldReview() }));
+  }
   return wrap;
 }
 
