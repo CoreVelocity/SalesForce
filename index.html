@@ -1,4 +1,4 @@
-<!--corev-build:1.64.0-->
+<!--corev-build:1.65.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.64.0';
+const VERSION = '1.65.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3590,7 +3590,47 @@ async function writeShard(s, data) {
 async function ensureFolder() { await resolveDrive(); }
 
 /* ---- the merge: per-record last-write-wins, tombstones sticky ---- */
-function mergeRecords(mine, theirs) {
+/* THINGS THAT HAPPENED IN THE WORLD AND CANNOT UN-HAPPEN.
+
+   The merge takes the whole record from whichever side has the higher _v.
+   That is right for everything a person can change their mind about — a
+   stage, a rep, a note — and badly wrong for a field that records an event
+   outside this tool.
+
+   "Shuaa" is what it looks like when it goes wrong. Three browsers read the
+   same new row within seconds of each other. Each one created the lead —
+   same id, so one record — routed it, and stamped mailedAt. Then the copies
+   merged, highest _v won wholesale, and the winner was a copy written a
+   second later by a browser that had not sent anything: no mailedAt. The
+   lead was now "never emailed" again, so the next pass emailed it again, to
+   whichever rep that browser's turn of the rotation had picked. Wafiq, then
+   Jawdat, then Wafiq, and Jawdat in the CRM at the end of it.
+
+   An email has been sent. No later version of the record can make that
+   untrue. So these fields are carried forward: the merge may fill one in,
+   never blank one out. Everything else keeps the ordinary rule.
+
+   Deliberately NOT in here: mailHeld, which is a state ("waiting to go")
+   rather than an event, and must be clearable. */
+const STICKY_FIELDS = {
+  leads: ['mailedAt', 'mailedTo', 'mailedCc', 'mailedFrom', 'mailedBy', 'mailedVer', 'handedOverAt'],
+  quotes: ['approvalMailedAt', 'raisedMailAt', 'autoMailAt', 'sentMailAt']
+};
+function keepSticky(winner, loser, shard) {
+  const keys = STICKY_FIELDS[shard];
+  if (!keys || !winner || !loser) return winner;
+  let out = winner;
+  keys.forEach(k => {
+    if (out[k] == null && loser[k] != null) {
+      /* copied rather than mutated: the loser may be the live object a
+         render is reading, and the winner may be the one from the file */
+      if (out === winner) out = Object.assign({}, winner);
+      out[k] = loser[k];
+    }
+  });
+  return out;
+}
+function mergeRecords(mine, theirs, shard) {
   const out = new Map();
   (theirs || []).forEach(r => r && r.id && out.set(r.id, r));
   (mine   || []).forEach(r => {
@@ -3598,8 +3638,9 @@ function mergeRecords(mine, theirs) {
     const t = out.get(r.id);
     if (!t) { out.set(r.id, r); return; }
     const mv = r._v || 0, tv = t._v || 0;
-    if (mv > tv) out.set(r.id, r);
+    if (mv > tv) out.set(r.id, keepSticky(r, t, shard));
     else if (mv === tv && r._del && !t._del) out.set(r.id, r);   // tombstone wins a tie
+    else out.set(r.id, keepSticky(t, r, shard));
   });
   return Array.from(out.values());
 }
@@ -3614,7 +3655,7 @@ async function syncNow(opt) {
     await resolveDrive();
     for (const s of REC_SHARDS) {
       const remote = await readShard(s);
-      const merged = mergeRecords(DB[s], (remote && remote.rows) || []);
+      const merged = mergeRecords(DB[s], (remote && remote.rows) || [], s);
       const changed = SYNC.dirty.has(s) || !remote || merged.length !== ((remote && remote.rows) || []).length;
       DB[s] = merged;
       /* Writing an EMPTY shard is the one write that can destroy the team's
@@ -3923,7 +3964,7 @@ function applySeed(seed, opt) {
   REC_SHARDS.forEach(s => {
     if (!Array.isArray(seed[s])) return;
     const rows = seed[s].map(r => mark(Object.assign({}, r)));
-    DB[s] = o.merge ? mergeRecords(rows, DB[s]) : rows;
+    DB[s] = o.merge ? mergeRecords(rows, DB[s], s) : rows;
     SYNC.dirty.add(s);
   });
   SYNC.dirty.add('config');
@@ -13993,6 +14034,9 @@ function leadsMailDigestBody(rows) {
    running an old copy. */
 function mailStamp(l, to, cc) {
   const r = mailLastSend() || {};
+  /* Written to this browser's own list first, because that is the one the
+     sync cannot overwrite. */
+  sentRecord(l.id);
   l.mailedAt = r.at || new Date().toISOString();
   l.mailedTo = (to || []).join(', ');
   l.mailedCc = (cc || []).join(', ');
@@ -14068,6 +14112,7 @@ function leadsHeld() {
   const heldFloor = Date.now() - 30 * 864e5;
   return live('leads').filter(l => {
     if (l.mailedAt || l.withAgent || l.stage === 'Lost') return false;
+    if (sentAlready(l.id)) return false;      /* this browser has already told them */
     if (!l.assignee) return false;
     const at = leadArrivedAt(l);
     if (l.mailHeld) {
@@ -14176,10 +14221,37 @@ function leadsHeldReview() {
 /* Any browser signed in as the team address clears the backlog. Called after
    a sheet sync and once on load, so a held handover goes out the moment
    somebody who can send it opens the tool. */
+/* PUTTING BACK A STAMP THE SYNC LOST.
+
+   This browser's own list is enough to stop it emailing a lead twice. It
+   does nothing for anybody else: the shared record still reads "never
+   emailed", so the audit panel miscounts, the queue in Settings looks wrong,
+   and a browser on an older build — which has no list of its own — sends it
+   again. Where the list knows better than the record, the record is put
+   right. One write, and every browser agrees again. */
+function leadsHealSent() {
+  const ledger = sentLedger();
+  let n = 0;
+  live('leads').forEach(l => {
+    if (l.mailedAt || !ledger[String(l.id)]) return;
+    l.mailedAt = new Date(ledger[String(l.id)]).toISOString();
+    l.mailedFrom = l.mailedFrom || mailFrom() || myMail() || null;
+    l.mailedBy = l.mailedBy || myMail() || null;
+    l.mailedVer = l.mailedVer || VERSION;
+    l.mailHeld = null;
+    leadSave(l); n++;
+  });
+  if (n) console.log(`Put the "already emailed" stamp back on ${n} lead(s) a sync had lost`);
+  return n;
+}
+
 async function leadsSendHeld(opt) {
   const o = opt || {};
   if (!mailFrom() || !canSendAsTeam() || SYNC.mode !== 'onedrive') return { sent: 0 };
   if (sheetServerLive()) return { sent: 0, serverSends: true };
+  /* Before deciding what is waiting, agree with ourselves about what has
+     already gone out. */
+  const healed = leadsHealSent();
   /* A queue that does not look like a backlog is not drained on a timer. The
      catch-up runs every four minutes and on every return to the tab, so a
      wrong queue would have emailed twenty-five reps a batch of stale leads,
@@ -14190,20 +14262,59 @@ async function leadsSendHeld(opt) {
   const waiting = leadsHeld()
     .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
     .slice(0, 25);
-  if (!waiting.length) return { sent: 0 };
+  if (!waiting.length) return { sent: 0, healed };
   let sent = 0;
   for (const l of waiting) if (await leadEmailRep(l.id, { quiet: true })) sent++;
   if (sent && !o.quiet) { render(); toast(sent + ' held handover' + (sent === 1 ? '' : 's') +
     ' sent as ' + mailFrom(), 'ok'); }
-  return { sent };
+  return { sent, healed };
+}
+
+/* A SECOND LOCK, OUTSIDE THE RECORD.
+
+   mailedAt lives on the lead, and the lead is a shared record: it travels to
+   OneDrive, comes back, and gets replaced by whichever copy was written last.
+   The sticky-field rule in the store stops a merge blanking the stamp, and
+   that is the real fix — but it only protects records this build has seen.
+   A browser on an older build can still write a copy with no stamp on it.
+
+   So this browser also keeps its own list of the leads it has emailed, in
+   its own storage, where nothing syncing can reach it. One address sends the
+   handovers now, so one list is enough to make "told once" mean once. */
+const SENT_KEY = () => CFG.cacheKey + '.handovers';
+function sentLedger() {
+  try { const v = JSON.parse(localStorage.getItem(SENT_KEY()) || '{}');
+    return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
+}
+function sentAlready(id) { return !!sentLedger()[String(id)]; }
+function sentRecord(id) {
+  try {
+    const v = sentLedger();
+    v[String(id)] = Date.now();
+    /* a few thousand entries is nothing, but it should not grow for ever —
+       anything older than ninety days cannot be emailed again anyway */
+    const floor = Date.now() - 90 * 864e5;
+    Object.keys(v).forEach(k => { if (v[k] < floor) delete v[k]; });
+    localStorage.setItem(SENT_KEY(), JSON.stringify(v));
+  } catch (e) { /* private window, or storage full — the record stamp stands */ }
 }
 
 async function leadEmailRep(id, opt) {
   const o = opt || {};
   const l = getLead(id); if (!l) return false;
   /* Already told. Only an automatic path is stopped here — a person pressing
-     "Email the rep" again means it. */
-  if (l.mailedAt && o.quiet) return false;
+     "Email the rep" again means it. Two tests, because the one on the record
+     can be lost to a merge and the one in this browser cannot. */
+  if (o.quiet && (l.mailedAt || sentAlready(l.id))) {
+    /* The stamp was lost but the mail did go — put it back, so every other
+       browser and the audit panel stop thinking this lead was never told. */
+    if (!l.mailedAt && sentAlready(l.id)) {
+      l.mailedAt = new Date(sentLedger()[String(l.id)]).toISOString();
+      l.mailHeld = null;
+      leadSave(l);
+    }
+    return false;
+  }
   const rep = DB.owners.find(x => x.id === String(l.assignee));
   const repMail = rep && String(rep.email || '').trim();
   const cc = leadMailCc();
@@ -14270,7 +14381,7 @@ async function leadsEmailHandover(leads, opt) {
      digest below would roll all of them into one email per rep and mark the
      lot as told, and nobody would find out until a rep asked why they had
      three hundred leads. It waits to be looked at instead. */
-  const fresh = (leads || []).filter(l => l && l.assignee && !l.mailedAt);
+  const fresh = (leads || []).filter(l => l && l.assignee && !l.mailedAt && !sentAlready(l.id));
   if (fresh.length > HELD_SANE) {
     fresh.forEach(l => { if (!l.mailHeld) { l.mailHeld = { at: new Date().toISOString(),
       wanted: mailFrom() || 'review', by: 'held for review' }; leadSave(l); } });
