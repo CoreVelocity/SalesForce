@@ -1,4 +1,4 @@
-<!--corev-build:1.66.0-->
+<!--corev-build:1.66.1-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.66.0';
+const VERSION = '1.66.1';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -21753,7 +21753,13 @@ function sheetSettingsCard() {
     ? esc(fdate(String(sheetLast()).slice(0, 10))) + ' · ' + (DB.config.leadSheetCount || 0) + ' rows across every tab'
     : 'never');
   srow('Tabs connected', String(sheetTabList().length));
-  srow('Leads held', String(live('leads').length));
+  /* "Leads held" meant "leads this CRM is holding" — the whole store. Sat
+     under a sheet that had just read 342 rows, two lines above a panel about
+     handover email, it read as "339 reps are waiting to be told", and was
+     believed. Two numbers, both named for what they actually count. */
+  srow('Leads in the CRM', String(live('leads').length));
+  srow('Waiting for a handover email',
+    typeof leadsHeld === 'function' ? String(leadsHeld().length) : '0');
   if (DB.config.leadSheetErr)
     srow('Last error', '<span style="color:var(--critical-ink)">' + esc(DB.config.leadSheetErr) + '</span>');
   c.body.appendChild(ss);
