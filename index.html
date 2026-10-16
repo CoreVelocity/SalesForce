@@ -1,4 +1,4 @@
-<!--corev-build:1.65.0-->
+<!--corev-build:1.66.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.65.0';
+const VERSION = '1.66.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14097,6 +14097,30 @@ const leadArrivedAt = l => {
   const t = Date.parse(l.handoverDue || l.createdAt || '');
   return t || null;
 };
+/* THE LINE IN THE SAND.
+
+   The catch-up window above answers "how far back is it reasonable to look".
+   It cannot answer "this particular pile is history, never mail any of it" —
+   and that question comes up exactly once per tool, on the day the always-on
+   service is switched on and the backlog that accumulated while nothing was
+   allowed to send turns out to be 339 leads that reps have already worked.
+
+   Nothing good comes of guessing which of those deserve an email. So the
+   answer is a date, set deliberately, once: everything that arrived before
+   it is finished business and is never emailed by anybody, whatever its
+   held marker says. It lives in the shared config so the browsers and the
+   Azure service read the same line — two senders disagreeing about which
+   leads are history is how one of them tells a rep about a lead from March.
+
+   A lead with no usable date is on the wrong side of the line too. A record
+   that cannot say when it arrived cannot claim to be new. */
+const mailNotBefore = () => Date.parse((DB.config || {}).leadMailNotBefore || '') || 0;
+const mailTooOld = l => {
+  const cut = mailNotBefore();
+  if (!cut) return false;
+  const at = leadArrivedAt(l);
+  return !at || at < cut;
+};
 /* Why a lead is in the queue, which is the thing the panel has to be able to
    show before anybody presses send. */
 function leadsHeldWhy(l) {
@@ -14114,6 +14138,7 @@ function leadsHeld() {
     if (l.mailedAt || l.withAgent || l.stage === 'Lost') return false;
     if (sentAlready(l.id)) return false;      /* this browser has already told them */
     if (!l.assignee) return false;
+    if (mailTooOld(l)) return false;          /* on the wrong side of the line */
     const at = leadArrivedAt(l);
     if (l.mailHeld) {
       const held = Date.parse(l.mailHeld.at || '') || at;
@@ -14381,7 +14406,8 @@ async function leadsEmailHandover(leads, opt) {
      digest below would roll all of them into one email per rep and mark the
      lot as told, and nobody would find out until a rep asked why they had
      three hundred leads. It waits to be looked at instead. */
-  const fresh = (leads || []).filter(l => l && l.assignee && !l.mailedAt && !sentAlready(l.id));
+  const fresh = (leads || []).filter(l =>
+    l && l.assignee && !l.mailedAt && !sentAlready(l.id) && !mailTooOld(l));
   if (fresh.length > HELD_SANE) {
     fresh.forEach(l => { if (!l.mailHeld) { l.mailHeld = { at: new Date().toISOString(),
       wanted: mailFrom() || 'review', by: 'held for review' }; leadSave(l); } });
@@ -22157,6 +22183,79 @@ function mailLockCard(want) {
         onclick: () => leadsHeldReview() }));
     }
   }
+  wrap.appendChild(mailLineCard());
+  return wrap;
+}
+
+/* THE LINE IN THE SAND.
+
+   A backlog is not always a backlog. On the day the always-on service was
+   switched on, 339 leads were queued — every lead the sheet had ever
+   produced while the lock was on and nothing was permitted to send. The reps
+   had already worked them. There is no clever rule that separates those from
+   a genuine overnight queue, because from the data's point of view they look
+   identical: assigned, never emailed.
+
+   So this is the blunt control, and blunt is the point. Pick a moment.
+   Everything that arrived before it is history and is never emailed by
+   anybody — not this page, not another rep's tab, not the Azure service,
+   which reads the same line out of the same shared config. Everything after
+   it is handled normally. It is one value, it is reversible, and it is the
+   only honest way to answer "do not email any of that". */
+function mailLineCard() {
+  const cut = Date.parse((DB.config || {}).leadMailNotBefore || '') || 0;
+  const waiting = (typeof leadsHeld === 'function' ? leadsHeld() : []).length;
+  const wrap = el('div', { style: 'margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--line)' });
+  wrap.appendChild(el('div', { style: 'font-weight:600',
+    text: 'Leads from before a date are finished business' }));
+
+  if (cut) {
+    const when = new Date(cut).toLocaleString(undefined,
+      { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.6',
+      html: 'The line is drawn at <b>' + esc(when) + '</b>. A lead that arrived before it is ' +
+        'never emailed — by this page, by anybody else’s tab, or by the Azure service, which ' +
+        'reads this same value. ' + (waiting
+          ? '<b>' + waiting + '</b> lead' + (waiting === 1 ? '' : 's') + ' arrived after it and ' +
+            (waiting === 1 ? 'is' : 'are') + ' still waiting to be told.'
+          : 'Nothing is waiting on the near side of it.') }));
+    wrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)',
+      html: ico('x', 13) + ' Remove the line', onclick: () => {
+        if (isReadOnly()) return toast('You have read-only access', 'err');
+        confirmDo('Remove the line',
+          'Every lead from before ' + when + ' becomes a candidate for a handover email again — ' +
+          'here and in the service. That is hundreds of emails about leads your reps have ' +
+          'already worked, so only do this if the line was drawn by mistake.',
+          'Remove it', () => {
+            DB.config.leadMailNotBefore = '';
+            DB.config._v = now(); SYNC.dirty.add('config'); touch('config');
+            closeAll(); render(); toast('The line is gone — old leads are in the queue again', 'ok');
+          });
+      } }));
+    return wrap;
+  }
+
+  wrap.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.6',
+    html: 'No line is set, so the only thing holding old leads back is the catch-up window — ' +
+      'and a lead carrying a held marker gets past that. ' + (waiting
+        ? '<b>' + waiting + '</b> lead' + (waiting === 1 ? ' is' : 's are') + ' queued right now. ' +
+          'If those have already been worked, draw the line and none of them is ever emailed.'
+        : 'Nothing is queued right now, so there is nothing to draw a line in front of.') }));
+  if (waiting) wrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)',
+    html: ico('flag', 13) + ' Draw the line here', onclick: () => {
+      if (isReadOnly()) return toast('You have read-only access', 'err');
+      confirmDo('Draw the line here',
+        waiting + ' lead' + (waiting === 1 ? '' : 's') + ' arrived before now and will never be ' +
+        'emailed — not by this page, not by anyone else’s tab, not by the service. They stay in ' +
+        'the CRM, assigned to their rep, exactly as they are. Only leads that arrive from this ' +
+        'moment on get a handover email. You can remove the line again afterwards.',
+        'Draw it', () => {
+          DB.config.leadMailNotBefore = new Date().toISOString();
+          DB.config._v = now(); SYNC.dirty.add('config'); touch('config');
+          closeAll(); render();
+          toast('Line drawn — everything older is history now', 'ok');
+        });
+    } }));
   return wrap;
 }
 
