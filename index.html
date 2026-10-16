@@ -1,4 +1,4 @@
-<!--corev-build:1.66.2-->
+<!--corev-build:1.66.3-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.66.2';
+const VERSION = '1.66.3';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14044,6 +14044,7 @@ function mailStamp(l, to, cc) {
   l.mailedBy = r.by || null;
   l.mailedVer = r.ver || null;
   l.mailHeld = null;
+  l.mailErr = null;      /* it went — whatever refused it last time is history */
   if (r.fellBack) leadAddUpdate(l,
     `Handover sent from ${r.from} — Microsoft would not let that account send as ${r.wanted}. ` +
     'An Exchange admin grants Send As on that mailbox once.', true);
@@ -14276,8 +14277,29 @@ function leadsHealSent() {
 
 async function leadsSendHeld(opt) {
   const o = opt || {};
-  if (!mailFrom() || !canSendAsTeam() || SYNC.mode !== 'onedrive') return { sent: 0 };
-  if (sheetServerLive()) return { sent: 0, serverSends: true };
+  /* A BUTTON THAT DOES NOTHING IS WORSE THAN NO BUTTON.
+     Every guard below used to return in silence. Pressing "Email 1 of them"
+     while the service was live looked exactly like a broken page: no mail, no
+     toast, no console line, nothing to tell anybody which of five conditions
+     had stopped it. On a deliberate press — quiet:false — each one says which
+     it was. */
+  const no = (why, extra) => {
+    if (!o.quiet) toast(why, 'err');
+    return Object.assign({ sent: 0, why }, extra || {});
+  };
+  if (!mailFrom()) return no('No team address is set, so there is nothing to send from.');
+  if (SYNC.mode !== 'onedrive') return no('This page is not signed in to OneDrive, so it cannot send.');
+  if (!canSendAsTeam()) return no('This browser is signed in as ' + (myMail() || 'somebody else') +
+    ', not ' + mailFrom() + ' — it is not allowed to send these.');
+  /* THE STAND-DOWN IS FOR TIMERS, NOT FOR PEOPLE.
+     Standing down while the service is live stops two automatic senders
+     racing over one lead, which is right. It must not stop a person who is
+     looking at a list of refusals and pressing send on purpose — that is the
+     one case where the service has already failed and a human is the only
+     sender left. A reviewed press goes through. */
+  if (sheetServerLive() && !o.reviewed)
+    return no('The Azure service is sending these — this page stands down while it is running.',
+      { serverSends: true });
   /* Before deciding what is waiting, agree with ourselves about what has
      already gone out. */
   const healed = leadsHealSent();
@@ -14291,12 +14313,27 @@ async function leadsSendHeld(opt) {
   const waiting = leadsHeld()
     .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
     .slice(0, 25);
-  if (!waiting.length) return { sent: 0, healed };
+  if (!waiting.length) return o.quiet ? { sent: 0, healed }
+    : no('Nothing is waiting any more — every assigned lead has been emailed.', { healed });
   let sent = 0;
-  for (const l of waiting) if (await leadEmailRep(l.id, { quiet: true })) sent++;
-  if (sent && !o.quiet) { render(); toast(sent + ' held handover' + (sent === 1 ? '' : 's') +
-    ' sent as ' + mailFrom(), 'ok'); }
-  return { sent, healed };
+  const errs = [];
+  for (const l of waiting) {
+    if (await leadEmailRep(l.id, { quiet: true })) sent++;
+    else errs.push((getLead(l.id) || {}).mailErr || null);
+  }
+  if (!o.quiet) {
+    render();
+    if (sent) toast(sent + ' held handover' + (sent === 1 ? '' : 's') + ' sent as ' + mailFrom(), 'ok');
+    /* And when none of them went, say so — the old code toasted only on
+       success, so a run where every send was refused was indistinguishable
+       from a run that never started. */
+    if (!sent) {
+      const first = errs.find(e => e && e.error);
+      toast(first ? 'Nothing was sent — ' + String(first.error).slice(0, 180)
+        : 'Nothing was sent, and no reason was recorded. Check the lead in Marketing Leads.', 'err');
+    }
+  }
+  return { sent, healed, failed: waiting.length - sent };
 }
 
 /* A SECOND LOCK, OUTSIDE THE RECORD.
@@ -14386,6 +14423,11 @@ async function leadEmailRep(id, opt) {
       return false;
     }
     const why = String(e.message || e);
+    /* The same field the service writes, so one panel can report a refusal
+       whichever sender hit it. A note in the timeline is for the rep reading
+       the lead; this is for the person asking why nothing arrived. */
+    l.mailErr = { at: new Date().toISOString(), from: mailFrom() || myMail() || null,
+      by: myMail() || 'browser', error: why };
     leadAddUpdate(l, 'Could not email the handover: ' + why, true); leadSave(l);
     if (o.quiet) return false;
     /* Say what went wrong, then still get the mail written — a rep who is
