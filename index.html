@@ -1,4 +1,4 @@
-<!--corev-build:1.67.0-->
+<!--corev-build:1.68.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.67.0';
+const VERSION = '1.68.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14167,6 +14167,61 @@ const mailTooOld = l => {
   const at = leadArrivedAt(l);
   return !at || at < cut;
 };
+/* THE THREE MOMENTS THAT MAKE A MARKETING LEAD MEASURABLE.
+
+   A lead reached the agency at 8:12pm and the rep heard about it at 2:03am.
+   That gap was the reason for the whole Azure service, and until now the
+   tool could not state it: the stamps existed but nothing read them back.
+
+     arrived   handoverDue — stamped the moment the lead was created here,
+               by the browser or the service. Exact.
+     assigned  assignedAt — stamped on every routing path: auto-route,
+               backstop fallback, and a person picking a rep by hand.
+     told      mailedAt — the handover email actually leaving.
+
+   The gaps between them are the KPI: how long the tool took to pick a rep,
+   and how long after that the rep was told.
+
+   One honesty rule runs through all of it. createdAt is the date in the
+   agency's own sheet column — a day, with no time on it — so a gap measured
+   from it would read as hours of delay that never happened. Elapsed time is
+   computed from handoverDue only. Where that is missing, the lead shows its
+   date and the gap reads "not recorded", which is true, rather than a
+   number that is not. */
+const leadArrivedExact = l => Date.parse(l.handoverDue || '') || null;
+const minsBetween = (a, b) => (a && b && b >= a) ? Math.round((b - a) / 60000) : null;
+function leadTiming(l) {
+  const arrived = leadArrivedExact(l);
+  const assigned = Date.parse((l && l.assignedAt) || '') || null;
+  const told = Date.parse((l && l.mailedAt) || '') || null;
+  return {
+    arrived, assigned, told,
+    arrivedShown: arrived || (Date.parse((l && l.createdAt) || '') || null),
+    arrivedExact: !!arrived,
+    toAssign: minsBetween(arrived, assigned),
+    toTell: minsBetween(assigned, told),
+    toTold: minsBetween(arrived, told)
+  };
+}
+/* Minutes, said the way a person would say them. */
+function fmins(n) {
+  if (n == null) return null;
+  if (n < 1) return 'under a minute';
+  if (n < 60) return n + ' min';
+  const h = n / 60;
+  if (h < 48) return (h < 10 ? h.toFixed(1).replace(/\.0$/, '') : Math.round(h)) + ' h';
+  return Math.round(h / 24) + ' days';
+}
+/* A stamp with the time on it — the time is the entire point here. */
+function fstamp(t) {
+  if (!t) return '';
+  const d = new Date(t);
+  if (isNaN(d)) return '';
+  return d.toLocaleString(undefined, { day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit' });
+}
+const isoStamp = t => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
+
 /* Why a lead is in the queue, which is the thing the panel has to be able to
    show before anybody presses send. */
 function leadsHeldWhy(l) {
@@ -15235,6 +15290,7 @@ function leadDetail(root, l) {
   if (mine) hd.appendChild(el('button', { class: 'btn sm', title: l.priority ? 'Priority — click to clear' : 'Mark as priority',
     text: l.priority ? '★' : '☆', onclick: () => { l.priority = !l.priority; leadSave(l); render(); } }));
   head.body.appendChild(hd);
+  head.body.appendChild(leadTimingStrip(l));
 
   /* ---- the stage path ----
      A dropdown hides where a lead actually is: you have to open it to find
@@ -15621,6 +15677,19 @@ function exportLeads(rows) {
     { h: 'Preferred model', f: l => l.model || '' },
     { h: 'Priority', f: l => l.priority ? 'yes' : '' },
     { h: 'Added', f: l => String(l.createdAt || '').slice(0, 10) },
+    /* THE KPI COLUMNS.
+       Full stamps with the time on them, and the two gaps already worked out
+       — a spreadsheet can average a column of minutes, it cannot subtract
+       two strings. Blank where the gap is not measurable, never zero: a zero
+       in a KPI column is a claim, and an empty cell is the truth. */
+    { h: 'Arrived at', f: l => isoStamp(leadTiming(l).arrived) },
+    { h: 'Assigned at', f: l => isoStamp(leadTiming(l).assigned) },
+    { h: 'Rep emailed at', f: l => isoStamp(leadTiming(l).told) },
+    { h: 'Min to assign', f: l => { const v = leadTiming(l).toAssign; return v == null ? '' : v; } },
+    { h: 'Min to email', f: l => { const v = leadTiming(l).toTell; return v == null ? '' : v; } },
+    { h: 'Min arrived to told', f: l => { const v = leadTiming(l).toTold; return v == null ? '' : v; } },
+    { h: 'Routed by', f: l => l.mailedBy === 'api' ? 'service'
+        : l.autoAssigned ? (l.fallbackRouted ? 'backstop' : 'auto') : 'by hand' },
     { h: 'Last WhatsApp', f: l => String(l.lastWhatsAppAt || '').slice(0, 10) },
     { h: 'Steps sent', f: l => (l.touches || []).filter(t => t.status === 'sent').length },
     { h: 'In the pipeline', f: l => l.dealId ? 'yes' : '' },
@@ -15765,6 +15834,63 @@ function leadBoard(root, rows) {
     foot: '<em>drop to mark lost</em>', empty: 'Drop here — you will be asked why' });
 
   root.appendChild(kan);
+}
+
+/* ============================================================== LEAD TIMING
+   WHEN IT ARRIVED, WHEN IT WAS ASSIGNED, WHEN THE REP WAS TOLD.
+
+   Ahmed: "under each marketing lead - can you start adding the date and time
+   of assigning to each sales rep so i have KPIs for such"
+
+   The stamps were already being written on every routing path; nothing read
+   them back, so the one question the whole Azure service was built to answer
+   — how long between a lead landing and its rep hearing about it — could
+   only be answered by looking at an email header.
+
+   Three moments and the two gaps between them, on the lead itself. A gap is
+   shown only where it can be trusted: see leadTiming() for why a lead whose
+   arrival is known only to the day says "not recorded" instead of a number.
+   ========================================================================= */
+function leadTimingStrip(l) {
+  const t = leadTiming(l);
+  const wrap = el('div', { style: 'margin-top:var(--sp-3);padding-top:var(--sp-3);' +
+    'border-top:1px solid var(--line);display:flex;gap:var(--sp-4);flex-wrap:wrap' });
+
+  const step = (label, stamp, note, tone) => {
+    const col = el('div', { style: 'min-width:130px' });
+    col.appendChild(el('div', { class: 'sub',
+      style: 'font-size:11px;letter-spacing:.06em;text-transform:uppercase', text: label }));
+    col.appendChild(el('div', { style: 'font-weight:600;margin-top:2px' + (tone ? ';color:' + tone : ''),
+      text: stamp || '—' }));
+    if (note) col.appendChild(el('div', { class: 'sub', style: 'margin-top:1px', text: note }));
+    return col;
+  };
+
+  wrap.appendChild(step('Arrived',
+    t.arrivedShown ? fstamp(t.arrivedShown) : null,
+    t.arrivedShown && !t.arrivedExact ? 'date only — no time recorded' : null));
+
+  wrap.appendChild(step(
+    'Assigned' + (l.assignee ? ' to ' + (ownerName(l.assignee) || '').split(' ')[0] : ''),
+    t.assigned ? fstamp(t.assigned) : (l.assignee ? 'not recorded' : null),
+    t.toAssign != null ? fmins(t.toAssign) + ' after it arrived'
+      : (t.assigned ? 'gap not measurable' : null),
+    /* Five minutes is the promise the service makes. Over an hour is the
+       8:12pm-to-2:03am problem, and it should look like one. */
+    t.toAssign == null ? '' : t.toAssign <= 5 ? 'var(--good)'
+      : t.toAssign <= 60 ? '' : 'var(--warning)'));
+
+  wrap.appendChild(step('Rep emailed',
+    t.told ? fstamp(t.told) : (l.mailErr ? 'refused' : l.mailHeld ? 'waiting to send' : null),
+    t.toTell != null ? fmins(t.toTell) + ' after assignment'
+      : (l.mailErr ? 'see Settings' : null),
+    l.mailErr ? 'var(--critical)' : t.toTell == null ? ''
+      : t.toTell <= 5 ? 'var(--good)' : t.toTell <= 60 ? '' : 'var(--warning)'));
+
+  if (t.toTold != null) wrap.appendChild(step('Arrived → told', fmins(t.toTold),
+    'the number that matters', t.toTold <= 10 ? 'var(--good)'
+      : t.toTold <= 120 ? '' : 'var(--warning)'));
+  return wrap;
 }
 /* ================================================================
    IMPORTING A LIST OF LEADS
