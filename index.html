@@ -1,4 +1,4 @@
-<!--corev-build:1.66.3-->
+<!--corev-build:1.67.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.66.3';
+const VERSION = '1.67.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -13214,6 +13214,51 @@ const sheetStale = () => !sheetServerLive() && sheetAgeMin() > Math.max(30, SHEE
    absent, and the browsers quietly take over again. */
 const sheetServerLive = () =>
   String((DB.config || {}).leadSheetBy || '') === 'api' && sheetAgeMin() < 20;
+
+/* READING THE SHEET IS NOT THE SAME AS SENDING THE MAIL.
+
+   A lead was routed to Wafiq correctly and nobody was emailed — not him, not
+   the copy. The service had read the sheet a minute earlier, so every browser
+   stood down, the staleness line was green, and the waiting banner was
+   suppressed. The mail step had been refused by Microsoft on every tick since
+   consent landed, and nothing anywhere said so.
+
+   The stand-down was keyed to the wrong signal. Reading and sending are two
+   different jobs by two different permissions, and only one of them was being
+   watched. The service reports both now, and the browsers hold their
+   handovers only while the sending half is actually working.
+
+   The grace below is the other half of the trade. Jumping in the instant a
+   run reports a failure would put two senders on the same lead, which is
+   exactly how one rep got told about Shuaa three times. So the service keeps
+   the lead to itself for a while first — several ticks to recover on its own —
+   and a browser only covers what is still unsent after that. */
+const MAIL_GRACE_MIN = 15;
+const serviceMailAgeMin = () => {
+  const t = Date.parse((DB.config || {}).leadMailAt || '');
+  return t ? (Date.now() - t) / 60000 : Infinity;
+};
+const serviceMailHealthy = () => {
+  const c = DB.config || {};
+  if (!c.leadMailAt) return false;                       /* never reported one */
+  if ((Number(c.leadMailFailed) || 0) > 0) return false; /* it tried and was refused */
+  if (c.leadMailErr) return false;                       /* or could not try at all */
+  return serviceMailAgeMin() < 20;                       /* and it was recent */
+};
+/* The one question every send path should ask: is something else reliably
+   doing this right now? */
+const serverSendsHandovers = () => sheetServerLive() && serviceMailHealthy();
+/* What the service says went wrong, for the screens that have to say it. */
+const serviceMailTrouble = () => {
+  if (!sheetServerLive()) return null;
+  if (serviceMailHealthy()) return null;
+  const c = DB.config || {};
+  if (!c.leadMailAt) return 'the service has never reported sending any mail';
+  if (c.leadMailErr) return String(c.leadMailErr);
+  if ((Number(c.leadMailFailed) || 0) > 0)
+    return `the service could not send ${c.leadMailFailed} handover(s) on its last run`;
+  return 'the service has not reported a mail run for ' + Math.round(serviceMailAgeMin()) + ' min';
+};
 function sheetAgeText() {
   const m = sheetAgeMin();
   if (!isFinite(m)) return 'never read';
@@ -14297,7 +14342,7 @@ async function leadsSendHeld(opt) {
      looking at a list of refusals and pressing send on purpose — that is the
      one case where the service has already failed and a human is the only
      sender left. A reviewed press goes through. */
-  if (sheetServerLive() && !o.reviewed)
+  if (serverSendsHandovers() && !o.reviewed)
     return no('The Azure service is sending these — this page stands down while it is running.',
       { serverSends: true });
   /* Before deciding what is waiting, agree with ourselves about what has
@@ -14310,7 +14355,18 @@ async function leadsSendHeld(opt) {
   if (leadsHeldLooksWrong() && !o.reviewed) return { sent: 0, needsReview: leadsHeld().length };
   /* Oldest first, and capped: a browser that has been shut for a week should
      not open into a hundred sends at once. The rest go on the next pass. */
+  /* Where a service exists but its mail is failing, this browser is the
+     backstop rather than a second sender: it leaves a lead alone until the
+     service has had MAIL_GRACE_MIN to get it out itself. A deliberate press
+     skips the wait — the person has looked at the list. */
+  const covering = sheetServerLive() && !o.reviewed;
+  const oldEnough = l => {
+    if (!covering) return true;
+    const t = Date.parse((l.mailHeld && l.mailHeld.at) || '') || leadArrivedAt(l);
+    return !!t && (Date.now() - t) / 60000 >= MAIL_GRACE_MIN;
+  };
   const waiting = leadsHeld()
+    .filter(oldEnough)
     .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
     .slice(0, 25);
   if (!waiting.length) return o.quiet ? { sent: 0, healed }
@@ -14446,7 +14502,7 @@ async function leadsEmailHandover(leads, opt) {
   if (!leadMailAuto() || SYNC.mode !== 'onedrive') return { sent: 0, skipped: (leads || []).length };
   /* The service sends these. Two senders over one lead is how a rep is told
      about the same person twice, from two different addresses. */
-  if (sheetServerLive()) return { sent: 0, skipped: (leads || []).length, serverSends: true };
+  if (serverSendsHandovers()) return { sent: 0, skipped: (leads || []).length, serverSends: true };
   /* A sheet sync that suddenly produces hundreds of leads is a mapping gone
      wrong or a tab re-read from scratch, not a morning's marketing. The
      digest below would roll all of them into one email per rep and mark the
@@ -14708,7 +14764,28 @@ function viewLeads(root) {
           onclick: () => sheetSync() })
       ].filter(Boolean))
     ]));
-  const waiting = sheetServerLive() ? [] : leadsHeld();
+  /* THE WARNING WAS HIDDEN BY THE SAME WRONG SIGNAL.
+     This read sheetServerLive(), so while the service was reading the sheet
+     and failing to send, the one banner that would have said "handovers are
+     waiting" was suppressed on the page where it mattered most. It asks about
+     sending now, not reading. */
+  const trouble = serviceMailTrouble();
+  if (trouble) root.appendChild(el('div', { class: 'card',
+    style: 'margin-bottom:var(--sp-3);border-color:var(--critical);padding:var(--sp-3)' }, [
+    el('div', { style: 'display:flex;gap:var(--sp-3);align-items:flex-start;flex-wrap:wrap' }, [
+      el('span', { html: ico('warn', 15), style: 'color:var(--critical);flex:none;margin-top:2px' }),
+      el('div', { style: 'flex:1;min-width:240px;line-height:1.55' }, [
+        el('b', { text: 'The service is reading the sheet but not sending the handovers.' }),
+        el('div', { class: 'sub', style: 'line-height:1.55',
+          text: trouble + '. Leads are still arriving and being routed correctly — the reps just ' +
+            'are not being told. This page takes over as the backstop after ' + MAIL_GRACE_MIN +
+            ' minutes; you can send sooner from the list below.' })
+      ]),
+      isReadOnly() ? null : el('button', { class: 'btn sm primary',
+        html: ico('list', 13) + ' See what is waiting', onclick: () => leadsHeldReview() })
+    ].filter(Boolean))
+  ]));
+  const waiting = serverSendsHandovers() ? [] : leadsHeld();
   if (waiting.length) root.appendChild(el('div', { class: 'card',
     style: 'margin-bottom:var(--sp-3);border-color:var(--warning);padding:var(--sp-3)' }, [
     el('div', { style: 'display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap' }, [
