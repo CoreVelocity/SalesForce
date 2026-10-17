@@ -1,4 +1,4 @@
-<!--corev-build:1.68.0-->
+<!--corev-build:1.69.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.68.0';
+const VERSION = '1.69.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -13526,6 +13526,34 @@ async function sheetSync(opt) {
         (errs.length ? ` · ${errs.length} tab could not be read` : ''), 'ok');
     }
     render();
+    /* THE RECORD GOES TO THE SHARED FOLDER BEFORE THE EMAIL GOES OUT.
+
+       These leads were held in this browser and flushed to OneDrive whenever
+       the sync next ran — so the email, which is an immediate network call,
+       could leave while the record was still only here. Close the tab, sleep
+       the machine or lose the network in between and the rep has been told
+       about a lead that, as far as the shared store is concerned, never
+       arrived. The next sync reads the row as new, the rotation has moved on,
+       and a second rep is told about the same person. That is the Shrikant
+       Sharma sequence, 11:40pm to Wafiq and 2:13am to Jawdat.
+
+       A send that is a few seconds late costs nothing. A send that races its
+       own record costs a duplicate handover, so the write goes first. If it
+       cannot be written, nothing is emailed — the leads stay queued and go
+       out on the next pass, once they are somewhere everybody can see. */
+    if (made.length && SYNC.mode === 'onedrive') {
+      try {
+        await syncNow({ quiet: true });
+        if (SYNC.dirty.has('leads')) throw new Error(SYNC.err || 'the shared folder did not accept the write');
+      } catch (e) {
+        const why = String((e && e.message) || e);
+        console.warn('Handovers held — the new leads are not in the shared folder yet: ' + why);
+        if (!o.quiet) toast(`${made.length} new lead${made.length === 1 ? '' : 's'} could not be saved to the ` +
+          'shared folder, so nobody has been emailed yet. They go out once the sync succeeds.', 'err');
+        return { added, routed, rows, skipped, tabs: per, errors: errs.concat(['not saved: ' + why]),
+          mailed: 0, held: made.length };
+      }
+    }
     /* The rep has to be told. A lead that arrives, routes itself and then sits
        in a tool nobody has open is the same as a lead that never arrived. */
     const posted = await leadsEmailHandover(made, { quiet: !!o.quiet });
@@ -14082,6 +14110,7 @@ function mailStamp(l, to, cc) {
   /* Written to this browser's own list first, because that is the one the
      sync cannot overwrite. */
   sentRecord(l.id);
+  toldRecord(l, r.at || undefined);
   l.mailedAt = r.at || new Date().toISOString();
   l.mailedTo = (to || []).join(', ');
   l.mailedCc = (cc || []).join(', ');
@@ -14242,6 +14271,7 @@ function leadsHeld() {
   return live('leads').filter(l => {
     if (l.mailedAt || l.withAgent || l.stage === 'Lost') return false;
     if (sentAlready(l.id)) return false;      /* this browser has already told them */
+    if (toldAlready(l)) return false;         /* or anybody else, anywhere */
     if (!l.assignee) return false;
     if (mailTooOld(l)) return false;          /* on the wrong side of the line */
     const at = leadArrivedAt(l);
@@ -14464,6 +14494,53 @@ function sentLedger() {
     return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
 }
 function sentAlready(id) { return !!sentLedger()[String(id)]; }
+
+/* ============================================================== TOLD, SHARED
+   The ledger above is this browser's. It is invisible to every other rep and
+   to the Azure service, and it is keyed on the lead id — so when a lead
+   record never reaches the shared store, nothing is left anywhere that says
+   the rep was told.
+
+   That is how Shrikant Sharma was emailed to Wafiq at 11:40pm and to Jawdat
+   at 2:13am: the first record did not survive to the shared folder, the row
+   read as new on the next sync, the rotation had moved on, and the CRM kept
+   the second one.
+
+   An email that has gone out is a fact about the world, not about a record.
+   So it also goes in the shared config, keyed by the lead key — email, else
+   phone — which comes off the sheet row itself and is identical on both
+   sides. The service writes and reads the same map. */
+const toldMap = () => {
+  const m = (DB.config || {}).leadTold;
+  return (m && typeof m === 'object' && !Array.isArray(m)) ? m : {};
+};
+const toldAlready = l => {
+  const k = l && leadKey(l);
+  return k ? (toldMap()[k] || null) : null;
+};
+function toldRecord(leads, at) {
+  const stamp = at || new Date().toISOString();
+  const map = Object.assign({}, toldMap());
+  let changed = false;
+  (Array.isArray(leads) ? leads : [leads]).forEach(l => {
+    const k = l && leadKey(l);
+    /* Only ever fills a gap — the first time somebody was told is the time
+       that matters, and a later sender must not overwrite it. */
+    if (k && !map[k]) { map[k] = stamp; changed = true; }
+  });
+  if (!changed) return false;
+  const floor = Date.now() - 90 * 864e5;
+  const kept = Object.keys(map)
+    .map(k => [k, Date.parse(map[k]) || 0])
+    .filter(([, t]) => t >= floor)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4000);
+  const out = {};
+  kept.forEach(([k, t]) => { out[k] = new Date(t).toISOString(); });
+  DB.config.leadTold = out;
+  DB.config._v = now(); SYNC.dirty.add('config'); touch('config');
+  return true;
+}
 function sentRecord(id) {
   try {
     const v = sentLedger();
@@ -14480,13 +14557,21 @@ async function leadEmailRep(id, opt) {
   const o = opt || {};
   const l = getLead(id); if (!l) return false;
   /* Already told. Only an automatic path is stopped here — a person pressing
-     "Email the rep" again means it. Two tests, because the one on the record
-     can be lost to a merge and the one in this browser cannot. */
-  if (o.quiet && (l.mailedAt || sentAlready(l.id))) {
+     "Email the rep" again means it. THREE tests now, because each one fails
+     in a different way:
+       mailedAt        on the record, and a record can be lost or merged away
+       sentAlready     this browser's own list, keyed on the lead id, and
+                       invisible to every other browser and to the service
+       toldAlready     the shared ledger, keyed off the sheet row itself —
+                       the only one that survives the record disappearing,
+                       which is how Shrikant Sharma reached two reps. */
+  const shared = toldAlready(l);
+  if (o.quiet && (l.mailedAt || sentAlready(l.id) || shared)) {
     /* The stamp was lost but the mail did go — put it back, so every other
        browser and the audit panel stop thinking this lead was never told. */
-    if (!l.mailedAt && sentAlready(l.id)) {
-      l.mailedAt = new Date(sentLedger()[String(l.id)]).toISOString();
+    if (!l.mailedAt && (sentAlready(l.id) || shared)) {
+      l.mailedAt = shared || new Date(sentLedger()[String(l.id)]).toISOString();
+      if (shared && !l.mailedBy) { l.mailedBy = 'recovered'; l.mailedVer = 'ledger'; }
       l.mailHeld = null;
       leadSave(l);
     }
@@ -14564,7 +14649,7 @@ async function leadsEmailHandover(leads, opt) {
      lot as told, and nobody would find out until a rep asked why they had
      three hundred leads. It waits to be looked at instead. */
   const fresh = (leads || []).filter(l =>
-    l && l.assignee && !l.mailedAt && !sentAlready(l.id) && !mailTooOld(l));
+    l && l.assignee && !l.mailedAt && !sentAlready(l.id) && !toldAlready(l) && !mailTooOld(l));
   if (fresh.length > HELD_SANE) {
     fresh.forEach(l => { if (!l.mailHeld) { l.mailHeld = { at: new Date().toISOString(),
       wanted: mailFrom() || 'review', by: 'held for review' }; leadSave(l); } });
@@ -14574,7 +14659,13 @@ async function leadsEmailHandover(leads, opt) {
   }
   const cc = leadMailCc();
   const byRep = new Map();
-  (leads || []).forEach(l => {
+  /* FROM THE FILTERED LIST, NOT THE RAW ONE.
+     `fresh` was computed above and then used only to decide whether the batch
+     looked like a fault. The sending below walked the raw list — so the
+     single-lead path was saved by leadEmailRep's own guards, while the digest
+     path (four or more for one rep) posts straight through graphSendMail and
+     had no guard at all. Both walk the same filtered list now. */
+  fresh.forEach(l => {
     if (!l || !l.assignee) return;
     const k = String(l.assignee);
     byRep.set(k, (byRep.get(k) || []).concat([l]));
