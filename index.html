@@ -1,4 +1,4 @@
-<!--corev-build:1.69.0-->
+<!--corev-build:1.70.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.69.0';
+const VERSION = '1.70.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3685,6 +3685,21 @@ async function syncNow(opt) {
     const rc = await readShard('config');
     const parts = ['owners', 'stages', 'lossReasons'];
     if (rc) {
+      /* THE HANDOVER LEDGER IS APPEND-ONLY AND HAS SEVERAL WRITERS.
+
+         leadTold records that a rep has been told about a lead. It sat in
+         the plain-settings half of this document, which is written whole —
+         and worse, the read above is skipped entirely when this session has
+         edited any setting. Writing the ledger is itself such an edit, so a
+         browser that recorded one handover then refused to read the ledger
+         and overwrote it with its own copy, deleting every entry the Azure
+         service had added since. The guard against telling two reps about
+         one lead erased itself each time it was used.
+
+         It is a set, not a setting. Taken as a union, always, in both
+         directions, whatever else this session has touched. Nothing is ever
+         removed here — only the prune in toldRecord drops anything. */
+      DB.config.leadTold = mergeTold(rc.leadTold, DB.config.leadTold);
       /* plain settings (targets, thresholds, regions, approver…) stay
          whole-document, but never clobber a newer remote */
       if ((rc._v || 0) > (DB.config._v || 0) && !CFGEDIT.has('settings')) {
@@ -3710,6 +3725,9 @@ async function syncNow(opt) {
     if (iChanged.length || settingsChanged || firstEver) {
       DB.config._v = now();
       const doc = Object.assign({ shard: 'config' }, DB.config, { meta: DB.meta });
+      /* and again on the way out, against the copy just read, so an entry
+         written by the service seconds ago is carried rather than dropped */
+      doc.leadTold = mergeTold(rc && rc.leadTold, DB.config.leadTold);
       parts.forEach(k => {
         /* keep whatever is up there for a part we did not touch */
         const mine = Array.isArray(DB[k]) && DB[k].length ? DB[k] : null;
@@ -3739,6 +3757,21 @@ async function syncNow(opt) {
   renderSyncBadge();
 }
 let syncTimer = null;
+/* Union of two told-ledgers, keeping the EARLIER stamp for a key both sides
+   carry: the first time somebody was told is the fact, and a later writer
+   must not push it forward. */
+function mergeTold(a, b) {
+  const ok = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  const out = Object.assign({}, ok(a));
+  const mine = ok(b);
+  Object.keys(mine).forEach(k => {
+    if (!out[k]) { out[k] = mine[k]; return; }
+    const x = Date.parse(out[k]) || 0, y = Date.parse(mine[k]) || 0;
+    if (y && (!x || y < x)) out[k] = mine[k];
+  });
+  return out;
+}
+
 function scheduleSync() {
   if (SYNC.mode !== 'onedrive') return;
   clearTimeout(syncTimer);
@@ -11226,11 +11259,39 @@ function ownerEmail(id) {
   return m && m.includes('@') ? m : null;
 }
 
-async function mailToken() {
+/* A POPUP NEEDS A PERSON. A TIMER IS NOT ONE.
+
+   This fell back to acquireTokenPopup whenever the silent call failed — and
+   the silent call fails routinely, because the cached token expires. Most
+   sends here are not a person pressing anything: the sheet sync runs every
+   five minutes and the handover catch-up every four, both from a timer with
+   no user gesture behind them. Every browser treats a popup opened that way
+   as a popup to block, so the send died with
+
+     popup_window_error: Error opening popup window
+
+   over and over — 4:54, 5:01, 5:06, 5:07, 5:41, 5:53, 5:59, 6:15, 7:01 —
+   each one writing a line into the lead's Updates, each one leaving the lead
+   unmailed for the next pass to try again.
+
+   So an automatic send gets the silent call only. If the token has expired,
+   the handover is HELD, which is a state the tool already knows how to show
+   and recover from, and the service sends it instead. A popup is opened only
+   where a person is standing in front of it. */
+async function mailToken(opt) {
   if (!AUTH.msal || !AUTH.user) throw new Error('Not signed in');
   const req = { scopes: CFG.mailScopes, account: AUTH.msal.getActiveAccount() };
   try { return (await AUTH.msal.acquireTokenSilent(req)).accessToken; }
-  catch (e) { return (await AUTH.msal.acquireTokenPopup(req)).accessToken; }
+  catch (e) {
+    if (opt && opt.silentOnly) {
+      const err = new Error('this browser’s Microsoft sign-in has expired, and a timer cannot ' +
+        'open the sign-in window — the handover is waiting for the service, or for you to ' +
+        'press Email the rep');
+      err.held = true; err.needsSignIn = true; err.wanted = mailFrom() || myMail();
+      throw err;
+    }
+    return (await AUTH.msal.acquireTokenPopup(req)).accessToken;
+  }
 }
 
 const R = v => (v == null || v === '' ? '—' : String(v));
@@ -11385,7 +11446,8 @@ async function graphSendMail(to, subject, html, cc, files, opt) {
   /* Decided before a token is even asked for: this is a handover, this
      browser is not the team address, and holding is on. */
   if (hold && !canSendAsTeam() && mailStrict()) throw mailHeldError(mailFrom());
-  const tok = await mailToken();
+  /* `auto` means a timer asked for this, not a person — so no popup. */
+  const tok = await mailToken({ silentOnly: !!(opt && opt.auto) });
   const addr = a => ({ emailAddress: { address: String(a).trim() } });
   const toList = (to || []).filter(Boolean);
   const ccList = (cc || []).filter(Boolean)
@@ -12832,6 +12894,58 @@ function leadAddUpdate(l, text, silent) {
     by: (AUTH.user && AUTH.user.name) || ownerName(currentOwnerId()) || 'local', text: String(text).trim() });
   if (!silent) { leadSave(l); render(); }
 }
+
+/* ============================================================== UPDATES ≠ LOG
+   "under updates do not include all these logs since these are suppose to be
+   updates not logs"
+
+   Updates is where a rep writes what happened with the customer. The tool was
+   writing its own machinery into the same list — and when the handover kept
+   failing on a blocked popup it wrote the same sentence eleven times between
+   4:54 and 7:01, burying every real note under a stack of identical errors.
+
+   Same records, one flag: a line the TOOL wrote carries sys, and the two are
+   shown in different places. Nothing is deleted, including what is already
+   there — leadLogMigrate() marks the old ones by their text on first read.
+
+   And a repeat inside an hour replaces the last one with a count rather than
+   adding a line. A failure that happens eleven times is one fact with a
+   number on it, not eleven facts. */
+const LOG_PATTERNS = [
+  /^Could not email the handover:/i,
+  /^Handover is waiting to be sent as/i,
+  /^Sent, but from /i,
+  /^The sheet has this with /i,
+  /^Came across from that list as /i,
+  /^Was with .* in that list/i,
+  /^Merged \d+ duplicate/i,
+  /^Marked cold —/i,
+  /^Tagged for re-connection by/i
+];
+const isLogLine = u => !!(u && (u.sys || LOG_PATTERNS.some(re => re.test(String(u.text || '')))));
+const leadUpdates = l => (Array.isArray(l && l.updates) ? l.updates : []).filter(u => !isLogLine(u));
+const leadLog = l => (Array.isArray(l && l.updates) ? l.updates : []).filter(isLogLine);
+
+function leadAddLog(l, text, silent) {
+  if (!text || !String(text).trim()) return;
+  const msg = String(text).trim();
+  l.updates = Array.isArray(l.updates) ? l.updates : [];
+  /* the same thing, again, within the hour — count it instead of repeating it */
+  for (let i = l.updates.length - 1; i >= 0 && i >= l.updates.length - 6; i--) {
+    const u = l.updates[i];
+    if (!isLogLine(u)) continue;
+    if (String(u.base || u.text) !== msg) continue;
+    const age = Date.now() - (Date.parse(u.at) || 0);
+    if (age > 36e5) break;
+    u.base = msg; u.n = (u.n || 1) + 1; u.at = new Date().toISOString();
+    u.text = msg + ' (' + u.n + ' times, most recently just now)';
+    if (!silent) { leadSave(l); render(); }
+    return;
+  }
+  l.updates.push({ id: uid('U'), at: new Date().toISOString(), sys: true, base: msg,
+    by: (AUTH.user && AUTH.user.name) || ownerName(currentOwnerId()) || 'local', text: msg });
+  if (!silent) { leadSave(l); render(); }
+}
 function leadNotify(l, kind) {
   /* Two channels, because a rep who is not in the tool today will not see an
      activity entry: the log for when they are here, and an email for when
@@ -13485,7 +13599,7 @@ async function sheetSync(opt) {
           l.srcTool = 'Agency sheet' + (t.label === 'Agency sheet' ? '' : ' · ' + t.label);
           l.srcId = p.srcId || leadKey(p);
           if (p.rawAssignee && !p.assignee)
-            leadAddUpdate(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
+            leadAddLog(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
           leadSave(l);
           p._lead = l;
           tAdded++; if (l.assignee) tRouted++;
@@ -13894,7 +14008,7 @@ function leadMarkCold(id) {
       purpose: c.purpose, status: 'pending', cold: true,
       message: leadFill(b2b ? c.b2b : c.b2c, l) });
   });
-  leadAddUpdate(l, 'Marked cold — three re-engagement touches added after Day 12', true);
+  leadAddLog(l, 'Marked cold — three re-engagement touches added after Day 12', true);
   leadSave(l); render();
   toast('Cold — a re-engagement drip now follows Day 12', 'ok');
 }
@@ -13961,7 +14075,7 @@ function fdur(ms) {
 function leadReconnect(id, when) {
   const l = getLead(id); if (!l) return;
   l.reconnect = true; l.reconnectBy = when || addDays(TODAY(), 30);
-  leadAddUpdate(l, 'Tagged for re-connection by ' + fdate(l.reconnectBy), true);
+  leadAddLog(l, 'Tagged for re-connection by ' + fdate(l.reconnectBy), true);
   leadSave(l); render();
 }
 function leadReconnectClear(id) {
@@ -14119,7 +14233,7 @@ function mailStamp(l, to, cc) {
   l.mailedVer = r.ver || null;
   l.mailHeld = null;
   l.mailErr = null;      /* it went — whatever refused it last time is history */
-  if (r.fellBack) leadAddUpdate(l,
+  if (r.fellBack) leadAddLog(l,
     `Handover sent from ${r.from} — Microsoft would not let that account send as ${r.wanted}. ` +
     'An Exchange admin grants Send As on that mailbox once.', true);
   return r;
@@ -14128,7 +14242,7 @@ function mailStamp(l, to, cc) {
    wait rather than have the wrong name on it. Mark it and leave it. */
 function mailHold(l, e) {
   l.mailHeld = { at: new Date().toISOString(), wanted: e.wanted || mailFrom(), by: myMail() || 'local' };
-  leadAddUpdate(l, `Handover is waiting to be sent as ${l.mailHeld.wanted} — this browser is not allowed to.`, true);
+  leadAddLog(l, `Handover is waiting to be sent as ${l.mailHeld.wanted} — this browser is not allowed to.`, true);
   leadSave(l);
 }
 /* WHAT IS ACTUALLY WAITING TO BE TOLD.
@@ -14597,7 +14711,7 @@ async function leadEmailRep(id, opt) {
   try {
     /* hold: this is the handover, and the lock is about whose name is on it */
     await graphSendMail(to.length ? to : cc, subject, leadMailBody(l, intro),
-      to.length ? cc : [], null, { hold: true });
+      to.length ? cc : [], null, { hold: true, auto: !!o.quiet });
     const r = mailStamp(l, to.length ? to : cc, to.length ? cc : []);
     leadSave(l);
     if (!o.quiet) {
@@ -14624,7 +14738,7 @@ async function leadEmailRep(id, opt) {
        the lead; this is for the person asking why nothing arrived. */
     l.mailErr = { at: new Date().toISOString(), from: mailFrom() || myMail() || null,
       by: myMail() || 'browser', error: why };
-    leadAddUpdate(l, 'Could not email the handover: ' + why, true); leadSave(l);
+    leadAddLog(l, 'Could not email the handover: ' + why, true); leadSave(l);
     if (o.quiet) return false;
     /* Say what went wrong, then still get the mail written — a rep who is
        told "it did not send" and handed a draft is not stuck. */
@@ -14686,7 +14800,7 @@ async function leadsEmailHandover(leads, opt) {
       } else {
         await graphSendMail(to.length ? to : cc,
           `${rows.length} new leads · contact immediately` + (rep ? ' · ' + rep.name : ''),
-          leadsMailDigestBody(rows), to.length ? cc : [], null, { hold: true });
+          leadsMailDigestBody(rows), to.length ? cc : [], null, { hold: true, auto: !!o.quiet });
         rows.forEach(l => { const r = mailStamp(l, to.length ? to : cc, to.length ? cc : []);
           if (r.fellBack) { wrongFrom++; cameFrom = r.from; } leadSave(l); });
         sent += rows.length;
@@ -14694,7 +14808,7 @@ async function leadsEmailHandover(leads, opt) {
     } catch (e) {
       if (e && e.held) { held += rows.length; rows.forEach(l => mailHold(l, e)); continue; }
       failed += rows.length;
-      rows.forEach(l => { leadAddUpdate(l, 'Could not email the handover: ' + String(e.message || e), true); leadSave(l); });
+      rows.forEach(l => { leadAddLog(l, 'Could not email the handover: ' + String(e.message || e), true); leadSave(l); });
     }
   }
   if (!o.quiet && (sent || failed || held)) toast(
@@ -15544,8 +15658,9 @@ function leadDetail(root, l) {
     foot.appendChild(el('button', { class: 'btn primary', text: 'Post update', onclick: post }));
     uc.body.appendChild(foot);
   }
-  const ups = (l.updates || []).slice().sort((a, z) => String(z.at).localeCompare(String(a.at)));
-  if (!ups.length) uc.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0', text: 'Nothing logged yet.' }));
+  /* What a PERSON wrote. The tool's own lines are below, in their own card. */
+  const ups = leadUpdates(l).slice().sort((a, z) => String(z.at).localeCompare(String(a.at)));
+  if (!ups.length) uc.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0', text: 'Nothing written yet.' }));
   else {
     const tl = el('div', { class: 'tl', style: 'margin-top:var(--sp-3)' });
     ups.forEach(u => { const d = new Date(u.at);
@@ -15556,6 +15671,33 @@ function leadDetail(root, l) {
     uc.body.appendChild(tl);
   }
   root.appendChild(uc.node);
+
+  /* ---- what the tool did, kept out of the way ----
+     Eleven identical "Could not email the handover" lines sat on top of this
+     lead's real notes. Same records, different card, folded shut. */
+  const logs = leadLog(l).slice().sort((a, z) => String(z.at).localeCompare(String(a.at)));
+  if (logs.length) {
+    const lc = card(null, null);
+    const det = el('details');
+    const sum = el('summary', { style: 'cursor:pointer;font-weight:600;list-style:revert' });
+    const bad = logs.filter(u => /^Could not email|waiting to be sent as/i.test(String(u.base || u.text))).length;
+    sum.appendChild(el('span', { text: 'Activity log · ' + logs.length +
+      (logs.length === 1 ? ' entry' : ' entries') + (bad ? ' · ' + bad + ' about email' : '') }));
+    det.appendChild(sum);
+    det.appendChild(el('div', { class: 'sub', style: 'margin:var(--sp-2) 0 0',
+      text: 'Written by the tool, not by anybody on the team — sheet reads, routing notes and ' +
+        'handover attempts. Kept here so Updates stays what the reps wrote.' }));
+    const tl = el('div', { class: 'tl', style: 'margin-top:var(--sp-3)' });
+    logs.forEach(u => { const d = new Date(u.at);
+      const when = isNaN(d) ? String(u.at).slice(0, 10)
+        : fdate(String(u.at).slice(0, 10)) + ', ' + d.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit' });
+      tl.appendChild(el('div', { class: 'it note', style: 'opacity:.85', html:
+        `<div class="w">${esc(when)}${u.n ? ' · ' + u.n + ' times' : ''}</div>` +
+        `<div class="t" style="color:var(--ink-2)">${esc(u.base || u.text)}</div>` })); });
+    det.appendChild(tl);
+    lc.body.appendChild(det);
+    root.appendChild(lc.node);
+  }
 
   /* the cadence */
   const pend = (l.touches || []).filter(t => t.status === 'pending').length;
@@ -15784,8 +15926,10 @@ function exportLeads(rows) {
     { h: 'Last WhatsApp', f: l => String(l.lastWhatsAppAt || '').slice(0, 10) },
     { h: 'Steps sent', f: l => (l.touches || []).filter(t => t.status === 'sent').length },
     { h: 'In the pipeline', f: l => l.dealId ? 'yes' : '' },
-    { h: 'Updates', f: l => (l.updates || []).map(u =>
-        `[${String(u.at).slice(0,10)} ${u.by}] ${u.text}`).join('  ||  ') }
+    { h: 'Updates', f: l => leadUpdates(l).map(u =>
+        `[${String(u.at).slice(0,10)} ${u.by}] ${u.text}`).join('  ||  ') },
+    { h: 'Activity log', f: l => leadLog(l).map(u =>
+        `[${String(u.at).slice(0,10)}] ${u.base || u.text}${u.n ? ' (x' + u.n + ')' : ''}`).join('  ||  ') }
   ];
   download('corev-marketing-leads-' + TODAY() + '.csv', toCSV(rows, cols), 'text/csv');
   toast(`${rows.length} leads exported`, 'ok');
