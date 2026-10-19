@@ -1,4 +1,4 @@
-<!--corev-build:1.70.0-->
+<!--corev-build:1.71.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.70.0';
+const VERSION = '1.71.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14937,7 +14937,13 @@ function leadMerge(group, opt) {
 const LEAD_TAG = { 'New':'', 'Contacted':'info', 'Engaged':'info', 'Demo booked':'good',
   'Won':'good', 'Lost':'bad', 'Referral':'warn' };
 
-const LEAD_TABS = [['summary','Summary'],['active','All active leads'],['lost','Lost'],['dupes','Duplicates']];
+/* A WON LEAD HAD NOWHERE TO BE.
+   "All active leads" is LEAD_ACTIVE, which excludes Won and Lost. Lost had a
+   tab of its own; Won had nothing. So the moment a rep marked a lead Won it
+   left every list in this screen — the one outcome the team most wants to
+   look back at was the one the tool hid. */
+const LEAD_TABS = [['summary','Summary'],['active','All active leads'],
+                   ['won','Won'],['lost','Lost'],['dupes','Duplicates']];
 let LEAD_SEL = new Set();
 /* The counter and the delete button, brought up to date in place. */
 function leadSelSync() {
@@ -15065,11 +15071,13 @@ function viewLeads(root) {
 
   /* ---- the tabs ---- */
   const lostAll = all.filter(l => l.stage === 'Lost');
+  const wonAll = all.filter(l => l.stage === 'Won');
   const dupes = leadDupes(all).length;
   const tabs = el('div', { class: 'leadtabs' });
   LEAD_TABS.forEach(([v, label]) => {
-    const n = v === 'lost' ? lostAll.length : v === 'dupes' ? dupes : 0;
-    tabs.appendChild(el('button', { class: 'lt' + (tab === v ? ' on' : '') + (v === 'lost' ? ' bad' : ''),
+    const n = v === 'lost' ? lostAll.length : v === 'won' ? wonAll.length : v === 'dupes' ? dupes : 0;
+    tabs.appendChild(el('button', { class: 'lt' + (tab === v ? ' on' : '') +
+      (v === 'lost' ? ' bad' : v === 'won' ? ' good' : ''),
       text: label + (n ? ` (${n})` : ''),
       onclick: () => { VIEW.leadTab = v; render(); } }));
   });
@@ -15080,9 +15088,10 @@ function viewLeads(root) {
 
   /* ---- active and lost share one filter bar and one list ---- */
   const lost = tab === 'lost';
-  const base = lost ? lostAll : all.filter(LEAD_ACTIVE);
+  const won = tab === 'won';
+  const base = lost ? lostAll : won ? wonAll : all.filter(LEAD_ACTIVE);
   const f = VIEW.leadFilter = VIEW.leadFilter || {};
-  root.appendChild(leadFilterBar(f, base, lost));
+  root.appendChild(leadFilterBar(f, base, lost, won));
 
   let rows = base.slice();
   if (f.stage)   rows = rows.filter(l => l.stage === f.stage);
@@ -15124,7 +15133,10 @@ function viewLeads(root) {
   /* Active leads can be read as a board or as a list. The board is the default
      because the question people actually have about this screen is "where is
      everybody up to", which a column answers at a glance and a list does not. */
-  if (!lost) {
+  /* Won, like Lost, is an outcome rather than a place you work — a list, not
+     a board. Falling into the board path is why the Won tab drew its filters
+     and then nothing: the board only has columns for the open stages. */
+  if (!lost && !won) {
     const mode = VIEW.leadView = VIEW.leadView || 'board';
     const seg = el('div', { class: 'seg', style: 'margin-bottom:var(--sp-3)' });
     [['board', 'Pipeline'], ['list', 'List']].forEach(([v, lbl]) =>
@@ -15142,7 +15154,7 @@ function viewLeads(root) {
     if (mode === 'board') return leadBoard(root, rows);
   }
 
-  if (!lost) {
+  if (!lost && !won) {
     const needRep = base.filter(l => !l.assignee).length;
     if (needRep && !isReadOnly() && f.rep !== '__none') {
       const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
@@ -15156,8 +15168,9 @@ function viewLeads(root) {
     }
   }
 
-  const c = card(lost ? 'Lost leads' : 'Active leads',
-    `${rows.length} of ${base.length}` + (lost ? ' · with the reason on each' : ' · anything overdue first'));
+  const c = card(lost ? 'Lost leads' : won ? 'Won leads' : 'Active leads',
+    `${rows.length} of ${base.length}` + (lost ? ' · with the reason on each'
+      : won ? ' · newest first' : ' · anything overdue first'));
   if (!isReadOnly() && rows.length) {
     c.head.appendChild(el('button', { class: 'btn sm' + (VIEW.leadPick ? ' primary' : ''),
       html: ico('check', 13) + (VIEW.leadPick ? ' Done selecting' : ' Select'),
@@ -15194,6 +15207,7 @@ function viewLeads(root) {
   if (!rows.length) {
     const empty = el('div', { class: 'empty', html: ico('user',34) +
       '<h4>Nothing here</h4><p>' + (base.length ? 'No lead matches these filters.'
+        : won ? 'Nothing has been marked won yet.'
         : lost ? 'Nothing has been marked lost.'
         : 'Connect the agency sheet in Settings, import a list, or add one by hand.') + '</p>' });
     /* Somebody is being looked for by name and is not here. The next question
@@ -15294,7 +15308,7 @@ function leadPeriodPicker(f) {
 const leadFilterCount = f =>
   ['stage','not','region','recon','rep','type','demo','flag'].filter(k => f[k]).length +
   (f.period && f.period !== 'all' ? 1 : 0);
-function leadFilterBar(f, base, lost) {
+function leadFilterBar(f, base, lost, won) {
   const bar = el('div', { class: 'leadfilters' });
   /* Search is what a rep uses standing in front of someone, so it stays out
      in the open. The other nine pickers were 292px of phone screen above the
@@ -15305,11 +15319,12 @@ function leadFilterBar(f, base, lost) {
   const picks = [leadPeriodSeg(f)];
   const pk = { appendChild: n => { if (n) picks.push(n); } };
 
-  const stages = lost ? ['Lost'] : MLEAD_STAGES.filter(s => !['Won','Lost'].includes(s));
+  const stages = lost ? ['Lost'] : won ? ['Won']
+    : MLEAD_STAGES.filter(s => !['Won','Lost'].includes(s));
   pk.appendChild(selectFilter('Status', f.stage || '',
     [['', 'All statuses']].concat(stages.map(s => [s, s])),
     v => { f.stage = v || null; render(); }, 150));
-  if (!lost) pk.appendChild(selectFilter('Exclude', f.not || '',
+  if (!lost && !won) pk.appendChild(selectFilter('Exclude', f.not || '',
     [['', 'Exclude status: none']].concat(stages.map(s => [s, 'Exclude ' + s])),
     v => { f.not = v || null; render(); }, 180));
 
