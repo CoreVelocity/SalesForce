@@ -1,4 +1,4 @@
-<!--corev-build:1.71.0-->
+<!--corev-build:1.72.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.71.0';
+const VERSION = '1.72.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14365,6 +14365,46 @@ function fstamp(t) {
 }
 const isoStamp = t => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
 
+/* ==================================================== CHECK, THEN CHECK AGAIN
+   Houda Ammar: 1:10pm to Fatima, 1:40pm to Milena. Thirty minutes apart —
+   not a race between two tabs, which is what every guard so far was built
+   for. Thirty minutes is the size of a SYNC GAP.
+
+   toldAlready() reads DB.config.leadTold and mailedAt reads DB.leads. Both
+   are this browser's copies. The service sent at 1:10, stamped the lead and
+   wrote the ledger — into the shared folder. This browser had not re-read
+   either since before that, so by its own copy the lead had never been
+   emailed and no ledger entry existed. It checked honestly, against a world
+   half an hour out of date, and sent.
+
+   Yesterday's rule was "write before you email". Its other half is this one:
+   never email on state you have not just re-read. So a send re-reads the
+   shared folder first and re-tests every lead against what comes back. If
+   the folder cannot be reached, nothing is sent — an unverifiable claim that
+   a rep has not been told is exactly the claim that duplicates a handover. */
+async function leadsClaimForSend(list, o) {
+  const want = (list || []).filter(Boolean);
+  if (!want.length) return { go: [], stale: false };
+  if (SYNC.mode !== 'onedrive') return { go: want, stale: false };
+  try {
+    await syncNow({ quiet: true });
+  } catch (e) {
+    console.warn('Handover held — could not re-read the shared folder before sending: ' +
+      String((e && e.message) || e));
+    return { go: [], stale: true };
+  }
+  /* Re-fetched by id: the merge may have replaced the object we were holding. */
+  const go = [];
+  want.forEach(l => {
+    const now = getLead(l.id) || l;
+    if (now.mailedAt) return;          /* somebody stamped it while we were deciding */
+    if (toldAlready(now)) return;      /* or recorded it in the shared ledger */
+    if (sentAlready(now.id)) return;
+    go.push(now);
+  });
+  return { go, stale: false };
+}
+
 /* Why a lead is in the queue, which is the thing the panel has to be able to
    show before anybody presses send. */
 function leadsHeldWhy(l) {
@@ -14570,9 +14610,16 @@ async function leadsSendHeld(opt) {
     .slice(0, 25);
   if (!waiting.length) return o.quiet ? { sent: 0, healed }
     : no('Nothing is waiting any more — every assigned lead has been emailed.', { healed });
+  const claimed = await leadsClaimForSend(waiting, o);
+  if (claimed.stale) return no('Could not re-read the shared folder, so nothing was sent. ' +
+    'They go out on the next pass.', { held: waiting.length, stale: true });
+  if (!claimed.go.length) return o.quiet ? { sent: 0, healed }
+    : no('Nothing is waiting any more — the shared folder says every one of those has been emailed.',
+      { healed });
+  const toSend = claimed.go;
   let sent = 0;
   const errs = [];
-  for (const l of waiting) {
+  for (const l of toSend) {
     if (await leadEmailRep(l.id, { quiet: true })) sent++;
     else errs.push((getLead(l.id) || {}).mailErr || null);
   }
@@ -14588,7 +14635,7 @@ async function leadsSendHeld(opt) {
         : 'Nothing was sent, and no reason was recorded. Check the lead in Marketing Leads.', 'err');
     }
   }
-  return { sent, healed, failed: waiting.length - sent };
+  return { sent, healed, failed: toSend.length - sent };
 }
 
 /* A SECOND LOCK, OUTSIDE THE RECORD.
@@ -14771,6 +14818,14 @@ async function leadsEmailHandover(leads, opt) {
       'Open Marketing Leads and look at what is waiting before any of it goes out.', 'err');
     return { sent: 0, skipped: fresh.length, needsReview: fresh.length };
   }
+  /* Re-read and re-test before a single mail leaves. */
+  const claim = await leadsClaimForSend(fresh, o);
+  if (claim.stale) {
+    if (!o.quiet) toast('Could not re-read the shared folder, so nothing was emailed — ' +
+      'the handovers go out on the next pass.', 'err');
+    return { sent: 0, failed: 0, held: fresh.length, wrongFrom: 0, stale: true };
+  }
+  const sendable = claim.go;
   const cc = leadMailCc();
   const byRep = new Map();
   /* FROM THE FILTERED LIST, NOT THE RAW ONE.
@@ -14779,7 +14834,7 @@ async function leadsEmailHandover(leads, opt) {
      single-lead path was saved by leadEmailRep's own guards, while the digest
      path (four or more for one rep) posts straight through graphSendMail and
      had no guard at all. Both walk the same filtered list now. */
-  fresh.forEach(l => {
+  sendable.forEach(l => {
     if (!l || !l.assignee) return;
     const k = String(l.assignee);
     byRep.set(k, (byRep.get(k) || []).concat([l]));
