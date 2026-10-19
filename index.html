@@ -1,4 +1,4 @@
-<!--corev-build:1.72.0-->
+<!--corev-build:1.72.1-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.72.0';
+const VERSION = '1.72.1';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -16083,7 +16083,7 @@ function leadBoard(root, rows) {
       el('div', { class: 'kt' }, [
         el('span', { class: 'bar' }),
         el('span', { class: 'lbl', text: label, title: label }),
-        el('span', { class: 'n', text: list.length })
+        el('span', { class: 'n', text: o.count === undefined ? list.length : o.count })
       ]),
       el('div', { class: 'kv', html: o.foot !== undefined ? o.foot :
         (dueN ? `<b style="color:var(--critical)">${dueN} overdue</b>` : 'all on time') +
@@ -16091,8 +16091,13 @@ function leadBoard(root, rows) {
     ]));
 
     const klist = el('div', { class: 'klist' });
-    if (!list.length) klist.appendChild(el('div', { class: 'kempty',
-      text: o.empty || 'Drag a lead here' }));
+    if (!list.length) {
+      const e = el('div', { class: 'kempty', text: o.empty || 'Drag a lead here' });
+      /* where the count points, the text should take you */
+      if (o.emptyClick) { e.style.cursor = 'pointer'; e.style.textDecoration = 'underline';
+        e.addEventListener('click', o.emptyClick); }
+      klist.appendChild(e);
+    }
 
     /* Same reason as the deals board: a column that builds six hundred cards
        at once is what makes a browser give up on the tab. */
@@ -16132,11 +16137,27 @@ function leadBoard(root, rows) {
     { dropTo: st }));
 
   /* Won and Lost are not columns you work in — they are where a lead leaves
-     the board. Lost asks for the reason, as it does everywhere else. */
-  column('Won', [], { dropTo: 'Won', narrow: true, color: 'var(--good)',
-    foot: '<em>drop to mark won</em>', empty: 'Drop here to mark won' });
-  column('Lost', [], { dropTo: 'Lost', narrow: true, color: 'var(--critical)',
-    foot: '<em>drop to mark lost</em>', empty: 'Drop here — you will be asked why' });
+     the board. Lost asks for the reason, as it does everywhere else.
+
+     They are drop targets, so they are built with an empty list on purpose —
+     which printed a 0 in the header, directly under tabs reading "Won (2)"
+     and "Lost (209)". Two numbers for the same thing, disagreeing, and the
+     wrong one in the bigger type. The header carries the real count now, and
+     the column says where those leads actually are. */
+  const scoped = typeof leadScope === 'function' ? leadScope() : [];
+  const wonN = scoped.filter(l => l.stage === 'Won').length;
+  const lostN = scoped.filter(l => l.stage === 'Lost').length;
+  const goTab = v => () => { VIEW.leadTab = v; VIEW.leadOpen = null; render(); };
+  column('Won', [], { dropTo: 'Won', narrow: true, color: 'var(--good)', count: wonN,
+    foot: '<em>drop to mark won</em>',
+    empty: wonN ? 'Drop here to mark won — the ' + wonN + ' already won are in the Won tab'
+                : 'Drop here to mark won',
+    emptyClick: wonN ? goTab('won') : null });
+  column('Lost', [], { dropTo: 'Lost', narrow: true, color: 'var(--critical)', count: lostN,
+    foot: '<em>drop to mark lost</em>',
+    empty: lostN ? 'Drop here — you will be asked why. The ' + lostN + ' already lost are in the Lost tab'
+                 : 'Drop here — you will be asked why',
+    emptyClick: lostN ? goTab('lost') : null });
 
   root.appendChild(kan);
 }
