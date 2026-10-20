@@ -1,4 +1,4 @@
-<!--corev-build:1.72.1-->
+<!--corev-build:1.73.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.72.1';
+const VERSION = '1.73.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -2741,6 +2741,8 @@ const DB = {
   companies: [], contacts: [], deals: [], tasks: [],
   commitments: [], reviews: [], activities: [], attachments: [], products: [],
   demos: [], demoRequests: [], leads: [], quotes: [],
+  /* one record per lead key that has had its handover sent — see REC_SHARDS */
+  told: [],
   owners: [], stages: [], lossReasons: [],
   config: { widgets: null, targets: {}, theme: 'dark' },
   meta: { exportedAt: null, homeCurrency: CFG.currency }
@@ -3644,7 +3646,20 @@ function mergeRecords(mine, theirs, shard) {
   });
   return Array.from(out.values());
 }
-const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads','quotes'];
+/* 'told' IS A SHARD, NOT A SETTING.
+
+   The handover ledger lived in config.json. config.json is written as a
+   whole document with a blind PUT — no If-Match, no per-record merge — so
+   two writers racing it is a lost update by construction, and the ledger is
+   the one thing in this tool that must never be lost. Four duplicate
+   handovers in four days came back to that: the ledger said nothing because
+   somebody had overwritten it.
+
+   A rows shard is merged per record by mergeRecords(), which is exactly the
+   semantics a set of "this one has been told" facts needs: a union, where
+   nothing anybody wrote can be removed by somebody else's write. The
+   machinery already exists; the ledger just belongs in it. */
+const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads','quotes','told'];
 
 async function syncNow(opt) {
   const o = opt || {};
@@ -14671,36 +14686,35 @@ function sentAlready(id) { return !!sentLedger()[String(id)]; }
    So it also goes in the shared config, keyed by the lead key — email, else
    phone — which comes off the sheet row itself and is identical on both
    sides. The service writes and reads the same map. */
+/* The ledger is a shard now — one record per lead key, merged per record by
+   the store, so no writer can remove what another wrote. DB.config.leadTold
+   is still READ, because the entries written before this build live there
+   and a rep is not told twice just because the ledger moved house. */
 const toldMap = () => {
   const m = (DB.config || {}).leadTold;
   return (m && typeof m === 'object' && !Array.isArray(m)) ? m : {};
 };
 const toldAlready = l => {
   const k = l && leadKey(l);
-  return k ? (toldMap()[k] || null) : null;
+  if (!k) return null;
+  const rec = (live('told') || []).find(t => String(t.id) === k);
+  if (rec && rec.at) return String(rec.at);
+  return toldMap()[k] || null;      /* the old home, for what is already there */
 };
 function toldRecord(leads, at) {
   const stamp = at || new Date().toISOString();
-  const map = Object.assign({}, toldMap());
   let changed = false;
   (Array.isArray(leads) ? leads : [leads]).forEach(l => {
     const k = l && leadKey(l);
-    /* Only ever fills a gap — the first time somebody was told is the time
-       that matters, and a later sender must not overwrite it. */
-    if (k && !map[k]) { map[k] = stamp; changed = true; }
+    if (!k) return;
+    /* Only ever fills a gap — the first time somebody was told is the fact,
+       and a later sender must not push it forward. */
+    if (toldAlready(l)) return;
+    upsert('told', { id: k, at: stamp, by: myMail() || 'browser',
+      lead: l.name || '', to: ownerName(l.assignee) || '' });
+    changed = true;
   });
-  if (!changed) return false;
-  const floor = Date.now() - 90 * 864e5;
-  const kept = Object.keys(map)
-    .map(k => [k, Date.parse(map[k]) || 0])
-    .filter(([, t]) => t >= floor)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4000);
-  const out = {};
-  kept.forEach(([k, t]) => { out[k] = new Date(t).toISOString(); });
-  DB.config.leadTold = out;
-  DB.config._v = now(); SYNC.dirty.add('config'); touch('config');
-  return true;
+  return changed;
 }
 function sentRecord(id) {
   try {
