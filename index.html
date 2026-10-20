@@ -1,4 +1,4 @@
-<!--corev-build:1.73.0-->
+<!--corev-build:1.73.1-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.73.0';
+const VERSION = '1.73.1';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -14543,7 +14543,7 @@ function leadsHeldReview() {
   if (!odd && canSendAsTeam() && !isReadOnly()) {
     const n = Math.min(q.length, 25);
     acts.push(el('button', { class: 'btn primary', html: ico('mail', 13) + ' Email ' + n + ' of them',
-      onclick: () => { closeAll(); leadsSendHeld({ quiet: false, reviewed: true }); } }));
+      onclick: () => { closeAll(); leadsSendHeld({ quiet: false, reviewed: true, byHand: true }); } }));
   }
   modal('Waiting to be told · ' + q.length, body, acts);
 }
@@ -14582,8 +14582,17 @@ async function leadsSendHeld(opt) {
      toast, no console line, nothing to tell anybody which of five conditions
      had stopped it. On a deliberate press — quiet:false — each one says which
      it was. */
+  /* A GUARD EXPLAINS ITSELF TO A PERSON, NOT TO A TIMER.
+     v1.70.0 made every guard say which one stopped it, which was the right
+     fix for a button that did nothing — and the wrong thing for the four
+     minute catch-up and the tab-focus handler, which also run with
+     quiet:false so that a successful send can announce itself. The result
+     was "The Azure service is sending these" popping up on the Quotes page
+     every four minutes while everything was working perfectly.
+
+     Outcomes are still loud. Reasons are for whoever pressed something. */
   const no = (why, extra) => {
-    if (!o.quiet) toast(why, 'err');
+    if (!o.quiet && o.byHand) toast(why, 'err');
     return Object.assign({ sent: 0, why }, extra || {});
   };
   if (!mailFrom()) return no('No team address is set, so there is nothing to send from.');
@@ -22941,7 +22950,7 @@ function mailStrictToggle() {
       text: `${waiting.length} handover${waiting.length === 1 ? ' is' : 's are'} waiting to be sent. ` +
         (can ? 'This browser can send them.' : 'This browser is not allowed to send as that address.') }));
     if (can) wrap.appendChild(el('button', { class: 'btn sm', style: 'margin-top:var(--sp-2)',
-      html: ico('mail', 13) + ' Send them now', onclick: () => leadsSendHeld({ quiet: false }) }));
+      html: ico('mail', 13) + ' Send them now', onclick: () => leadsSendHeld({ quiet: false, byHand: true }) }));
   }
   return wrap;
 }
