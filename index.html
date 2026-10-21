@@ -1,4 +1,4 @@
-<!--corev-build:1.73.1-->
+<!--corev-build:1.74.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.73.1';
+const VERSION = '1.74.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -17234,6 +17234,32 @@ function viewLeadDupes(root, all) {
 
 const Q_TOP_N = 5;
 
+/* ====================================================== ONE MONTH AT A TIME
+   The quarter screen answered one question well — what is each rep putting
+   the quarter on — and a question people kept asking it anyway: what of that
+   lands in November. The rep × month grid holds the numbers, but every tile,
+   every rep card and every total on the screen was the whole quarter, so the
+   answer had to be read out of one row of a matrix.
+
+   A lens, not a second screen. Pick a month and the same screen narrows to
+   the deals expected to close in it; pick Quarter and it is what it always
+   was. The month a deal belongs to is its close date on the deal itself —
+   qRecMonth — so this stays in step with the pipeline rather than being a
+   second place to maintain.
+
+   A committed deal with no close date cannot be placed in a month. It is
+   counted in the quarter and named in the lens rather than quietly dropped:
+   a deal missing from a total is worse than a deal with a question on it. */
+const qLens = qk => {
+  const m = VIEW.quarterMonth;
+  return m && qMonthsOf(qk).includes(m) ? m : null;
+};
+const qInLens = (rec, lens) => !lens || qRecMonth(rec) === lens;
+const qLensFilter = (recs, lens) => !lens ? recs : recs.filter(r => qInLens(r, lens));
+/* Committed, inside the quarter, but with no close date to place it by. */
+const qUndated = recs => recs.filter(r => !qRecMonth(r));
+const qLensLabel = (qk, lens) => lens ? fdate(lens + '-01', 'month') : qLabel(qk);
+
 /* The two horizons, as one screen. The weekly call and the quarterly call are
    different questions asked of the same pipeline, and reps were opening two
    tools to answer them. */
@@ -17296,7 +17322,12 @@ function viewQuarter(root) {
   const rng = qRange(qk);
   const all = qCommits(qk);
   const onlyRep = VIEW.rep !== 'all' ? VIEW.rep : null;
-  const shown = onlyRep ? qCommits(qk, onlyRep) : all;
+  const lens = qLens(qk);
+  const inQuarter = onlyRep ? qCommits(qk, onlyRep) : all;
+  const shown = qLensFilter(inQuarter, lens);
+  const undated = lens ? qUndated(inQuarter) : [];
+  /* The target to measure against is the month's when a month is chosen. */
+  const lensRange = lens ? mBounds(lens + '-01') : rng;
 
   root.appendChild(viewHead(null, [
     el('div', { class: 'seg' }, [
@@ -17305,7 +17336,8 @@ function viewQuarter(root) {
       el('button', { html: '›', title: 'Next quarter', onclick: () => { VIEW.quarter = qShift(qk, 1); render(); } })
     ]),
     qk !== qKey() ? el('button', { class: 'btn', text: 'This quarter',
-      onclick: () => { VIEW.quarter = qKey(); render(); } }) : null,
+      onclick: () => { VIEW.quarter = qKey(); VIEW.quarterMonth = null; render(); } }) : null,
+    qMonthLens(qk),
     el('button', { class: 'btn', html: ico('dl', 14) + ' Export', onclick: () => exportQuarter(qk) }),
     isReadOnly() ? null : el('button', { class: 'btn primary', html: ico('target', 14) + ' Pick the focus deals',
       onclick: () => qPick(qk, onlyRep || currentOwnerId()) })
@@ -17323,17 +17355,20 @@ function viewQuarter(root) {
     onclick: () => { VIEW.rep = 'all'; render(); } }));
   fbar.appendChild(el('div', { style: 'flex:1' }));
   fbar.appendChild(el('span', { style: 'font-size:var(--fs-sm);color:var(--ink-3)',
-    text: (onlyRep ? ownerName(onlyRep) : `${qReps().length} reps`) + ' · ' + qLabel(qk) }));
+    text: (onlyRep ? ownerName(onlyRep) : `${qReps().length} reps`) + ' · ' + qLensLabel(qk, lens) +
+      (lens ? ' · of ' + qLabel(qk) : '') }));
   root.appendChild(fbar);
 
   /* ---- the quarter in one band ---- */
   const val = sum(shown, qValue);
   const wonRecs = qWon(shown), lostRecs = qLost(shown);
-  const withSome = qReps().filter(o => qCommits(qk, o.id).length).length;
-  const target = repTarget(onlyRep || 'all', rng);
+  const withSome = qReps().filter(o => qLensFilter(qCommits(qk, o.id), lens).length).length;
+  const target = repTarget(onlyRep || 'all', lensRange);
   const t = el('div', { class: 'tiles' });
-  t.appendChild(tile('Committed this quarter', money(val), { cur: true, icon: 'target',
-    foot: onlyRep ? `${shown.length} of ${Q_TOP_N} deals named`
+  t.appendChild(tile(lens ? 'Committed in ' + qLensLabel(qk, lens) : 'Committed this quarter',
+    money(val), { cur: true, icon: 'target',
+    foot: onlyRep ? (lens ? `${shown.length} of this rep’s ${Q_TOP_N} land here`
+                          : `${shown.length} of ${Q_TOP_N} deals named`)
       : `${shown.length} deals from ${withSome} of ${qReps().length} reps` }));
   unitLines().forEach(L => t.appendChild(tile(L + ' committed', unitTotal(shown, L), { icon: 'grid',
     foot: `across ${shown.filter(c => Number(unitsOf(c)[L]) || 0).length} of the ${shown.length} deals` })));
@@ -17345,6 +17380,19 @@ function viewQuarter(root) {
   if (target) t.appendChild(tile('Against target', money(target), { cur: true, icon: 'flag',
     foot: `commitment covers ${pct(val, target)}%`, meter: pct(val, target) }));
   root.appendChild(t);
+
+  if (undated.length) {
+    const n = el('div', { class: 'alert', style: 'margin-bottom:var(--sp-3)' });
+    n.appendChild(el('span', { class: 'ic', html: ico('warn', 18) }));
+    n.appendChild(el('div', { style: 'flex:1;line-height:1.5', html:
+      `<b>${undated.length} committed deal${undated.length === 1 ? ' has' : 's have'} no close date</b>` +
+      `<div class="sub">${CFG.currency} ${money(sum(undated, qValue), { dash: false })} that cannot be ` +
+      'placed in a month, so it counts in the quarter but in none of its months. ' +
+      'Set a close date on the deal and it lands here.</div>' }));
+    n.appendChild(el('button', { class: 'btn sm', text: 'Show the quarter',
+      onclick: () => { VIEW.quarterMonth = null; render(); } }));
+    root.appendChild(n);
+  }
 
   if (!all.length) {
     const c = card('Nothing picked for ' + qLabel(qk), null);
@@ -17366,8 +17414,9 @@ function viewQuarter(root) {
   qRepGroups().forEach(({ region, owners }) => {
     const mine = onlyRep ? owners.filter(o => o.id === onlyRep) : owners;
     if (!mine.length) return;
-    const recs = qCommits(qk).filter(c => mine.some(o => o.id === String(c.ownerId)));
+    const recs = qLensFilter(qCommits(qk).filter(c => mine.some(o => o.id === String(c.ownerId))), lens);
     if (onlyRep && !recs.length && !qCanEdit(onlyRep)) return;
+    if (lens && !recs.length) return;      /* nothing of this region lands here */
     if (!onlyRep) root.appendChild(el('div', { class: 'qregion' }, [
       el('b', { text: region }),
       el('span', { class: 'sub', text: `${mine.length} rep${mine.length === 1 ? '' : 's'} · ` +
@@ -17376,15 +17425,31 @@ function viewQuarter(root) {
       el('div', { style: 'flex:1' }),
       el('span', { class: 'v mono', text: CFG.currency + ' ' + money(sum(recs, qValue), { dash: false }) })
     ]));
-    mine.forEach(o => root.appendChild(qRepCard(qk, o)));
+    mine.forEach(o => { const card = qRepCard(qk, o, lens); if (card) root.appendChild(card); });
   });
 
   /* ---- how the reps compare ---- */
-  if (!onlyRep) root.appendChild(qSideBySide(qk, all));
+  if (!onlyRep) root.appendChild(qSideBySide(qk, qLensFilter(all, lens), lens));
 }
 
-function qRepCard(qk, o) {
-  const recs = qCommits(qk, o.id).sort((a, b) => qValue(b) - qValue(a));
+/* Quarter, or one of its three months. */
+function qMonthLens(qk) {
+  const lens = qLens(qk);
+  const seg = el('div', { class: 'seg', title: 'Show the whole quarter, or only what is expected to land in one month' });
+  seg.appendChild(el('button', { class: lens ? '' : 'on', text: 'Quarter',
+    onclick: () => { VIEW.quarterMonth = null; render(); } }));
+  qMonthsOf(qk).forEach(m => seg.appendChild(el('button', {
+    class: lens === m ? 'on' : '', text: fdate(m + '-01', 'month').replace(/\s+\d{4}$/, ''),
+    title: fdate(m + '-01', 'month'),
+    onclick: () => { VIEW.quarterMonth = m; render(); } })));
+  return seg;
+}
+
+function qRepCard(qk, o, lens) {
+  const recs = qLensFilter(qCommits(qk, o.id), lens).sort((a, b) => qValue(b) - qValue(a));
+  /* Under a month lens an empty card is noise — the rep has deals, just not
+     ones landing here. The quarter view still shows everybody. */
+  if (lens && !recs.length) return null;
   const mine = qCanEdit(o.id);
   const c = card(o.name, recs.length
     ? `${recs.length} of ${Q_TOP_N} named · ${CFG.currency} ${money(sum(recs, qValue), { dash: false })}` +
@@ -17418,8 +17483,9 @@ function qRepCard(qk, o) {
   return c.node;
 }
 
-function qSideBySide(qk, all) {
-  const cmp = card('Side by side', 'Every rep in ' + qLabel(qk));
+function qSideBySide(qk, all, lens) {
+  const cmp = card('Side by side', 'Every rep in ' + qLensLabel(qk, lens) +
+    (lens ? ' · of ' + qLabel(qk) : ''));
   const tbl = el('div', { class: 'qtbl', style: '--qcols:' + unitLines().length });
   const head = el('div', { class: 'qhead' });
   ['Sales rep', 'Deals'].concat(unitLines()).concat(['Committed', 'Landed']).forEach((h, i) =>
@@ -17432,14 +17498,14 @@ function qSideBySide(qk, all) {
     row.appendChild(el('span', { class: 'n mono', text: money(sum(qWon(recs), qValue)) }));
   };
   qRepGroups().forEach(({ region, owners }) => {
-    const recs = qCommits(qk).filter(c => owners.some(o => o.id === String(c.ownerId)));
+    const recs = qLensFilter(qCommits(qk).filter(c => owners.some(o => o.id === String(c.ownerId))), lens);
     const gr = el('div', { class: 'qrow group' });
     gr.appendChild(el('span', {}, [ el('b', { text: region }),
       el('span', { class: 'sub', style: 'margin-left:8px', text: `${owners.length} rep${owners.length === 1 ? '' : 's'}` }) ]));
     cells(gr, recs, false);
     tbl.appendChild(gr);
     owners.forEach(o => {
-      const mine = qCommits(qk, o.id);
+      const mine = qLensFilter(qCommits(qk, o.id), lens);
       const row = el('button', { class: 'qrow rep' + (mine.length ? '' : ' empty'),
         onclick: () => { VIEW.rep = o.id; render(); } });
       row.appendChild(el('span', { class: 'who' }, [
