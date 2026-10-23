@@ -1,4 +1,4 @@
-<!--corev-build:1.74.0-->
+<!--corev-build:1.75.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.74.0';
+const VERSION = '1.75.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3615,9 +3615,46 @@ async function ensureFolder() { await resolveDrive(); }
    Deliberately NOT in here: mailHeld, which is a state ("waiting to go")
    rather than an event, and must be clearable. */
 const STICKY_FIELDS = {
-  leads: ['mailedAt', 'mailedTo', 'mailedCc', 'mailedFrom', 'mailedBy', 'mailedVer', 'handedOverAt'],
+  leads: ['mailedAt', 'mailedTo', 'mailedCc', 'mailedFrom', 'mailedBy', 'mailedVer',
+    'mailedRep', 'handedOverAt'],
   quotes: ['approvalMailedAt', 'raisedMailAt', 'autoMailAt', 'sentMailAt']
 };
+/* WHOEVER WAS TOLD IS WHOSE LEAD IT IS.
+
+   Sticky fields stopped the second email. They did not stop the second
+   ROUTING: the surviving copy kept Milena's handover stamp and Fatima's
+   name, so the lead on screen belonged to a rep who had never heard of it
+   and the rep who had been emailed could not find it in her list.
+
+   An email naming a rep is a promise that was made out loud. No later copy
+   of the record gets to quietly move the lead away from the person it was
+   made to. The exception is a person doing it on purpose: the rep dropdown
+   clears autoAssigned, and a deliberate re-assignment is left alone. */
+function toldRepId(l) {
+  if (!l || !l.mailedAt) return '';
+  if (l.mailedRep) return String(l.mailedRep);
+  /* Records written before mailedRep existed carry only the address. */
+  const first = String(l.mailedTo || '').split(',')[0].trim().toLowerCase();
+  if (!first) return '';
+  const own = (DB.owners || []).find(o => String(o.email || '').trim().toLowerCase() === first);
+  return own ? String(own.id) : '';
+}
+function keepToldRep(out, loser) {
+  const told = toldRepId(out) || toldRepId(loser);
+  if (!told) return out;
+  if (!out.assignee || String(out.assignee) === told) return out;
+  if (out.autoAssigned === false) return out;        /* somebody moved it on purpose */
+  /* Once, and visibly. Leads re-assigned by hand in builds before the rep
+     dropdown recorded that it was a person doing it carry no marker, so this
+     could put one of those back too. It does that at most once per lead and
+     says so on the lead, which is a correction somebody can undo — where
+     silently re-correcting it on every sync would not be. */
+  if (out.reroutedFrom) return out;
+  const o2 = Object.assign({}, out);
+  o2.assignee = told;
+  o2.reroutedFrom = String(out.assignee);
+  return o2;
+}
 function keepSticky(winner, loser, shard) {
   const keys = STICKY_FIELDS[shard];
   if (!keys || !winner || !loser) return winner;
@@ -3630,6 +3667,7 @@ function keepSticky(winner, loser, shard) {
       out[k] = loser[k];
     }
   });
+  if (shard === 'leads') out = keepToldRep(out, loser);
   return out;
 }
 function mergeRecords(mine, theirs, shard) {
@@ -13305,6 +13343,9 @@ function leadReplied(id, key) {
    ================================================================ */
 const sheetAuto = () => !!(DB.config && DB.config.leadSheetAuto);
 const sheetLast = () => (DB.config && DB.config.leadSheetAt) || '';
+/* Who read it last — 'api' is the Azure timer, anything else a browser. */
+const sheetBy = () => String((DB.config || {}).leadSheetBy || '') === 'api'
+  ? 'the service' : '';
 /* HOW OFTEN, AND WHY IT IS NOT A PROMISE.
 
    A lead landed with the agency at 8:12pm and reached the team at 2:03am.
@@ -13592,6 +13633,44 @@ async function sheetSync(opt) {
   }
   SHEET_BUSY = Date.now();
   if (!o.quiet) toast(tabs.length > 1 ? `Reading ${tabs.length} tabs…` : 'Reading the sheet…');
+
+  /* RE-READ BEFORE READING.
+
+     ملكة القلوب arrived on the agency sheet, the service routed her to Milena
+     and emailed Milena at 06:55. At 09:45 this browser read the same sheet
+     again, decided the row was new, created it again and routed it again —
+     to Fatima. No second email went out: the ledger and the sticky stamps
+     held. But the lead on screen named a rep who had never been told, and
+     the arrival time became 09:45 instead of the date on the row.
+
+     Both decisions behind that were taken against this browser's own copy of
+     the store. "The sheet is overdue" came from a leadSheetAt it had not
+     refreshed; "this row is new" came from a leads list the service's record
+     had not reached yet. The mail path met this exact problem and answered
+     it by re-reading the folder immediately before sending. Reading the
+     sheet is the same problem one step earlier, so it gets the same answer.
+
+     A pull that fails stops the run: a late lead beats a misrouted one. */
+  if (SYNC.mode === 'onedrive') {
+    try { await syncNow({ quiet: true }); }
+    catch (e) {
+      SHEET_BUSY = 0;
+      const why = 'Could not re-read the shared folder, so the sheet was left alone. ' +
+        'Reading it against an old copy is how one lead becomes two.';
+      console.warn('Sheet read held — ' + String((e && e.message) || e));
+      if (!o.quiet) toast(why, 'err');
+      return { added: 0, stale: true, why };
+    }
+    /* Somebody got there first — the service, or another browser. Only a
+       person pressing the button reads it again anyway. */
+    const age = sheetAgeMin();
+    if (o.quiet && age < SHEET_EVERY_MIN()) {
+      SHEET_BUSY = 0;
+      return { added: 0, alreadyRead: true,
+        why: 'the sheet was read ' + fmins(age) + ' ago by ' + (sheetBy() || 'another browser') };
+    }
+  }
+
   const seen = leadIndex(), dup = new Set();
   let added = 0, routed = 0, rows = 0, skipped = 0, made = [];
   const errs = [], rowErrs = [], per = [];
@@ -14242,6 +14321,10 @@ function mailStamp(l, to, cc) {
   toldRecord(l, r.at || undefined);
   l.mailedAt = r.at || new Date().toISOString();
   l.mailedTo = (to || []).join(', ');
+  /* The rep by id, not just by address: the address is what Microsoft was
+     given, this is what the merge needs to put the lead back where it was
+     promised. Addresses change; the promise does not. */
+  l.mailedRep = String(l.assignee || '') || null;
   l.mailedCc = (cc || []).join(', ');
   l.mailedFrom = r.from || null;
   l.mailedBy = r.by || null;
@@ -15601,6 +15684,9 @@ function leadDetail(root, l) {
   const ctl = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-top:var(--sp-3)' });
   const rep = ownerSelect(l.assignee || '', { emptyLabel: 'Not assigned',
     onchange: e => { l.assignee = e.target.value; l.routeNeeded = !e.target.value;
+      /* A person choosing a rep outranks any routing, including the rule that
+         keeps a lead with whoever was emailed about it. */
+      l.autoAssigned = false;
       if (l.assignee) { l.assignedAt = new Date().toISOString();
         if (l.contactId) { const c = getCt(l.contactId); if (c) { c.ownerId = l.assignee; upsert('contacts', c); } } }
       leadSave(l); render(); } });
@@ -16235,6 +16321,16 @@ function leadTimingStrip(l) {
       : (l.mailErr ? 'see Settings' : null),
     l.mailErr ? 'var(--critical)' : t.toTell == null ? ''
       : t.toTell <= 5 ? 'var(--good)' : t.toTell <= 60 ? '' : 'var(--warning)'));
+
+  /* A second copy of this lead had routed it somewhere else and the merge put
+     it back with the rep who was actually emailed. Said out loud, because a
+     lead moving on its own is exactly the thing nobody should have to guess
+     about — and because if the move was deliberate, this is how you find it. */
+  if (l.reroutedFrom) wrap.appendChild(step('Routing corrected',
+    ownerName(l.assignee) || '—',
+    'another copy had it with ' + (ownerName(l.reroutedFrom) || 'someone else') +
+    ' — the handover email went to ' + (ownerName(l.assignee) || 'this rep'),
+    'var(--warning)'));
 
   if (t.toTold != null) wrap.appendChild(step('Arrived → told', fmins(t.toTold),
     'the number that matters', t.toTold <= 10 ? 'var(--good)'
