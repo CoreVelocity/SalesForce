@@ -1,4 +1,4 @@
-<!--corev-build:1.77.0-->
+<!--corev-build:1.78.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.77.0';
+const VERSION = '1.78.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3943,6 +3943,8 @@ function packStamps(rec, full) {
    would still pick one side's list over the other's and lose a note written
    at the same time, so the lists are unioned instead. */
 const LIST_UNION = { leads: ['updates'], deals: ['updates'], quotes: ['updates'] };
+/* Fields where the earlier value is the true one, whoever wrote it last. */
+const EARLIEST = { leads: ['createdAt', 'handoverDue', 'mailedAt', 'assignedAt'] };
 function unionEntries(a, b) {
   const seen = new Set(), out = [];
   (a || []).concat(b || []).forEach(e => {
@@ -3971,6 +3973,19 @@ function mergeFields(mine, theirs, shard) {
   (LIST_UNION[shard] || []).forEach(k => {
     if (Array.isArray(mine[k]) || Array.isArray(theirs[k]))
       out[k] = unionEntries(mine[k], theirs[k]);
+  });
+  /* WHEN IT ARRIVED IS A FACT ABOUT THE PAST.
+     A second copy of a lead, created a day later by a browser that had not
+     seen the first, is still one person arriving once. Rahul's arrival moved
+     from the 25th to the 26th that way, which is not a detail: it is the
+     number every response-time figure is measured from. The earliest time
+     either side knows about is the true one. */
+  (EARLIEST[shard] || []).forEach(k => {
+    const x = mine[k], y = theirs[k];
+    if (!x && !y) return;
+    if (!x) { out[k] = y; return; }
+    if (!y) { out[k] = x; return; }
+    out[k] = String(x) <= String(y) ? x : y;
   });
   /* A delete is a decision about the whole record, so it stays whole-record:
      whoever decided it last decides it. */
@@ -4023,10 +4038,39 @@ function mergeRecords(mine, theirs, shard) {
    machinery already exists; the ledger just belongs in it. */
 const REC_SHARDS = ['companies','contacts','deals','tasks','commitments','reviews','activities','attachments','products','demos','demoRequests','leads','quotes','told'];
 
+/* "AWAIT SYNCNOW()" HAS TO MEAN THE FOLDER WAS READ.
+
+   It did not. A second caller arriving while a sync was running returned
+   straight away — the await finished, nothing had been read, and the caller
+   carried on believing it was up to date. Two guards are built on exactly
+   that promise: the handover claim re-reads the folder before sending, and
+   the sheet read re-reads it before deciding which rows are new. Both
+   quietly did nothing whenever a sync happened to be in flight, which is
+   precisely when a lead is arriving.
+
+   Rahul Kulshreshtha is what that looks like: emailed to Fatima on the 25th,
+   created a second time on the 26th by a browser that had just "re-read" the
+   folder without reading anything, and routed to Milena.
+
+   A second caller now waits for the run that is going. One that needs a read
+   newer than its own question — the two guards above — asks for `fresh`,
+   which waits for the run in flight and then does one of its own, because a
+   sync already half way through may have read the leads before the caller
+   had a question to ask. */
+let SYNC_RUN = null;
 async function syncNow(opt) {
   const o = opt || {};
   if (SYNC.mode !== 'onedrive') { saveLocal(); return; }
-  if (SYNC.status === 'syncing') return;
+  if (SYNC_RUN) {
+    const running = SYNC_RUN;
+    if (!o.fresh) return running;
+    await running;
+    if (SYNC_RUN) return SYNC_RUN;              /* somebody else started one */
+  }
+  SYNC_RUN = syncRun(o).finally(() => { SYNC_RUN = null; });
+  return SYNC_RUN;
+}
+async function syncRun(o) {
   SYNC.status = 'syncing'; SYNC.err = null; renderSyncBadge();
   try {
     await resolveDrive();
@@ -13982,7 +14026,7 @@ async function sheetSync(opt) {
 
      A pull that fails stops the run: a late lead beats a misrouted one. */
   if (SYNC.mode === 'onedrive') {
-    try { await syncNow({ quiet: true }); }
+    try { await syncNow({ quiet: true, fresh: true }); }
     catch (e) {
       SHEET_BUSY = 0;
       const why = 'Could not re-read the shared folder, so the sheet was left alone. ' +
@@ -14024,6 +14068,24 @@ async function sheetSync(opt) {
           l.srcId = p.srcId || leadKey(p);
           if (p.rawAssignee && !p.assignee)
             leadAddLog(l, `The sheet has this with "${p.rawAssignee}" — no one here matched that name`, true);
+          /* ALREADY HANDED OVER, EVEN IF THE RECORD IS NOT HERE.
+             The service does this and the browsers did not. A lead whose
+             record never reached the folder — or has not reached THIS
+             browser — looks new on every sheet read, and routing it again
+             picks whoever the rotation points at now rather than the rep who
+             was emailed about it days ago. The ledger outlives the record,
+             so the record is rebuilt already handed over. */
+          const told = toldAlready(l);
+          if (told && !l.mailedAt) {
+            const who = toldRep(l);
+            l.mailedAt = told;
+            l.mailedBy = l.mailedBy || 'recovered';
+            l.mailedVer = l.mailedVer || 'ledger';
+            if (who) { l.assignee = who; l.mailedRep = who; l.autoAssigned = true; }
+            leadAddLog(l, 'Rebuilt from the handover ledger — ' +
+              (who ? ownerName(who) + ' was already told about this one' :
+               'somebody had already been told about this one') + ', so it was not sent again', true);
+          }
           leadSave(l);
           p._lead = l;
           tAdded++; if (l.assignee) tRouted++;
@@ -14815,7 +14877,7 @@ async function leadsClaimForSend(list, o) {
   if (!want.length) return { go: [], stale: false };
   if (SYNC.mode !== 'onedrive') return { go: want, stale: false };
   try {
-    await syncNow({ quiet: true });
+    await syncNow({ quiet: true, fresh: true });
   } catch (e) {
     console.warn('Handover held — could not re-read the shared folder before sending: ' +
       String((e && e.message) || e));
@@ -15123,6 +15185,18 @@ const toldAlready = l => {
   if (rec && rec.at) return String(rec.at);
   return toldMap()[k] || null;      /* the old home, for what is already there */
 };
+/* Which rep the ledger says was told, when it knows. */
+function toldRep(l) {
+  const k = l && leadKey(l);
+  if (!k) return '';
+  const rec = (live('told') || []).find(t => String(t.id) === k);
+  if (rec && rec.rep && DB.owners.some(o => String(o.id) === String(rec.rep))) return String(rec.rep);
+  /* older entries recorded only the name */
+  const nm = rec && String(rec.to || '').trim();
+  if (!nm) return '';
+  const own = DB.owners.find(o => String(ownerName(o.id) || '').trim() === nm);
+  return own ? String(own.id) : '';
+}
 function toldRecord(leads, at) {
   const stamp = at || new Date().toISOString();
   let changed = false;
@@ -15133,7 +15207,11 @@ function toldRecord(leads, at) {
        and a later sender must not push it forward. */
     if (toldAlready(l)) return;
     upsert('told', { id: k, at: stamp, by: myMail() || 'browser',
-      lead: l.name || '', to: ownerName(l.assignee) || '' });
+      lead: l.name || '', to: ownerName(l.assignee) || '',
+      /* by id as well as by name: a lead rebuilt from this ledger goes back
+         to the rep who was actually told, not to whoever the rotation is
+         pointing at now */
+      rep: String(l.assignee || '') });
     changed = true;
   });
   return changed;
