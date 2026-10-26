@@ -1,4 +1,4 @@
-<!--corev-build:1.75.0-->
+<!--corev-build:1.77.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.75.0';
+const VERSION = '1.77.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3074,7 +3074,6 @@ function batch(fn) {
 function upsert(shard, rec) {
   if (!canWrite()) return rec;
   if (!rec.id) rec.id = uid(shard[0].toUpperCase());
-  stamp(rec);
   const arr = DB[shard];
   const idx = IDX[shard];
   let i = -1;
@@ -3083,6 +3082,14 @@ function upsert(shard, rec) {
   let out;
   if (i < 0) { arr.push(rec); out = rec; }
   else { out = Object.assign(arr[i], rec); }
+  /* WHICH FIELDS THIS SESSION HAS ACTUALLY MOVED.
+     Measured against what the shared folder last said, not against the row
+     as it was a moment ago: callers edit the live row in place, so by the
+     time we get here the "before" is already the "after". A field still
+     equal to the folder's value keeps the folder's stamp, which is how a
+     browser ends up unable to overwrite something it never touched. */
+  packStamps(out, fieldStamps(baseOf(shard, out.id), out, now()));
+  stamp(out);
   if (idx) idx.set(out.id, out);
   touch(shard);
   return out;
@@ -3091,7 +3098,13 @@ function remove(shard, id) {
   if (!canWrite()) return;
   const arr = DB[shard], i = arr.findIndex(r => r.id === id);
   if (i < 0) return;
-  arr[i]._del = true; stamp(arr[i]);
+  arr[i]._del = true;
+  /* Authored like any other field, or a copy somebody saved a second later
+     would quietly bring the record back. */
+  const t = now();
+  arr[i]._fb = arr[i]._fb != null ? arr[i]._fb : (arr[i]._v || t);
+  arr[i]._f = Object.assign({}, arr[i]._f || {}, { _del: t });
+  stamp(arr[i]);
   touch(shard);
 }
 const live = shard => DB[shard].filter(r => !r._del);
@@ -3284,6 +3297,11 @@ function loadLocal() {
     Object.assign(DB, p.db);
     CACHE_STATE = { ok: true, dropped: p.partial || [], bytes: raw.length, compacted: 0 };
     (p.dirty || []).forEach(s => SYNC.dirty.add(s));
+    /* The cached copy is the last thing this browser agreed with the folder
+       about, apart from whatever is still dirty. Good enough as a baseline:
+       without one, the first save of every record would claim authorship of
+       all of it, which is the behaviour being fixed. */
+    REC_SHARDS.forEach(k => { if (Array.isArray(DB[k])) baseSet(k, DB[k]); });
     reindex(); rebuildStages();
     return true;
   } catch (e) { return false; }
@@ -3309,12 +3327,132 @@ async function loadMsal() {
   }
   return false;
 }
-async function signIn() {
+/* ================================================================
+   A PHONE HAS NO POPUPS
+
+   Sign-in opened a popup window. On a desktop that is the better flow —
+   the page stays where it is and nothing is reloaded. On an iPhone there
+   is no such thing: Safari blocks window.open outside a direct tap, and a
+   tool added to the home screen gets no popup at all. The error that came
+   back said "allow popups for this page", which is advice nobody can act
+   on because there is no setting to change.
+
+   So the flow is chosen by where it is running. Redirect on a phone or an
+   installed app, popup on a desktop, and — because the detection will be
+   wrong somewhere — a popup that comes back blocked falls through to the
+   redirect by itself and remembers, so the next sign-in on that browser
+   does not have to fail first.
+   ================================================================ */
+const AUTH_REDIRECT_KEY = () => CFG.cacheKey + '.authRedirect';
+const AUTH_ROUTE_KEY = () => CFG.cacheKey + '.authFrom';
+function popupsUnlikely() {
+  try {
+    if (navigator.standalone === true) return true;                    /* iOS home screen */
+    if (matchMedia('(display-mode: standalone)').matches) return true; /* installed app */
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) return true;
+    if (/android/i.test(navigator.userAgent)) return true;
+    /* a touch screen small enough to be a phone, whatever it calls itself */
+    if (matchMedia('(pointer: coarse)').matches &&
+        Math.min(innerWidth, innerHeight) < 820) return true;
+  } catch (e) {}
+  return false;
+}
+const popupsBlockedBefore = () => {
+  try { return localStorage.getItem(AUTH_REDIRECT_KEY()) === '1'; } catch (e) { return false; }
+};
+const rememberPopupsBlocked = () => {
+  try { localStorage.setItem(AUTH_REDIRECT_KEY(), '1'); } catch (e) {}
+};
+const useRedirect = () => popupsUnlikely() || popupsBlockedBefore();
+/* A blocked popup is a different thing from a person closing one. Only the
+   first is worth switching flow over. */
+const isPopupError = e => /popup_window_error|empty_window_error|popup.*block|blocked/i
+  .test(String((e && (e.errorCode || e.message)) || e));
+/* The redirect leaves and comes back at the top of the file, so the view
+   somebody was on is put somewhere that survives the trip. */
+function authStashRoute() {
+  try { localStorage.setItem(AUTH_ROUTE_KEY(), location.hash || ''); } catch (e) {}
+}
+function authLeaving() {
+  const e = new Error('Taking you to the Microsoft sign-in page…');
+  e.leaving = true;
+  return e;
+}
+
+function msalConfig() {
+  return {
+    auth: {
+      clientId: CFG.clientId, authority: CFG.authority,
+      /* Exactly one spelling, whichever way the page was opened. Microsoft
+         matches the redirect address character for character against what is
+         registered, so .../SalesForce/index.html and .../SalesForce/ are two
+         different addresses to it and one of them is not registered. The
+         home-screen app starts at the directory form; so does this. */
+      redirectUri: location.href.split('#')[0].split('?')[0]
+        .replace(/\/index\.html?$/i, '/'),
+      /* This tool routes on the hash and so does MSAL's reply. Letting MSAL
+         navigate back would race the router, so the result is handed over
+         here and the address tidied up once. */
+      navigateToLoginRequestUrl: false
+    },
+    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
+  };
+}
+/* One instance, initialised once, with the redirect reply dealt with before
+   anybody asks whether there is an account — because on the way back from a
+   redirect the account does not exist until that reply is read. */
+let MSAL_APP = null, MSAL_REPLY = false;
+function msalReady() {
+  if (!MSAL_APP) MSAL_APP = (async () => {
+    if (!(await loadMsal()))
+      throw new Error('Could not load the Microsoft sign-in library. Check your network, then reload.');
+    const app = new msal.PublicClientApplication(msalConfig());
+    await app.initialize();
+    return app;
+  })().catch(e => { MSAL_APP = null; throw e; });
+  return MSAL_APP.then(async app => {
+    AUTH.msal = app;
+    /* The reply is read once per page load and once only. A reply that cannot
+       be read is a dead address bar — trying it again on every click would
+       re-throw the same thing forever and never reach the sign-in button. */
+    if (!MSAL_REPLY) {
+      MSAL_REPLY = true;
+      let back = null;
+      try { back = await app.handleRedirectPromise(); }
+      catch (e) { AUTH.replyErr = String((e && e.message) || e); }
+      if (back && back.account) {
+        app.setActiveAccount(back.account);
+        /* back where they were, not back at the front door */
+        try {
+          const to = localStorage.getItem(AUTH_ROUTE_KEY());
+          localStorage.removeItem(AUTH_ROUTE_KEY());
+          if (to && !/code=|state=/.test(to)) location.hash = to;
+        } catch (e) {}
+      }
+    }
+    return app;
+  });
+}
+/* The interactive half of getting a token: popup where popups work, redirect
+   where they do not, and redirect anyway when the popup is refused. */
+async function authInteractive(req) {
+  if (useRedirect()) { authStashRoute(); await AUTH.msal.acquireTokenRedirect(req); throw authLeaving(); }
+  try { return await AUTH.msal.acquireTokenPopup(req); }
+  catch (e) {
+    if (!isPopupError(e)) throw e;
+    rememberPopupsBlocked(); authStashRoute();
+    await AUTH.msal.acquireTokenRedirect(req);
+    throw authLeaving();
+  }
+}
+async function authInteractiveToken(req) { return (await authInteractive(req)).accessToken; }
+
+async function signIn(opt) {
+  const o = opt || {};
   const btn = $('#signin'), err = $('#gate-err');
   err.style.display = 'none';
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Connecting…';
   try {
-    if (!(await loadMsal())) throw new Error('Could not load the Microsoft sign-in library. Check your network, then reload.');
     /* MSAL writes the session into the same localStorage this tool caches into.
        If the cache has taken the lot, the sign-in cannot store its tokens and
        fails with something that reads nothing like "out of space". So make room
@@ -3323,15 +3461,27 @@ async function signIn() {
       try { localStorage.removeItem(CFG.cacheKey); } catch (e) {}
       CACHE_STATE = { ok: false, dropped: REC_SHARDS.slice(), bytes: 0, compacted: 0 };
     }
-    AUTH.msal = new msal.PublicClientApplication({
-      auth: { clientId: CFG.clientId, authority: CFG.authority, redirectUri: location.href.split('#')[0].split('?')[0] },
-      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
-    });
-    await AUTH.msal.initialize();
-    let acct = AUTH.msal.getAllAccounts()[0];
+    await msalReady();
+    /* A reply we could not read is the reason we are back at this screen. */
+    if (AUTH.replyErr) { const w = AUTH.replyErr; AUTH.replyErr = null; throw new Error(w); }
+    let acct = AUTH.msal.getActiveAccount() || AUTH.msal.getAllAccounts()[0];
     if (!acct) {
-      const r = await AUTH.msal.loginPopup({ scopes: CFG.scopes, prompt: 'select_account' });
-      acct = r.account;
+      const req = { scopes: CFG.scopes, prompt: 'select_account' };
+      if (o.redirect || useRedirect()) {
+        authStashRoute();
+        await AUTH.msal.loginRedirect(req);
+        return;                       /* the page is leaving — nothing below runs */
+      }
+      try {
+        acct = (await AUTH.msal.loginPopup(req)).account;
+      } catch (e) {
+        if (!isPopupError(e)) throw e;
+        /* The popup was refused. Do not make them read about it and press
+           again — go the other way now, and remember for next time. */
+        rememberPopupsBlocked(); authStashRoute();
+        await AUTH.msal.loginRedirect(req);
+        return;
+      }
     }
     AUTH.msal.setActiveAccount(acct);
     AUTH.user = acct;
@@ -3339,6 +3489,7 @@ async function signIn() {
     SYNC.mode = 'onedrive';
     await boot();
   } catch (e) {
+    if (e && e.leaving) return;        /* the redirect is on its way out */
     const msg = String(e && e.message || e);
     const quota = /quota|exceeded|storage|QuotaExceeded/i.test(msg) ||
       (e && (e.name === 'QuotaExceededError' || e.code === 22));
@@ -3350,8 +3501,20 @@ async function signIn() {
           'fixes it — nothing is lost, everything is read back from the shared folder after you sign in.'
         : '') +
       (/popup|window/i.test(msg)
-        ? '<br><br>If a popup was blocked, allow popups for this page and try again. This tool must be opened from its hosted URL — sign-in will not work from a local file or inside an iframe.'
+        ? '<br><br>Your browser would not open the sign-in window. On a phone that is normal — ' +
+          'use the button below and the sign-in happens on this page instead. ' +
+          'This tool must be opened from its hosted URL: sign-in will not work from a saved ' +
+          'file or inside an iframe.'
         : '');
+    /* The way out, as a button rather than as advice about a setting the
+       person may not have. */
+    if (/popup|window/i.test(msg)) {
+      const r = el('button', { class: 'btn primary', style: 'margin-top:12px',
+        text: 'Sign in without a popup',
+        onclick: () => { rememberPopupsBlocked(); signIn({ redirect: true }); } });
+      err.appendChild(document.createElement('br'));
+      err.appendChild(r);
+    }
     if (quota || storageTight()) {
       const b = el('button', { class: 'btn', style: 'margin-top:10px',
         text: 'Clear the cached copy and try again',
@@ -3382,8 +3545,13 @@ function signOut() {
     }
     try { localStorage.removeItem(CFG.cacheKey); } catch (e) {}
     try {
-      if (AUTH.msal) { await AUTH.msal.logoutPopup({ account: AUTH.msal.getActiveAccount() }); return; }
-    } catch (e) { /* popup blocked or cancelled — fall through to a reload */ }
+      if (AUTH.msal) {
+        const acct = { account: AUTH.msal.getActiveAccount() };
+        /* Same rule as signing in: a phone cannot open the window. */
+        if (useRedirect()) { await AUTH.msal.logoutRedirect(acct); return; }
+        await AUTH.msal.logoutPopup(acct); return;
+      }
+    } catch (e) { /* blocked or cancelled — fall through to a reload */ }
     location.reload();
   };
   confirmDo('Sign out', AUTH.user
@@ -3396,7 +3564,7 @@ async function getToken() {
   const req = { scopes: CFG.scopes, account: AUTH.msal.getActiveAccount() };
   let r;
   try { r = await AUTH.msal.acquireTokenSilent(req); }
-  catch (e) { r = await AUTH.msal.acquireTokenPopup(req); }
+  catch (e) { r = await authInteractive(req); }
   AUTH.token = r.accessToken;
   AUTH.expires = Date.parse(r.expiresOn) || (now() + 3000000);
   return AUTH.token;
@@ -3670,6 +3838,160 @@ function keepSticky(winner, loser, shard) {
   if (shard === 'leads') out = keepToldRep(out, loser);
   return out;
 }
+/* ================================================================
+   A RECORD IS NOT A DOCUMENT EITHER
+
+   Sharron Khan was worked, noted and marked Lost. The next day she was back
+   at New with the notes gone. Several marketing leads the same, all of them
+   already contacted.
+
+   The whole record was the unit of merge: higher _v won, every field of it.
+   That is only safe when one writer touches a record at a time, and nobody
+   here does. Four people have the tool open, the service writes to the same
+   leads, and every browser holds its own copy from whenever it last looked.
+   So a browser that still had Sharron as New — and then did something
+   ordinary to her, anything at all that saves — stamped that morning's copy
+   with the current time and pushed it. Newer _v, older truth. The stage went
+   back, the notes went with it, and nothing anywhere was broken.
+
+   This is the same lesson the handover ledger taught: a thing with several
+   writers cannot be merged as one lump. The unit is the field. Each write
+   records which fields it actually changed and when, and the merge takes
+   each field from whoever touched it last. A browser that never touched the
+   stage cannot move the stage, however new its copy is.
+
+   Records written before this carry no field stamps. For them every field
+   falls back to the record's own _v, which is exactly the old behaviour —
+   so nothing breaks on the way in, and each record starts protecting itself
+   the first time somebody saves it.
+   ================================================================ */
+/* WHAT THE SHARED FOLDER LAST SAID, PER RECORD.
+
+   The baseline every local edit is measured against. Held as text because it
+   is only ever read one record at a time — on a save — while it is written
+   a few thousand at a time on a sync, where a string costs less than a deep
+   copy. It is never persisted: a session with no baseline yet simply treats
+   its first save of a record as authoring the whole of it, which is what a
+   session that has not spoken to the folder is honestly doing. */
+const BASE = {};
+function baseSet(shard, rows) {
+  const m = new Map();
+  (rows || []).forEach(r => { if (r && r.id) { try { m.set(r.id, JSON.stringify(r)); } catch (e) {} } });
+  BASE[shard] = m;
+}
+function baseOne(shard, rec) {
+  if (!rec || !rec.id) return;
+  if (!BASE[shard]) BASE[shard] = new Map();
+  try { BASE[shard].set(rec.id, JSON.stringify(rec)); } catch (e) {}
+}
+function baseOf(shard, id) {
+  const m = BASE[shard]; if (!m) return null;
+  const s = m.get(id); if (!s) return null;
+  try { return JSON.parse(s); } catch (e) { return null; }
+}
+const MERGE_META = new Set(['_v', '_by', '_f', '_fb', 'updatedAt']);
+function sameVal(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a === 'object' || typeof b === 'object') {
+    try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return false; }
+  }
+  return false;
+}
+/* THE STAMPS HAVE TO BE SMALL.
+
+   A timestamp against every field of every record grew the cached copy by
+   three quarters — and this cache has a hard ceiling, because the Microsoft
+   sign-in keeps its tokens in the same allowance and a cache that fills it
+   stops people signing in. That has happened here before.
+
+   Almost every record is written once and then left alone, so almost every
+   field carries the same timestamp. That one goes in _fb — "everything was
+   written then" — and _f lists only the fields that have since moved on.
+   A record nobody has touched twice therefore carries one number, and an
+   exception list costs only what it actually says. Expanding the two is
+   what the merge reads; nothing is lost in the shortening. */
+function stampAt(rec, k) {
+  if (rec._f && k in rec._f) return rec._f[k];
+  if (rec._fb != null) return rec._fb;
+  return rec._v || 0;                       /* written before any of this existed */
+}
+function fieldStamps(before, after, at) {
+  const f = {};
+  Object.keys(after || {}).forEach(k => {
+    if (MERGE_META.has(k)) return;
+    f[k] = sameVal(before ? before[k] : undefined, after[k])
+      ? (before ? stampAt(before, k) : at)   /* unchanged: it keeps whose it was */
+      : at;
+  });
+  return f;
+}
+/* Split a full map into the common case and its exceptions, and hang both on
+   the record. */
+function packStamps(rec, full) {
+  const counts = new Map();
+  Object.keys(full).forEach(k => counts.set(full[k], (counts.get(full[k]) || 0) + 1));
+  let base = null, best = -1;
+  counts.forEach((n, t) => { if (n > best) { best = n; base = t; } });
+  const ex = {};
+  Object.keys(full).forEach(k => { if (full[k] !== base) ex[k] = full[k]; });
+  rec._fb = base;
+  if (Object.keys(ex).length) rec._f = ex; else delete rec._f;
+  return rec;
+}
+/* Notes are added by several people and never taken away. Field-level merge
+   would still pick one side's list over the other's and lose a note written
+   at the same time, so the lists are unioned instead. */
+const LIST_UNION = { leads: ['updates'], deals: ['updates'], quotes: ['updates'] };
+function unionEntries(a, b) {
+  const seen = new Set(), out = [];
+  (a || []).concat(b || []).forEach(e => {
+    if (!e) return;
+    const k = [e.at || '', e.kind || '', e.by || '', e.text || e.base || ''].join('\u0001');
+    if (seen.has(k)) return;
+    seen.add(k); out.push(e);
+  });
+  return out.sort((x, y) => String(x.at || '').localeCompare(String(y.at || '')));
+}
+function mergeFields(mine, theirs, shard) {
+  /* Neither side knows which of its fields it touched — there is nothing to
+     merge by, so this is the old whole-record rule, unchanged. */
+  if (mine._fb == null && theirs._fb == null) return null;
+  const va = mine._v || 0, vb = theirs._v || 0;
+  const at = k => ({
+    a: (k in mine) ? stampAt(mine, k) : -1,
+    b: (k in theirs) ? stampAt(theirs, k) : -1
+  });
+  const out = {};
+  new Set(Object.keys(mine).concat(Object.keys(theirs))).forEach(k => {
+    if (MERGE_META.has(k)) return;
+    const t = at(k);
+    out[k] = t.b > t.a ? theirs[k] : mine[k];
+  });
+  (LIST_UNION[shard] || []).forEach(k => {
+    if (Array.isArray(mine[k]) || Array.isArray(theirs[k]))
+      out[k] = unionEntries(mine[k], theirs[k]);
+  });
+  /* A delete is a decision about the whole record, so it stays whole-record:
+     whoever decided it last decides it. */
+  const td = at('_del');
+  out._del = (td.b > td.a ? theirs._del : mine._del) || false;
+  if (!out._del) delete out._del;
+  out._v = Math.max(va, vb);
+  out._by = vb > va ? theirs._by : mine._by;
+  out.updatedAt = (String(mine.updatedAt || '') > String(theirs.updatedAt || ''))
+    ? mine.updatedAt : theirs.updatedAt;
+  /* The merged record's own stamps: for every field it kept, whichever side's
+     stamp came with it. */
+  const full = {};
+  Object.keys(out).forEach(k => {
+    if (MERGE_META.has(k)) return;
+    const t = at(k);
+    full[k] = Math.max(t.a, t.b) < 0 ? (out._v || 0) : Math.max(t.a, t.b);
+  });
+  packStamps(out, full);
+  return out;
+}
 function mergeRecords(mine, theirs, shard) {
   const out = new Map();
   (theirs || []).forEach(r => r && r.id && out.set(r.id, r));
@@ -3677,6 +3999,8 @@ function mergeRecords(mine, theirs, shard) {
     if (!r || !r.id) return;
     const t = out.get(r.id);
     if (!t) { out.set(r.id, r); return; }
+    const byField = mergeFields(r, t, shard);
+    if (byField) { out.set(r.id, keepSticky(byField, t, shard)); return; }
     const mv = r._v || 0, tv = t._v || 0;
     if (mv > tv) out.set(r.id, keepSticky(r, t, shard));
     else if (mv === tv && r._del && !t._del) out.set(r.id, r);   // tombstone wins a tie
@@ -3711,6 +4035,12 @@ async function syncNow(opt) {
       const merged = mergeRecords(DB[s], (remote && remote.rows) || [], s);
       const changed = SYNC.dirty.has(s) || !remote || merged.length !== ((remote && remote.rows) || []).length;
       DB[s] = merged;
+      /* The agreed state, as of now: what every later edit in this session is
+         measured against. Set from the MERGED rows rather than the remote
+         ones, because the merge is what this session and the folder now both
+         hold — and taken before the write, so a write that fails leaves the
+         baseline describing what is really up there. */
+      baseSet(s, merged);
       /* Writing an EMPTY shard is the one write that can destroy the team's
          data, and the only honest reason to do it is that someone deleted the
          last record on purpose. A shard that came out empty on a session that
@@ -10973,7 +11303,7 @@ async function calendarToken() {
   if (!AUTH.msal || !AUTH.user) throw new Error('Sign in with your Microsoft account first.');
   const req = { scopes: CFG.calendarScopes, account: AUTH.msal.getActiveAccount() };
   try { return (await AUTH.msal.acquireTokenSilent(req)).accessToken; }
-  catch (e) { return (await AUTH.msal.acquireTokenPopup(req)).accessToken; }
+  catch (e) { return await authInteractiveToken(req); }
 }
 const repByEmail = mail => {
   const m = String(mail || '').toLowerCase();
@@ -11343,7 +11673,7 @@ async function mailToken(opt) {
       err.held = true; err.needsSignIn = true; err.wanted = mailFrom() || myMail();
       throw err;
     }
-    return (await AUTH.msal.acquireTokenPopup(req)).accessToken;
+    return await authInteractiveToken(req);
   }
 }
 
@@ -14885,6 +15215,10 @@ async function leadEmailRep(id, opt) {
         ' from a browser that is allowed to send as it.', ''); }
       return false;
     }
+    /* The page is on its way to the Microsoft sign-in page. That is not a
+       refused handover and must not be written on the lead as one — the
+       send is simply not finished yet, and resumes when they come back. */
+    if (e && e.leaving) return false;
     const why = String(e.message || e);
     /* The same field the service writes, so one panel can report a refusal
        whichever sender hit it. A note in the timeline is for the rep reading
@@ -20271,7 +20605,7 @@ async function draftToken() {
   if (!AUTH.msal || !AUTH.user) throw new Error('Not signed in');
   const req = { scopes: CFG.draftScopes, account: AUTH.msal.getActiveAccount() };
   try { return (await AUTH.msal.acquireTokenSilent(req)).accessToken; }
-  catch (e) { return (await AUTH.msal.acquireTokenPopup(req)).accessToken; }
+  catch (e) { return await authInteractiveToken(req); }
 }
 /* Creates the mail in the rep's own Drafts and hands back the link that opens
    it in Outlook — their signature, their send button, their sent items. */
@@ -24043,17 +24377,20 @@ try {
   if (t) document.documentElement.setAttribute('data-theme', t);
 } catch (e) {}
 
-/* an existing MSAL session signs in silently */
+/* an existing MSAL session signs in silently — and this is also where the
+   page lands on the way back from a redirect sign-in.
+
+   The order matters. Coming back from the redirect there is no account yet:
+   it does not exist until the reply in the address bar has been read. So the
+   old test — "is there a stored account, otherwise do nothing" — would throw
+   away the sign-in it was meant to complete and show the gate again. The
+   reply is checked for first. */
+const authReplyInUrl = () => /[?#].*\b(code|error|state)=/.test(location.href);
 (async () => {
   try {
-    if (!localStorage.getItem('msal.account.keys')) return;
-    if (!(await loadMsal())) return;
-    AUTH.msal = new msal.PublicClientApplication({
-      auth: { clientId: CFG.clientId, authority: CFG.authority, redirectUri: location.href.split('#')[0].split('?')[0] },
-      cache: { cacheLocation: 'localStorage' }
-    });
-    await AUTH.msal.initialize();
-    const acct = AUTH.msal.getAllAccounts()[0];
+    if (!localStorage.getItem('msal.account.keys') && !authReplyInUrl()) return;
+    await msalReady();
+    const acct = AUTH.msal.getActiveAccount() || AUTH.msal.getAllAccounts()[0];
     if (!acct) return;
     AUTH.msal.setActiveAccount(acct);
     AUTH.user = acct;
