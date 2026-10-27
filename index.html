@@ -1,4 +1,4 @@
-<!--corev-build:1.78.0-->
+<!--corev-build:1.79.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.78.0';
+const VERSION = '1.79.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -13090,6 +13090,57 @@ function leadKey(l) {
   if (p.length >= 7) return 'p:' + p.slice(-9);
   return 'n:' + String(l.name || '').trim().toLowerCase() + '|' + String(l.company || '').trim().toLowerCase();
 }
+/* ONE KEY WAS NEVER ENOUGH.
+
+   Anu Radhakrishnan arrived twice on the same phone number. One row carried
+   an email and one did not, so one was filed under e:… and the other under
+   p:…, and a lead's identity was whichever single key it happened to have.
+   Two records, two reps, side by side on the board — and invisible to the
+   Duplicates tab, because that groups by the same single key the import
+   de-duplicates on. The tool could not see the duplicates it was making.
+
+   A person is not their best identifier; they are all of them. Every strong
+   key a lead carries is a way of recognising them, and matching on any one
+   is enough.
+
+   The name is deliberately not in here. "Same name" is a question for a
+   person to answer on the Duplicates tab, not grounds for folding two
+   records together on import. */
+function leadKeys(l) {
+  const out = [];
+  const e = String((l && l.email) || '').trim().toLowerCase();
+  if (e) out.push('e:' + e);
+  const p = leadDigits(l && l.phone);
+  if (p.length >= 7) out.push('p:' + p.slice(-9));
+  if (!out.length) out.push(leadKey(l || {}));          /* name-only, as before */
+  return out;
+}
+/* The same person, by any key either of them carries — except that two
+   people on one switchboard are not one person, so a shared phone does not
+   override two different email addresses. */
+function leadSamePerson(a, b) {
+  if (!a || !b) return false;
+  const ea = String(a.email || '').trim().toLowerCase();
+  const eb = String(b.email || '').trim().toLowerCase();
+  if (ea && eb) return ea === eb;
+  const pa = leadDigits(a.phone), pb = leadDigits(b.phone);
+  if (pa.length >= 7 && pb.length >= 7 && pa.slice(-9) === pb.slice(-9)) return true;
+  return false;
+}
+/* The record already here that is this person, whatever key it was filed
+   under. */
+function leadFind(l) {
+  const want = leadKeys(l);
+  const rows = live('leads');
+  /* the deterministic id first — the cheap, exact answer */
+  const id = leadIdFor(l);
+  if (id) { const hit = rows.find(x => x.id === id); if (hit) return hit; }
+  for (const x of rows) {
+    if (!leadKeys(x).some(k => want.includes(k))) continue;
+    if (leadSamePerson(x, l)) return x;
+  }
+  return null;
+}
 /* A lead's day. A date with no time in it (the sheet's own dates arrive that
    way) is already the day it means, so it is taken as written rather than
    shifted by a timezone it never had. */
@@ -13099,7 +13150,13 @@ function leadDay(l) {
   if (/^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z?$/.test(raw)) return raw.slice(0, 10);
   return localDay(raw) || raw.slice(0, 10);
 }
-const leadIndex = () => { const m = new Map(); live('leads').forEach(l => m.set(leadKey(l), l)); return m; };
+const leadIndex = () => {
+  const m = new Map();
+  /* every key, not the preferred one: a row arriving with an email must find
+     the record that was filed under the phone, and the other way round */
+  live('leads').forEach(l => leadKeys(l).forEach(k => { if (!m.has(k)) m.set(k, l); }));
+  return m;
+};
 
 /* ---------------------------------------------------- the CRM link
    Every lead becomes a contact straight away, tagged so the contact book
@@ -13220,17 +13277,17 @@ function leadCreate(p, opt) {
      of "what is already here" can be minutes old by the time it gets to this
      line — another browser's sync may have landed in between. */
   const fixed = leadIdFor(l);
-  if (fixed) {
-    const already = live('leads').find(x => x.id === fixed);
-    if (already) {
-      /* fill in anything the existing record was missing, leave the rest */
-      ['company','email','phone','address','emirate','model','demoAsk','note','source']
-        .forEach(f => { if (!already[f] && l[f]) already[f] = l[f]; });
-      leadSave(already);
-      return already;
-    }
-    l.id = fixed;
+  const already = leadFind(l);
+  if (already) {
+    /* Fill in anything the existing record was missing — the email this row
+       carried and that one did not is exactly what stopped them matching in
+       the first place, so putting it on the record closes the gap for good. */
+    ['company','email','phone','address','emirate','model','demoAsk','note','source']
+      .forEach(f => { if (!already[f] && l[f]) already[f] = l[f]; });
+    leadSave(already);
+    return already;
   }
+  if (fixed) l.id = fixed;
   if (!l.assignee) leadAutoAssign(l); else { l.region = l.region || leadRegionOf(l.address || l.note); l.routeNeeded = false; }
   /* When this lead actually arrived here, as opposed to the date its row
      carries. The handover catch-up trusts this over anything in the sheet. */
@@ -14045,7 +14102,8 @@ async function sheetSync(opt) {
     }
   }
 
-  const seen = leadIndex(), dup = new Set();
+  const seen = leadIndex(), dup = new Map();
+  const learned = [];
   let added = 0, routed = 0, rows = 0, skipped = 0, made = [];
   const errs = [], rowErrs = [], per = [];
   try {
@@ -14057,7 +14115,24 @@ async function sheetSync(opt) {
           type: t.type || sheetTypeGuess(t.label), label: t.label });
         if (!got.rows.length) throw new Error('no rows with a name, a phone or an email in them — the first row should be the column headings');
         const fresh = [], bad = [];
-        got.rows.forEach(p => { const k = leadKey(p); if (!k || seen.has(k) || dup.has(k)) return; dup.add(k); fresh.push(p); });
+        got.rows.forEach(p => {
+          const ks = leadKeys(p);
+          if (!ks.length) return;
+          const here = ks.map(k => seen.get(k)).find(Boolean);
+          const claimed = ks.map(k => dup.get(k)).find(Boolean);
+          if (here || claimed) {
+            /* Already here — but not therefore worthless. This row may be the
+               one carrying the email address the record was created without,
+               which is the very gap that made two Anu Radhakrishnans. Skipped
+               should mean "not created again", not "thrown away". The record
+               may also be one THIS run just created, a tab or two ago, which
+               is why the claim is tracked by row rather than by key alone. */
+            learned.push({ lead: here || null, from: claimed || null, row: p });
+            return;
+          }
+          ks.forEach(k => dup.set(k, p));
+          fresh.push(p);
+        });
         let tAdded = 0, tRouted = 0;
         if (fresh.length) batch(() => { fresh.forEach(p => { try {
           const l = leadCreate(Object.assign({}, p, { source: p.source || t.label || 'Agency sheet' }), { quiet: true });
@@ -14105,6 +14180,15 @@ async function sheetSync(opt) {
         per.push(`${t.label}: could not be read`);
       }
     }
+    /* Everything the rows knew that the records here did not. */
+    if (learned.length) batch(() => { learned.forEach(e => {
+      const l = e.lead || (e.from && e.from._lead);
+      if (!l) return;
+      let changed = false;
+      ['company','email','phone','address','emirate','model','demoAsk','note']
+        .forEach(f => { if (!l[f] && e.row[f]) { l[f] = e.row[f]; changed = true; } });
+      if (changed) leadSave(l);
+    }); });
     DB.config.leadSheetAt = new Date().toISOString();
     DB.config.leadSheetCount = rows;
     DB.config.leadSheetSkipped = skipped;
@@ -15179,17 +15263,21 @@ const toldMap = () => {
   return (m && typeof m === 'object' && !Array.isArray(m)) ? m : {};
 };
 const toldAlready = l => {
-  const k = l && leadKey(l);
-  if (!k) return null;
-  const rec = (live('told') || []).find(t => String(t.id) === k);
+  const ks = l ? leadKeys(l) : [];
+  if (!ks.length) return null;
+  /* Under any of this person's keys. A lead told about under its phone and
+     later given an email must not come back round as never told. */
+  const rec = (live('told') || []).find(t => ks.includes(String(t.id)));
   if (rec && rec.at) return String(rec.at);
-  return toldMap()[k] || null;      /* the old home, for what is already there */
+  const m = toldMap();
+  const hit = ks.find(k => m[k]);
+  return hit ? m[hit] : null;      /* the old home, for what is already there */
 };
 /* Which rep the ledger says was told, when it knows. */
 function toldRep(l) {
-  const k = l && leadKey(l);
-  if (!k) return '';
-  const rec = (live('told') || []).find(t => String(t.id) === k);
+  const ks = l ? leadKeys(l) : [];
+  if (!ks.length) return '';
+  const rec = (live('told') || []).find(t => ks.includes(String(t.id)));
   if (rec && rec.rep && DB.owners.some(o => String(o.id) === String(rec.rep))) return String(rec.rep);
   /* older entries recorded only the name */
   const nm = rec && String(rec.to || '').trim();
@@ -15452,10 +15540,29 @@ function showroomText(key) {
    ================================================================ */
 function leadDupes(rows) {
   const by = new Map();
-  rows.forEach(l => { const k = leadKey(l); if (!k) return; (by.get(k) || by.set(k, []).get(k)).push(l); });
+  /* Grouped by every key, so a pair filed under an email and a phone shows
+     up here instead of sitting on the board as two people. A record reached
+     through two of its keys is still one record, so each is placed once. */
+  const placed = new Set();
+  rows.forEach(l => {
+    if (placed.has(l)) return;
+    const ks = leadKeys(l);
+    const home = ks.find(k => by.has(k));
+    const k = home || ks[0];
+    if (!k) return;
+    (by.get(k) || by.set(k, []).get(k)).push(l);
+    placed.add(l);
+    ks.forEach(x => { if (!by.has(x)) by.set(x, by.get(k)); });
+  });
   const out = [];
-  by.forEach((group, k) => { if (group.length > 1) out.push({ key: k, rows:
-    group.slice().sort((a, z) => String(a.createdAt || '').localeCompare(String(z.createdAt || ''))) }); });
+  /* One group may be reachable under several keys — it is still one group. */
+  const emitted = new Set();
+  by.forEach((group, k) => {
+    if (group.length < 2 || emitted.has(group)) return;
+    emitted.add(group);
+    out.push({ key: k, rows:
+      group.slice().sort((a, z) => String(a.createdAt || '').localeCompare(String(z.createdAt || ''))) });
+  });
   /* Same name, no phone and no email to tell them apart. */
   const byName = new Map();
   rows.forEach(l => {
