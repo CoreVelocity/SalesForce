@@ -1,4 +1,4 @@
-<!--corev-build:1.79.0-->
+<!--corev-build:1.80.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.79.0';
+const VERSION = '1.80.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -12989,6 +12989,46 @@ function leadFill(tpl, l) {
     .replace(/\{name\}/g, leadFirst(l.name))
     .replace(/\{company\}/g, l.company || 'your business');
 }
+/* THE FOLLOW-UP A LEAD ARRIVED WITHOUT.
+
+   The cadence was built in one place: the browser's leadCreate(). Once the
+   Azure timer took over reading the agency sheet, every marketing lead came
+   into the folder made by something that had never heard of it — no steps,
+   so no Day 0 WhatsApp, no Day 3, nothing to press. The lead looked complete
+   and read "0 touches over twelve days · all done".
+
+   The steps are not stored anyway: the cache deliberately strips the message
+   text and writes it again from the template, because a lead's wording is
+   the cadence plus their name. So the service is the wrong place to build
+   them. They are built here, the first time anybody looks, for any lead that
+   does not have them — which also repairs every lead already sitting in the
+   folder without them. */
+function leadTouchList(l) {
+  if (!l) return [];
+  if (Array.isArray(l.touches) && l.touches.length) return l.touches;
+  return leadBuildTouches(l);
+}
+/* The same, kept on the record. For where a rep is actually working the
+   lead, rather than a list just counting what is due. */
+function leadEnsureTouches(l) {
+  if (!l) return [];
+  if (Array.isArray(l.touches) && l.touches.length) return l.touches;
+  l.touches = leadBuildTouches(l);
+  try { leadSave(l); } catch (e) { console.error(e); }
+  return l.touches;
+}
+/* The cadence, plus the cold drip when the lead was already marked cold —
+   rebuilding without it would quietly drop three re-engagement steps. */
+function leadBuildTouches(l) {
+  const out = leadTouches(l);
+  if (l && l.cold) {
+    const b2b = l.type === 'B2B';
+    LEAD_COLD_STEPS.forEach(c => out.push({ key: c.key, day: c.day, when: c.when,
+      channel: c.channel, purpose: c.purpose, status: 'pending', cold: true,
+      message: leadFill(b2b ? c.b2b : c.b2c, l) }));
+  }
+  return out;
+}
 function leadTouches(l) {
   return LEAD_CADENCE.map(c => {
     const b2b = l.type === 'B2B';
@@ -14570,6 +14610,7 @@ function leadMarkCold(id) {
     leadSave(l); render(); return toast('Cold drip removed', '');
   }
   l.cold = true; l.coldAt = new Date().toISOString();
+  leadEnsureTouches(l);
   const b2b = l.type === 'B2B';
   const have = new Set((l.touches || []).map(t => t.key));
   LEAD_COLD_STEPS.forEach(c => {
@@ -14596,7 +14637,9 @@ function leadStepDue(l, key) {
   return c ? new Date(born + c.offsetMin * 60000) : null;
 }
 function leadNextStep(l) {
-  return (l.touches || []).find(t => t.status === 'pending') || null;
+  /* Read-only: a board counting what is due must not write to a few hundred
+     leads as a side effect of being looked at. */
+  return leadTouchList(l).find(t => t.status === 'pending') || null;
 }
 function leadNextDue(l) {
   const t = leadNextStep(l);
@@ -16397,12 +16440,13 @@ function leadDetail(root, l) {
     root.appendChild(lc.node);
   }
 
-  /* the cadence */
-  const pend = (l.touches || []).filter(t => t.status === 'pending').length;
-  const stepNo = (l.touches || []).length - pend + 1;
+  /* the cadence — built now if this lead arrived without one */
+  const touches = leadEnsureTouches(l);
+  const pend = touches.filter(t => t.status === 'pending').length;
+  const stepNo = touches.length - pend + 1;
   const cc = card('The follow-up',
-    `${(l.touches || []).length} touches` + (l.cold ? ' including the cold drip' : ' over twelve days') +
-    (pend ? ` · step ${Math.min(stepNo, (l.touches || []).length)} of ${(l.touches || []).length}` : ' · all done'));
+    `${touches.length} touches` + (l.cold ? ' including the cold drip' : ' over twelve days') +
+    (pend ? ` · step ${Math.min(stepNo, touches.length)} of ${touches.length}` : ' · all done'));
   if (mine) {
     const rem = leadRemindersFor(l).length;
     cc.head.appendChild(el('button', { class: 'btn sm', html: ico('cal',13) + (rem ? ` ${rem} reminders set` : ' Set reminders'),
@@ -16413,7 +16457,7 @@ function leadDetail(root, l) {
     text: 'Tuning with Claude is off until an admin adds the Anthropic key in Settings. The steps below still work — edit them by hand.' }));
   const steps = el('div', { class: 'cadence' });
   const next = leadNextStep(l);
-  (l.touches || []).forEach(t => steps.appendChild(leadStep(l, t, mine, !!next && t.key === next.key)));
+  touches.forEach(t => steps.appendChild(leadStep(l, t, mine, !!next && t.key === next.key)));
   cc.body.appendChild(steps);
   root.appendChild(cc.node);
 }
