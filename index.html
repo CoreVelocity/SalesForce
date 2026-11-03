@@ -1,4 +1,4 @@
-<!--corev-build:1.80.0-->
+<!--corev-build:1.81.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.80.0';
+const VERSION = '1.81.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -6521,6 +6521,7 @@ function moveStage(d, toId) {
   d.stageId = toId;
   if (!d.closeDate) d.closeDate = addDays(TODAY(), 30);
   upsert('deals', d);
+  if (to.kind === 'open') refPushStatus(d, 'deal', 'in_progress', 'CRM deal stage: ' + to.label);
   logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'stage',
     html: `Moved <b>${esc(d.name)}</b> from ${esc(from.label)} to <b>${esc(to.label)}</b>` });
   toast(`${d.name} → ${to.label}`, 'ok');
@@ -7303,6 +7304,8 @@ function openDeal(id, tab) {
         (l.stage === 'Lost' ? ' · lost' : ''),
         { onclick: () => { VIEW.name = 'leads'; VIEW.leadOpen = l.id; closeAll(); render(); },
           title: 'Open the marketing lead this deal came from' }) : null; })(),
+    (() => { const r = typeof refOf === 'function' ? refOf(d, 'deal') : null;
+      return r ? mfact('Referred by', r.referrerName || r.code || 'a referrer', { title: 'Refer & Earn' + (r.code ? ' · ' + r.code : '') }) : null; })(),
     mfact('Owner', ownerName(d.ownerId)),
     d.closeDate ? mfact('Close', fdate(d.closeDate, 'long'), { num: true }) : null,
     d.demoDate ? mfact('Demo', fdate(d.demoDate, 'long'), { num: true }) : null
@@ -7367,6 +7370,7 @@ function dealOverview(d) {
   t.appendChild(tile('Last touch', lastAct ? frel(lastAct.at.slice(0,10)) : (d.createdAt ? frel(d.createdAt) : '—'),
     { foot: lastAct ? (lastAct.text || 'activity logged').slice(0, 40) : 'no activity logged' }));
   w.appendChild(t);
+  { const rc = refCard(d, 'deal'); if (rc) w.appendChild(rc); }
 
   // next step — editable inline, because this is the field reviews live on
   const ns = el('div', { class: 'card', style: 'margin-bottom:var(--sp-4)' });
@@ -7733,6 +7737,13 @@ function askWin(d, wonId) {
     el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Close date' }), dt ])
   ]));
   body.appendChild(el('div', { class: 'field' }, [ el('label', { class: 'fl', text: 'Why we won (optional)' }), note ]));
+  /* Referred deal: the 5% commission is on the NET invoice (products only, ex VAT,
+     delivery, installation, onboarding, discounts), so it is asked for separately. */
+  const wref = refOn() ? refOf(d, 'deal') : null;
+  const refNet = wref ? el('input', { class: 'inp', type: 'number', value: d.amount || '', placeholder: '0' }) : null;
+  if (wref) body.appendChild(el('div', { class: 'field' }, [
+    el('label', { class: 'fl', text: `Net invoice for ${wref.referrerName || 'the referrer'}'s 5% commission (${CFG.currency})` }), refNet,
+    el('p', { class: 'sub', style: 'margin:4px 0 0', text: 'Products only — excluding VAT, delivery, installation, onboarding and discounts. Creates the commission as pending; mark the invoice collected later to make it payable.' }) ]));
   modal('Mark won — ' + d.name, body, [
     el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
     el('button', { class: 'btn primary', text: 'Mark won', onclick: () => {
@@ -7744,6 +7755,7 @@ function askWin(d, wonId) {
       logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'won',
         html: `Marked <b>${esc(d.name)}</b> <b style="color:var(--good-ink)">won</b> at ${CFG.currency} ${money(d.amount)}` });
       closeAll(); render(); toast('Won — ' + CFG.currency + ' ' + money(d.amount), 'ok');
+      if (wref) refReportSale(d, 'deal_closed', refNet.value || d.amount);
     } })
   ]);
 }
@@ -7778,6 +7790,7 @@ function askLoss(d, lostId) {
     if (note.value.trim()) d.notes = (d.notes || []).concat([{ at: new Date().toISOString(),
       by: (AUTH.user && AUTH.user.username) || 'local', text: 'Loss learning: ' + note.value.trim() }]);
     upsert('deals', d);
+    refPushStatus(d, 'deal', 'lost', 'Lost — ' + r);
     logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'lost',
       html: `Marked <b>${esc(d.name)}</b> <b style="color:var(--critical-ink)">lost</b> — ${esc(r)}${d.lostTo ? ' (to ' + esc(d.lostTo) + ')' : ''}` });
     const alsoLead = link && link.on() ? closeLeadBehind(d, r, { quiet: true }) : null;
@@ -13383,6 +13396,7 @@ function leadSetStage(id, stg) {
   if (stg === 'Engaged' && !l.engagedAt) l.engagedAt = new Date().toISOString();
   if (stg === 'Demo completed' && !l.demoDoneAt) l.demoDoneAt = new Date().toISOString();
   leadSave(l); render();
+  if (REF_LEAD_STATUS[stg]) refPushStatus(l, 'lead', REF_LEAD_STATUS[stg], 'CRM lead stage: ' + stg);
   toast(`${l.name || 'Lead'} → ${stg}` +
     (handedTo ? ' · over to ' + ownerName(handedTo) : '') +
     (l.dealId && !LEAD_DEAL_AT.includes(was) && LEAD_DEAL_AT.includes(stg)
@@ -13405,6 +13419,7 @@ function leadAskLost(l, was) {
       l.lostReason = sel.value;
       if (note.value.trim()) leadAddUpdate(l, 'Lost — ' + sel.value + ': ' + note.value.trim(), true);
       leadSave(l);
+      refPushStatus(l, 'lead', 'lost', 'Lost — ' + sel.value);
       const alsoDeal = link && link.on() ? closeDealBehind(l, sel.value, { quiet: true }) : null;
       closeAll(); render();
       toast('Marked lost' + (alsoDeal ? ' · the deal too' : ''), '');
@@ -16258,6 +16273,7 @@ function leadDetail(root, l) {
   if (l.cold) ctl.appendChild(el('span', { class: 'tag info', text: 'Cold' }));
   head.body.appendChild(ctl);
   root.appendChild(head.node);
+  { const rc = refCard(l, 'lead'); if (rc) root.appendChild(rc); }
 
   /* contact details */
   const cd = card('Contact details', l.contactId
@@ -21486,6 +21502,235 @@ function installCard() {
 /* Either side may hold the link on its own: records made before the back
    reference existed have only one of the two, and a rep can re-link by hand.
    Look both ways. */
+/* ================================================================
+   REFERRALS — Core Velocity "Refer & Earn" on core-velocity.com (v1.81)
+   ----------------------------------------------------------------
+   The referral programme lives on Wix. This module asks Wix whether a
+   lead or deal was introduced by a referrer, shows who, and reports the
+   journey back so the referrer's portal moves and the 5% commission is
+   created when we win and becomes payable when the invoice is collected.
+
+   · Lookup is by email / phone (and the CV- code if a lead carries one).
+   · First introduction wins and each introduction is covered for 12
+     months — Wix enforces both; the CRM only shows the answer.
+   · Nothing is sent unless an admin has saved the API key in Settings.
+   ================================================================ */
+const REF_API = 'https://www.core-velocity.com/_functions/';
+const REF_RECHECK_MS = 12 * 3600 * 1000;               // look again at most twice a day
+const REF_TRIED = new Map();                           // rec.id -> last lookup time (this session only)
+const REF_INFLIGHT = new Set();
+const REF_LEAD_STATUS = {                              // marketing-lead stage -> referral status
+  'Contacted': 'contacted', 'Engaged': 'in_progress', 'Demo booked': 'demo_booked',
+  'Demo completed': 'in_progress', 'Lost': 'lost'
+};
+const REF_STATUS_LABEL = {
+  invite_sent: 'Invite sent', clicked: 'Link opened', contacted: 'Contacted', demo_booked: 'Demo booked',
+  in_progress: 'In progress', deal_closed: 'Deal closed', lost: 'Lost'
+};
+const refKey = () => (DB.config && DB.config.referralApiKey) || '';
+const refOn = () => !!refKey();
+
+async function refCall(path, body) {
+  const key = refKey();
+  if (!key) throw new Error('Referral API key not set (Settings → Referral programme)');
+  const opt = body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key }, body: JSON.stringify(body) }
+    : { method: 'GET', headers: { 'x-api-key': key } };
+  const res = await fetch(REF_API + path, opt);
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok || !data || data.ok === false) throw new Error((data && data.error) || ('Referral API ' + res.status));
+  return data;
+}
+
+/* Who this record is about: the lead's own details, else the deal's lead, else its contacts. */
+function refIdentity(rec, kind) {
+  let email = '', phone = '', code = '', since = rec.createdAt || null;
+  const take = (o) => { if (!o) return; email = email || o.email || ''; phone = phone || o.phone || o.mobile || '';
+    code = code || o.referralCode || ''; };
+  if (kind === 'lead') take(rec);
+  else {
+    const l = leadOfDeal(rec);
+    if (l) { take(l); if (l.createdAt && (!since || l.createdAt < since)) since = l.createdAt; }
+    (rec.contactIds || []).forEach(id => take(getCt(id)));
+  }
+  return { email: String(email).trim(), phone: String(phone).trim(), code: String(code).trim(), since };
+}
+/* The referral a record carries — a deal inherits its lead's. */
+function refOf(rec, kind) {
+  if (!rec) return null;
+  if (rec.referral) return rec.referral;
+  if (kind === 'deal') { const l = leadOfDeal(rec); if (l && l.referral) return l.referral; }
+  return null;
+}
+function refStore(rec, kind, ref) {
+  rec.referral = ref;
+  if (kind === 'lead') leadSave(rec); else upsert('deals', rec);
+}
+function refRepaint(rec, kind) {
+  if (kind === 'deal' && OPEN.kind === 'deal' && OPEN.id === rec.id) refreshDrawer();
+  else render();
+}
+
+/* Ask Wix. Saves the answer on the record only when there is a match. */
+async function refLookup(rec, kind, o) {
+  o = o || {};
+  if (!refOn() || !rec || REF_INFLIGHT.has(rec.id)) return null;
+  const idn = refIdentity(rec, kind);
+  if (!idn.email && !idn.phone && !idn.code) { if (o.loud) toast('No email or phone on this record to check', 'err'); return null; }
+  const q = new URLSearchParams();
+  if (idn.email) q.set('email', idn.email);
+  if (idn.phone) q.set('phone', idn.phone);
+  if (idn.code) q.set('ref', idn.code);
+  if (idn.since) q.set('leadCreatedAt', idn.since);
+  REF_INFLIGHT.add(rec.id); REF_TRIED.set(rec.id, Date.now());
+  try {
+    const r = await refCall('referralLookup?' + q.toString());
+    if (r.match && r.referral) {
+      const was = refOf(rec, kind);
+      const ref = {
+        id: r.referral.id, status: r.referral.status, source: r.referral.source || 'invite',
+        registeredAt: r.referral.registeredAt,
+        referrerName: (r.referrer && r.referrer.name) || '', referrerEmail: (r.referrer && r.referrer.email) || '',
+        referrerPhone: (r.referrer && r.referrer.phone) || '', code: (r.referrer && r.referrer.code) || '',
+        commission: (was && was.commission) || null, checkedAt: new Date().toISOString()
+      };
+      const changed = !was || was.id !== ref.id || was.status !== ref.status || was.referrerName !== ref.referrerName;
+      if (changed) {
+        if (!was) {
+          const html = `Referred by <b>${esc(ref.referrerName || 'a referrer')}</b>${ref.code ? ' (' + esc(ref.code) + ')' : ''}`;
+          if (kind === 'lead') leadAddUpdate(rec, 'Referred by ' + (ref.referrerName || 'a referrer') + (ref.code ? ' (' + ref.code + ')' : '') + ' — Refer & Earn', true);
+          else logAct({ dealId: rec.id, ownerId: rec.ownerId, kind: 'note', html });
+        }
+        refStore(rec, kind, ref);
+        refRepaint(rec, kind);
+      }
+      if (o.loud) toast('Referred by ' + (ref.referrerName || 'a referrer'), 'ok');
+      return ref;
+    }
+    if (o.loud) toast(r.reason === 'lead_predates_referral' ? 'Already our lead before the referral — not credited'
+      : r.reason === 'expired' ? 'Referral older than 12 months — not credited' : 'Not a referral', '');
+    return null;
+  } catch (e) {
+    console.warn('[referral] lookup', e);
+    if (o.loud) toast(e.message || 'Referral check failed', 'err');
+    return null;
+  } finally { REF_INFLIGHT.delete(rec.id); }
+}
+function refMaybeLookup(rec, kind) {
+  if (!refOn() || !rec || refOf(rec, kind)) return;
+  const t = REF_TRIED.get(rec.id);
+  if (t && Date.now() - t < REF_RECHECK_MS) return;
+  setTimeout(() => refLookup(rec, kind), 0);
+}
+
+/* Tell Wix where it stands. Never blocks the rep; a failure is a quiet toast. */
+async function refPushStatus(rec, kind, status, note) {
+  const ref = refOf(rec, kind);
+  if (!refOn() || !ref || !ref.id || !status || ref.status === status) return;
+  if (ref.status === 'deal_closed' && status !== 'deal_closed') return;   // a closed deal stays closed
+  try {
+    await refCall('referralStatus', { referralId: ref.id, status, crmDealId: kind === 'deal' ? rec.id : (rec.dealId || ''), note: note || '' });
+    ref.status = status; refStore(rec, kind, ref);
+  } catch (e) { console.warn('[referral] status', e); toast('Referral status not sent: ' + e.message, 'err'); }
+}
+/* Won → pending commission; collected → payable. */
+async function refReportSale(d, event, netValue, invoiceNo) {
+  const ref = refOf(d, 'deal');
+  if (!refOn() || !ref || !ref.id) return null;
+  const net = Number(netValue);
+  if (!Number.isFinite(net) || net <= 0) { toast('Enter the net invoice value for the commission', 'err'); return null; }
+  try {
+    const r = await refCall('referralSale', { referralId: ref.id, invoiceNetValue: net, event, crmDealId: d.id, invoiceNo: invoiceNo || '' });
+    const own = Object.assign({}, ref, { status: 'deal_closed',
+      commission: { status: r.status, amount: r.commissionAmount, rate: r.commissionRate, net,
+        invoiceNo: invoiceNo || (ref.commission && ref.commission.invoiceNo) || '', at: new Date().toISOString() } });
+    d.referral = own; upsert('deals', d);
+    logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note', html:
+      `Referral commission <b>${esc(r.status)}</b> for <b>${esc(own.referrerName || 'the referrer')}</b>: ` +
+      `${CFG.currency} ${money(r.commissionAmount)} (${Math.round(r.commissionRate * 100)}% of ${CFG.currency} ${money(net)} net)` });
+    toast(`Referral commission ${r.status} — ${CFG.currency} ${money(r.commissionAmount)}`, 'ok');
+    return r;
+  } catch (e) { console.warn('[referral] sale', e); toast('Referral commission not recorded: ' + e.message, 'err'); return null; }
+}
+function refCollectAsk(d) {
+  const ref = refOf(d, 'deal'); if (!ref) return;
+  const c = ref.commission || {};
+  const net = el('input', { class: 'inp', type: 'number', value: c.net || d.amount || '' });
+  const inv = el('input', { class: 'inp', value: c.invoiceNo || '', placeholder: 'e.g. INV-2026-0142' });
+  modal('Invoice collected — ' + d.name, el('div', {}, [
+    el('p', { style: 'margin:0 0 var(--sp-4);color:var(--ink-2);line-height:1.6', html:
+      `Marks <b>${esc(ref.referrerName || 'the referrer')}</b>'s commission as <b>payable</b>. Use the <b>net</b> invoice value — ` +
+      'products only, excluding VAT, delivery, installation, onboarding and discounts. The commission is 5% of it, paid within 20 business days.' }),
+    fld(`Net invoice value (${CFG.currency})`, net),
+    fld('Invoice number', inv)
+  ]), [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Mark collected', onclick: async () => {
+      const r = await refReportSale(d, 'collected', net.value, inv.value.trim());
+      if (r) { closeAll(); refreshDrawer() || render(); }
+    } })
+  ]);
+}
+
+/* The referral card shown on a lead and on a deal. */
+function refCard(rec, kind) {
+  const ref = refOf(rec, kind);
+  if (!ref && !refOn()) return null;
+  refMaybeLookup(rec, kind);
+  const c = card('Referral', ref ? 'Introduced through Refer & Earn on core-velocity.com' : 'Refer & Earn on core-velocity.com');
+  if (!ref) {
+    c.body.appendChild(el('div', { style: 'display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap' }, [
+      el('span', { class: 'sub', text: REF_INFLIGHT.has(rec.id) ? 'Checking…' : 'Not referred, as far as the programme knows.' }),
+      el('button', { class: 'btn sm', text: 'Check now', onclick: () => refLookup(rec, kind, { loud: true }) })
+    ]));
+    return c.node;
+  }
+  const com = ref.commission;
+  c.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center' }, [
+    el('span', { class: 'tag good', text: 'Referred by ' + (ref.referrerName || 'a referrer') }),
+    ref.code ? el('span', { class: 'tag info', text: ref.code }) : null,
+    el('span', { class: 'tag', text: REF_STATUS_LABEL[ref.status] || ref.status || '—' }),
+    com ? el('span', { class: 'tag ' + (com.status === 'payable' || com.status === 'paid' ? 'good' : 'warn'),
+      text: `Commission ${com.status} · ${CFG.currency} ${money(com.amount)}` }) : null
+  ].filter(Boolean)));
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-2) 0 0;line-height:1.55', text:
+    [ref.referrerEmail, ref.referrerPhone].filter(Boolean).join(' · ') +
+    (ref.registeredAt ? (ref.referrerEmail || ref.referrerPhone ? ' · ' : '') + 'introduced ' + fdate(String(ref.registeredAt).slice(0, 10), 'long') : '') +
+    (ref.source === 'code' ? ' · via referral code / link' : ref.source === 'invite' ? ' · via portal invite' : '') }));
+  const acts = el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)' });
+  acts.appendChild(el('button', { class: 'btn sm', text: 'Refresh', onclick: () => { REF_TRIED.delete(rec.id); refLookup(rec, kind, { loud: true }); } }));
+  if (kind === 'deal' && isWon(rec) && (!com || com.status === 'pending'))
+    acts.appendChild(el('button', { class: 'btn sm primary', text: com ? 'Invoice collected' : 'Record commission', onclick: () => refCollectAsk(rec) }));
+  c.body.appendChild(acts);
+  return c.node;
+}
+/* Settings card (admin). */
+function refSettingsCard() {
+  const c = card('Referral programme', 'Connects CoreVCRM to Refer & Earn on core-velocity.com — referred-by on leads and deals, and commissions on win / collection');
+  const key = el('input', { class: 'inp', type: 'password', value: refKey(), placeholder: 'Paste the COREV_CRM_API_KEY value from Wix Secrets Manager', autocomplete: 'off' });
+  const testEmail = el('input', { class: 'inp', type: 'email', placeholder: 'Optional: an email to test, e.g. test1@core-velocity.com' });
+  c.body.appendChild(fld('API key', key, 'Stored in the shared CRM config so every rep sees referral badges. Change it in Wix and here together.'));
+  c.body.appendChild(fld('Test lookup', testEmail));
+  c.body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)' }, [
+    el('button', { class: 'btn primary', text: 'Save key', onclick: () => {
+      DB.config.referralApiKey = key.value.trim(); DB.config._v = now(); touch('config');
+      toast(DB.config.referralApiKey ? 'Referral key saved' : 'Referral key cleared', 'ok'); } }),
+    el('button', { class: 'btn', text: 'Test connection', onclick: async () => {
+      const saved = DB.config.referralApiKey; DB.config.referralApiKey = key.value.trim();
+      try {
+        const r = await refCall('referralLookup?email=' + encodeURIComponent(testEmail.value.trim() || 'connection-test@core-velocity.com'));
+        toast(r.match ? 'Connected — referred by ' + ((r.referrer && r.referrer.name) || 'a referrer') : 'Connected — no referral for that email', 'ok');
+      } catch (e) { toast('Connection failed: ' + e.message, 'err'); }
+      finally { DB.config.referralApiKey = saved; }
+    } })
+  ]));
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55', html:
+    'What it does: leads and deals show <b>Referred by…</b>; lead stages Contacted → Engaged → Demo booked → Lost update the referrer\'s portal; ' +
+    '<b>Mark won</b> creates the pending 5% commission on the net value; <b>Invoice collected</b> on the deal makes it payable.' }));
+  return c.node;
+}
+
 function leadOfDeal(d) {
   if (!d) return null;
   const rows = live('leads');
@@ -22270,6 +22515,8 @@ function viewSettings(root) {
   c5.body.appendChild(bts);
   c5.node.classList.add('span2');
   g.appendChild(c5.node);
+
+  { const cRef = refSettingsCard(); cRef.classList.add('span2'); g.appendChild(cRef); }
 
   root.appendChild(g);
 }
