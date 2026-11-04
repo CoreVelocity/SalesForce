@@ -1,4 +1,4 @@
-<!--corev-build:1.81.0-->
+<!--corev-build:1.82.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.81.0';
+const VERSION = '1.82.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3889,7 +3889,7 @@ function baseOf(shard, id) {
   const s = m.get(id); if (!s) return null;
   try { return JSON.parse(s); } catch (e) { return null; }
 }
-const MERGE_META = new Set(['_v', '_by', '_f', '_fb', 'updatedAt']);
+const MERGE_META = new Set(['_v', '_by', '_f', '_fb', '_reb', 'updatedAt']);
 function sameVal(a, b) {
   if (a === b) return true;
   if (a == null || b == null) return a == null && b == null;
@@ -3964,10 +3964,22 @@ function mergeFields(mine, theirs, shard) {
     a: (k in mine) ? stampAt(mine, k) : -1,
     b: (k in theirs) ? stampAt(theirs, k) : -1
   });
+  /* A RECONSTRUCTION LOSES THE TIES.
+     Both copies can sit at the floor on a field neither of them decided —
+     the rep a lead was first routed to, say, which was never touched again
+     after it arrived. The tie then went to whichever side happened to be
+     "mine", so a record rebuilt from a sheet row could still move the lead
+     to whoever the rotation points at today. A rebuild is not evidence, so
+     where the stamps are equal it gives way to the copy that was not one. */
+  const rebA = !!mine._reb, rebB = !!theirs._reb;
   const out = {};
   new Set(Object.keys(mine).concat(Object.keys(theirs))).forEach(k => {
     if (MERGE_META.has(k)) return;
     const t = at(k);
+    if (t.a === t.b && rebA !== rebB && (k in mine) && (k in theirs)) {
+      out[k] = rebA ? theirs[k] : mine[k];
+      return;
+    }
     out[k] = t.b > t.a ? theirs[k] : mine[k];
   });
   (LIST_UNION[shard] || []).forEach(k => {
@@ -4085,6 +4097,10 @@ async function syncRun(o) {
          hold — and taken before the write, so a write that fails leaves the
          baseline describing what is really up there. */
       baseSet(s, merged);
+      /* These rows have now met the folder. Whatever was a reconstruction a
+         moment ago has been reconciled with whatever the folder held, so it
+         is simply the record from here on and stops giving way on ties. */
+      if (s === 'leads') merged.forEach(r => { if (r && r._reb) delete r._reb; });
       /* Writing an EMPTY shard is the one write that can destroy the team's
          data, and the only honest reason to do it is that someone deleted the
          last record on purpose. A shard that came out empty on a session that
@@ -13143,6 +13159,59 @@ function leadKey(l) {
   if (p.length >= 7) return 'p:' + p.slice(-9);
   return 'n:' + String(l.name || '').trim().toLowerCase() + '|' + String(l.company || '').trim().toLowerCase();
 }
+/* A LEAD BUILT FROM A SHEET ROW IS A RECONSTRUCTION, NOT AN AUTHORITY.
+
+   Raheela Nasir Ansari was worked since July, never came for her demo, and
+   was marked Lost. On 3 November she was back at New, with the July and
+   August notes still on her.
+
+   Nobody changed her. A browser that did not have her — one still on an old
+   build, one opened with local data only, one whose cache had shed the leads
+   — read the agency sheet, found her row looking new, and built the record
+   again from it. Same person, same id, so when the folder's Lost copy came
+   back the two met as one record. And the rebuilt one was brand new: every
+   field of it stamped this second, including stage: New. Field-level merge
+   could not save her, because the rebuilt record was not lying. It really
+   had written that stage, just now.
+
+   What it had not done is DECIDE it. A sheet row knows a name, a phone, an
+   email and the model somebody asked about. It has no opinion about whether
+   the lead is Lost, who owns it, or what the rep wrote on it — those come
+   from the CRM, and a row that has just been read again is not new evidence
+   about any of them. So a record built from a row stamps only the fields the
+   row actually supplied, and everything else sits at the floor, where any
+   real history beats it. Rebuilt is not the same as decided. */
+/* What a parsed row carries but does not actually know. The reader gives
+   every row a stage, because a lead has to start somewhere — that is a
+   default, not a reading of the sheet, and treating it as one is how a Lost
+   lead came back as New. The rest are the CRM's own: who owns it, what the
+   reps wrote, whether the handover went. */
+const SHEET_KNOWS_NOT = new Set(['stage', 'lostReason', 'assignee', 'owner',
+  'updates', 'touches', 'cold', 'coldAt', 'withAgent', 'autoAssigned',
+  'mailedAt', 'mailedTo', 'mailedCc', 'mailedFrom', 'mailedBy', 'mailedVer',
+  'mailedRep', 'mailHeld', 'mailErr', 'handedOverAt', 'assignedAt',
+  'contactId', 'dealId', 'engagedAt', 'demoDoneAt', 'reroutedFrom']);
+function leadFromSheet(l, p) {
+  if (!l) return l;
+  const at = Date.parse(l.createdAt) || now();
+  const f = {};
+  Object.keys(p || {}).forEach(k => {
+    if (!k || k.charAt(0) === '_' || k === 'id') return;
+    if (SHEET_KNOWS_NOT.has(k)) return;
+    if (p[k] === '' || p[k] == null) return;
+    if (l[k] === undefined) return;
+    f[k] = at;                    /* this the row does know */
+  });
+  l._fb = 0;                      /* and the rest is a default, not a decision */
+  l._reb = at;                    /* and this record is a reconstruction */
+  if (Object.keys(f).length) l._f = f; else delete l._f;
+  /* The baseline, so the rep's next edit is measured against this and stamps
+     only what they actually change rather than re-claiming the whole record. */
+  baseOne('leads', l);
+  touch('leads');
+  return l;
+}
+
 /* ONE KEY WAS NEVER ENOUGH.
 
    Anu Radhakrishnan arrived twice on the same phone number. One row carried
@@ -14190,6 +14259,10 @@ async function sheetSync(opt) {
         });
         let tAdded = 0, tRouted = 0;
         if (fresh.length) batch(() => { fresh.forEach(p => { try {
+          /* Did this row BUILD the record, or find one already here? The
+             answer decides how much the record is entitled to assert when it
+             meets the copy in the shared folder. */
+          const had = leadFind(p);
           const l = leadCreate(Object.assign({}, p, { source: p.source || t.label || 'Agency sheet' }), { quiet: true });
           /* The sheet carries where it stands and who has it — keep both. */
           if (p.createdAt) l.createdAt = p.createdAt;
@@ -14217,6 +14290,7 @@ async function sheetSync(opt) {
                'somebody had already been told about this one') + ', so it was not sent again', true);
           }
           leadSave(l);
+          if (!had) leadFromSheet(l, p);
           p._lead = l;
           tAdded++; if (l.assignee) tRouted++;
         } catch (err) { bad.push((p._row ? 'row ' + p._row : p.name) + ': ' + String(err.message || err)); }
