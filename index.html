@@ -1,4 +1,4 @@
-<!--corev-build:1.82.0-->
+<!--corev-build:1.83.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2298,7 +2298,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.82.0';
+const VERSION = '1.83.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -3943,6 +3943,8 @@ function packStamps(rec, full) {
    would still pick one side's list over the other's and lose a note written
    at the same time, so the lists are unioned instead. */
 const LIST_UNION = { leads: ['updates'], deals: ['updates'], quotes: ['updates'] };
+/* Lists whose entries are rows with a key that people edit in place. */
+const ROW_MERGE = { deals: ['plan'] };
 /* Fields where the earlier value is the true one, whoever wrote it last. */
 const EARLIEST = { leads: ['createdAt', 'handoverDue', 'mailedAt', 'assignedAt'] };
 function unionEntries(a, b) {
@@ -3985,6 +3987,48 @@ function mergeFields(mine, theirs, shard) {
   (LIST_UNION[shard] || []).forEach(k => {
     if (Array.isArray(mine[k]) || Array.isArray(theirs[k]))
       out[k] = unionEntries(mine[k], theirs[k]);
+  });
+  /* A LIST OF ROWS PEOPLE EDIT IS NOT ONE FIELD EITHER.
+
+     A closing plan is seven rows two people work at once — the rep filling
+     in what they owe while the manager fills in what management owes. Taken
+     as one field, the later save took the whole plan with it and the other
+     person's row was simply gone. The same lost update as everything else
+     this merge has had to learn, one level further in.
+
+     So the rows are merged by their key, each one taken from whoever wrote
+     it last. A row only one side has is kept — unless the other side has
+     the list and dropped it on purpose, which is what removing a stage is,
+     and that is a decision made later than the row it removed. */
+  (ROW_MERGE[shard] || []).forEach(k => {
+    const A = Array.isArray(mine[k]) ? mine[k] : null;
+    const B = Array.isArray(theirs[k]) ? theirs[k] : null;
+    if (!A || !B) { out[k] = A || B || out[k]; return; }
+    const ta = stampAt(mine, k), tb = stampAt(theirs, k);
+    const seen = new Map();
+    A.forEach(r => { if (r && r.key != null) seen.set(String(r.key), r); });
+    B.forEach(r => {
+      if (!r || r.key == null) return;
+      const k2 = String(r.key), had = seen.get(k2);
+      if (!had) {
+        /* theirs only: added by them, or removed by us. Whoever acted later
+           on this list decides which it was. */
+        if (tb >= ta) seen.set(k2, r);
+        return;
+      }
+      if ((r.at || 0) > (had.at || 0)) seen.set(k2, r);
+    });
+    /* rows we hold that theirs dropped: the same question, the other way */
+    if (ta < tb) {
+      const theirKeys = new Set(B.map(r => r && r.key != null ? String(r.key) : null));
+      A.forEach(r => { if (r && r.key != null && !theirKeys.has(String(r.key))) seen.delete(String(r.key)); });
+    }
+    /* their order when theirs is the later list, ours otherwise */
+    const order = (tb > ta ? B : A).map(r => r && r.key != null ? String(r.key) : null).filter(Boolean);
+    const outRows = [];
+    order.forEach(k2 => { if (seen.has(k2)) { outRows.push(seen.get(k2)); seen.delete(k2); } });
+    seen.forEach(r => outRows.push(r));
+    out[k] = outRows;
   });
   /* WHEN IT ARRIVED IS A FACT ABOUT THE PAST.
      A second copy of a lead, created a day later by a browser that had not
@@ -5032,6 +5076,8 @@ const NAV = [
   { id: 'dashboard', label: 'Executive Summary', icon: 'grid' },
   { id: 'perf',      label: 'Rep Performance', icon: 'target' },
   { id: 'monthly',   label: 'Per Month Commit vs. Forecast', icon: 'cal' },
+  { id: 'closing',   label: 'Closing Plans', icon: 'flag',
+    count: () => planAttention().length, alert: true },
   { id: 'forecast',  label: 'Forecast & analytics', icon: 'chart' },
   { g: 'Info' },
   { id: 'rules',     label: 'Deal Rules', icon: 'flag' },
@@ -7404,6 +7450,7 @@ function dealOverview(d) {
   ns.appendChild(nsRow);
   w.appendChild(ns);
 
+  w.appendChild(planCard(d));
   w.appendChild(dealDetailsCard(d));
   w.appendChild(dealCompanyCard(d));
   if ((d.notes || []).length) {
@@ -24426,13 +24473,437 @@ function agentOwnerNew() {
 /* ================================================================
    RENDER + BOOT
    ================================================================ */
+/* ================================================================
+   THE CLOSING PLAN
+
+   Ahmed's team kept a sheet per deal: seven stages down the side, and for
+   each one a status, what the rep owes, what management owes, and a date.
+   It is the thing a deal review actually runs on, and it lived outside the
+   CRM in a file nobody could roll up.
+
+   So it lives on the deal now. Same seven stages to start with, because
+   that is the shape the team already thinks in — and editable, because the
+   sheet's own note says they are: renamed, added to, removed, and more than
+   one of a kind where a deal needs two demos.
+
+   Three things it does that a sheet cannot.
+
+   It KNOWS WHERE THE DEAL IS. Each stage maps to a pipeline stage, so
+   marking "Demo" complete offers to move the deal to Qualified & Demo
+   Completed. Offers, not does: a deal moving on its own is how a forecast
+   stops being believed. The rep presses the button.
+
+   It KNOWS WHAT IS LATE. A dated stage that is not finished is overdue, on
+   the deal and in the rollup, and the dates can be pushed into Tasks so
+   they turn up in somebody's day rather than in a file they have to open.
+
+   And it ROLLS UP. Blocked and overdue stages across every deal, by rep,
+   which is the view a Monday review wants and the one the sheet could
+   never give.
+   ================================================================ */
+const PLAN_STATUS = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
+const PLAN_TONE = {
+  'Completed':   { bg: 'var(--good-bg, #e6f4ea)', fg: 'var(--good, #137333)' },
+  'In Progress': { bg: 'var(--warn-bg, #fef7e0)', fg: 'var(--warning, #a06d00)' },
+  'Blocked':     { bg: 'var(--bad-bg, #fce8e6)',  fg: 'var(--critical, #c5221f)' },
+  'Not Started': { bg: 'var(--line, #eceff3)',    fg: 'var(--ink-3, #6b7280)' }
+};
+/* The seven, and where each one puts the deal when it is done. A stage with
+   no pipeline stage of its own simply never offers to move anything. */
+const PLAN_TEMPLATE = [
+  { key: 'intro',    label: 'Introduction Meeting',                        maps: 'discover' },
+  { key: 'reqs',     label: 'Requirement Understanding',                   maps: 'discover' },
+  { key: 'demo',     label: 'Demo (In-Office / Onsite)',                   maps: 'demo' },
+  { key: 'proposal', label: 'Proposal / Quotation Preparation and Submission', maps: 'proposal' },
+  { key: 'nego',     label: 'Proposal Negotiation',                        maps: 'proposal' },
+  { key: 'terms',    label: 'Finalizing and Agreeing on Price, Payment Terms', maps: 'commit' },
+  { key: 'signed',   label: 'Signing Contract / PO / Payment',             maps: 'won' }
+];
+/* THE TEAM'S OWN STAGES, NOT THE BUILT-IN ONES.
+
+   DB.stages is whatever CoreV configured — ids generated when the list was
+   made, not the 'discover' / 'demo' / 'proposal' of the default set. A plan
+   stage pointing at a built-in id therefore pointed at nothing in the real
+   data, and nothing was ever offered.
+
+   So a template stage says what it MEANS, and the pipeline stage is found
+   in whatever list the team actually has. A stage added by hand stores a
+   real id and is matched directly. Where nothing matches, nothing is
+   offered — the right answer rather than a guess. */
+const PLAN_STAGE_HINTS = {
+  discover: s => /discovery|identif/i.test(s.label),
+  demo:     s => /demo/i.test(s.label),
+  proposal: s => /proposal|quotation/i.test(s.label),
+  commit:   s => /commit/i.test(s.label),
+  won:      s => s.kind === 'won'
+};
+function planStageFor(hint) {
+  if (!hint) return null;
+  const stages = (DB.stages || []).filter(s => s && s.kind !== 'lost');
+  const exact = stages.find(s => String(s.id) === String(hint));
+  if (exact) return exact;
+  const test = PLAN_STAGE_HINTS[hint];
+  return (test && stages.find(test)) || null;
+}
+const planRows = d => Array.isArray(d && d.plan) ? d.plan : [];
+const planStarted = d => planRows(d).length > 0;
+const planUid = () => 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function planNew(d) {
+  return PLAN_TEMPLATE.map(t => ({ key: t.key, label: t.label, maps: t.maps,
+    status: 'Not Started', me: '', mgmt: '', date: '', at: Date.now() }));
+}
+/* Every write to a row stamps it, so two reps working the same deal merge
+   row by row rather than one of them losing the lot. */
+function planSave(d, row, patch, what) {
+  const rows = planRows(d).slice();
+  const i = rows.findIndex(r => r.key === row.key);
+  if (i < 0) return;
+  rows[i] = Object.assign({}, rows[i], patch, { at: Date.now() });
+  d.plan = rows;
+  upsert('deals', d);
+  if (what) logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+    html: `Closing plan · <b>${esc(rows[i].label)}</b> ${esc(what)}` });
+}
+const planOverdue = r => !!(r && r.date && r.status !== 'Completed' && dnum(r.date) < dnum(TODAY()));
+const planLate = d => planRows(d).filter(planOverdue);
+const planBlocked = d => planRows(d).filter(r => r.status === 'Blocked');
+const planDone = d => planRows(d).filter(r => r.status === 'Completed');
+function planProgress(d) {
+  const rows = planRows(d);
+  return rows.length ? Math.round(planDone(d).length / rows.length * 100) : 0;
+}
+/* The stage a completed row would move the deal to — only when it is
+   actually forward of where the deal is now. */
+function planSuggests(d, r) {
+  if (!r || r.status !== 'Completed' || !r.maps) return null;
+  const to = planStageFor(r.maps);
+  if (!to) return null;
+  const now = stage(d.stageId);
+  if (String(d.stageId) === String(to.id)) return null;
+  if ((now.order || 0) >= (to.order || 0)) return null;      /* never backwards */
+  if (now.kind === 'won' || now.kind === 'lost') return null;
+  return to;
+}
+
+/* ---------------------------------------------------------------- the card */
+function planCard(d) {
+  const mine = !isReadOnly();
+  const rows = planRows(d);
+  const late = planLate(d), blocked = planBlocked(d);
+  const sub = !rows.length ? 'The stages this deal has to get through, and who owes what'
+    : `${planDone(d).length} of ${rows.length} done · ${planProgress(d)}%` +
+      (blocked.length ? ` · ${blocked.length} blocked` : '') +
+      (late.length ? ` · ${late.length} overdue` : '');
+  const c = card('Closing Plan', sub);
+
+  if (mine && rows.length) {
+    c.head.appendChild(el('button', { class: 'btn sm', html: ico('cal', 13) + ' Reminders',
+      title: 'One task per dated stage that is not finished yet',
+      onclick: () => planRemind(d.id) }));
+    c.head.appendChild(el('button', { class: 'btn sm ghost', html: ico('plus', 13) + ' Stage',
+      title: 'Add a stage to this plan', onclick: () => planAddStage(d.id) }));
+  }
+
+  if (!rows.length) {
+    c.body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.6',
+      text: 'Seven stages to start with — the same ones the team already works to. ' +
+        'Rename them, add your own, or drop the ones this deal does not need.' }));
+    if (mine) c.body.appendChild(el('button', { class: 'btn primary',
+      html: ico('flag', 13) + ' Start a closing plan',
+      onclick: () => { d.plan = planNew(d); upsert('deals', d);
+        logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note', html: 'Closing plan started' });
+        toast('Closing plan started', 'ok'); render(); } }));
+    return c.node;
+  }
+
+  if (late.length) c.body.appendChild(el('div', { class: 'tb',
+    style: 'margin:0 0 var(--sp-3);border-left:3px solid var(--critical);padding-left:10px',
+    html: `<b>${late.length} stage${late.length === 1 ? ' is' : 's are'} past the date</b> — ` +
+      esc(late.map(r => r.label).join(', ')) }));
+
+  const tb = el('table', { class: 'dt', style: 'table-layout:fixed;width:100%' });
+  const hd = el('tr');
+  [['Stage', '22%'], ['Current status', '14%'], ['Required from me', '24%'],
+   ['Required from management', '24%'], ['Timeline', '12%'], ['', '4%']]
+    .forEach(([h, w]) => hd.appendChild(el('th', { text: h, style: 'width:' + w })));
+  tb.appendChild(el('thead', {}, [hd]));
+  const body = el('tbody');
+  rows.forEach(r => body.appendChild(planRow(d, r, mine)));
+  tb.appendChild(body);
+  c.body.appendChild(tb);
+
+  c.body.appendChild(el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.55',
+    text: 'Every box saves as you leave it. Marking a stage Completed offers to move the deal ' +
+      'along the pipeline — it never moves it on its own.' }));
+  return c.node;
+}
+
+function planRow(d, r, mine) {
+  const tr = el('tr');
+  const tone = PLAN_TONE[r.status] || PLAN_TONE['Not Started'];
+
+  /* stage name — editable in place, because the sheet's own note says these
+     change from deal to deal */
+  const nameCell = el('td', { style: 'vertical-align:top' });
+  if (mine) {
+    const nm = el('input', { class: 'inp', value: r.label || '',
+      style: 'font-weight:600;border-color:transparent;background:transparent;padding:4px 6px' });
+    nm.addEventListener('change', () => {
+      const v = nm.value.trim(); if (!v || v === r.label) { nm.value = r.label; return; }
+      planSave(d, r, { label: v }, 'renamed to “' + v + '”'); render();
+    });
+    nameCell.appendChild(nm);
+  } else nameCell.appendChild(el('div', { style: 'font-weight:600', text: r.label }));
+  const mapped = planStageFor(r.maps);
+  if (mapped) nameCell.appendChild(el('div', { class: 'sub', style: 'font-size:11px;padding-left:6px',
+    text: '→ ' + mapped.label }));
+  tr.appendChild(nameCell);
+
+  /* status */
+  const stCell = el('td', { style: 'vertical-align:top' });
+  if (mine) {
+    const sel = el('select', { class: 'inp',
+      style: `background:${tone.bg};color:${tone.fg};font-weight:600;border-color:transparent` });
+    PLAN_STATUS.forEach(s => sel.appendChild(el('option', { value: s, text: s, selected: s === r.status })));
+    sel.addEventListener('change', () => {
+      const was = r.status;
+      planSave(d, r, { status: sel.value,
+        doneAt: sel.value === 'Completed' ? new Date().toISOString() : null },
+        'is ' + sel.value.toLowerCase() + (was ? ' (was ' + was.toLowerCase() + ')' : ''));
+      const fresh = planRows(d).find(x => x.key === r.key);
+      const to = planSuggests(d, fresh);
+      render();
+      if (to) planOfferMove(d, fresh, to);
+    });
+    stCell.appendChild(sel);
+  } else stCell.appendChild(el('span', { class: 'pill',
+    style: `background:${tone.bg};color:${tone.fg}`, text: r.status }));
+  tr.appendChild(stCell);
+
+  /* the two text columns */
+  [['me', 'What you owe'], ['mgmt', 'What management owes']].forEach(([f, ph]) => {
+    const td = el('td', { style: 'vertical-align:top' });
+    if (mine) {
+      const ta = el('textarea', { class: 'inp', rows: 2, placeholder: ph,
+        style: 'resize:vertical;min-height:44px' });
+      ta.value = r[f] || '';
+      ta.addEventListener('change', () => {
+        if ((ta.value || '') === (r[f] || '')) return;
+        planSave(d, r, { [f]: ta.value.trim() }, 'updated');
+      });
+      td.appendChild(ta);
+    } else td.appendChild(el('div', { class: 'sub', text: r[f] || '—' }));
+    tr.appendChild(td);
+  });
+
+  /* timeline */
+  const dtCell = el('td', { style: 'vertical-align:top' });
+  if (mine) {
+    const dt = el('input', { class: 'inp', type: 'date', value: r.date || '' });
+    if (planOverdue(r)) dt.style.borderColor = 'var(--critical)';
+    dt.addEventListener('change', () => {
+      planSave(d, r, { date: dt.value || '' }, dt.value ? 'due ' + fdate(dt.value) : 'date cleared');
+      render();
+    });
+    dtCell.appendChild(dt);
+  } else dtCell.appendChild(el('span', { text: r.date ? fdate(r.date) : '—' }));
+  if (planOverdue(r)) dtCell.appendChild(el('div', { class: 'sub',
+    style: 'color:var(--critical);font-size:11px;margin-top:2px', text: 'overdue' }));
+  tr.appendChild(dtCell);
+
+  /* remove */
+  const rm = el('td', { style: 'vertical-align:top;text-align:right' });
+  if (mine) rm.appendChild(el('button', { class: 'btn sm ghost', html: ico('x', 12),
+    title: 'Remove this stage', onclick: () => confirmDo('Remove this stage?',
+      `“${r.label}” and anything written on it go. The rest of the plan stays.`,
+      'Remove', () => {
+        d.plan = planRows(d).filter(x => x.key !== r.key);
+        upsert('deals', d); closeAll(); render();
+        toast('Stage removed', '');
+      }) }));
+  tr.appendChild(rm);
+  return tr;
+}
+
+/* The offer. Never the move itself — a deal that changes stage on its own is
+   how a pipeline stops meaning anything. */
+function planOfferMove(d, r, to) {
+  confirmDo('Move the deal forward?',
+    `“${r.label}” is complete. This deal is at ${stage(d.stageId).label} — ` +
+    `move it to ${to.label}?`,
+    'Move to ' + to.label,
+    () => { closeAll(); moveStage(d, to.id); },
+    () => closeAll());
+}
+
+function planAddStage(id) {
+  const d = getDl(id); if (!d) return;
+  const nm = el('input', { class: 'inp', placeholder: 'e.g. Second demo for the technical team' });
+  const sel = el('select', { class: 'inp' });
+  sel.appendChild(el('option', { value: '', text: 'Does not move the deal' }));
+  (DB.stages || []).filter(s => s.kind !== 'lost').forEach(s =>
+    sel.appendChild(el('option', { value: s.id, text: 'Completing it → ' + s.label })));
+  const body = el('div', {}, [fld('Stage', nm), fld('Pipeline stage', sel,
+    'What completing this stage would offer to move the deal to')]);
+  modal('Add a stage', body, [
+    el('button', { class: 'btn', text: 'Cancel', onclick: closeAll }),
+    el('button', { class: 'btn primary', text: 'Add', onclick: () => {
+      const v = nm.value.trim(); if (!v) return toast('Give the stage a name', 'err');
+      d.plan = planRows(d).concat([{ key: planUid(), label: v, maps: sel.value || null,
+        status: 'Not Started', me: '', mgmt: '', date: '', at: Date.now() }]);
+      upsert('deals', d);
+      logAct({ dealId: d.id, ownerId: d.ownerId, kind: 'note',
+        html: `Closing plan · stage <b>${esc(v)}</b> added` });
+      closeAll(); render(); toast('Stage added', 'ok');
+    } })
+  ]);
+}
+
+/* ------------------------------------------------------------- reminders */
+function planRemind(id, opt) {
+  const o = opt || {};
+  const d = getDl(id); if (!d) return { made: 0 };
+  const rep = d.ownerId || currentOwnerId();
+  const existing = new Set(live('tasks').map(t => t.planStep).filter(Boolean));
+  let made = 0, skipped = 0, undated = 0;
+  batch(() => planRows(d).forEach(r => {
+    if (r.status === 'Completed') return;
+    if (!r.date) { undated++; return; }
+    const stamp = d.id + ':' + r.key;
+    if (existing.has(stamp)) { skipped++; return; }
+    upsert('tasks', {
+      title: `${r.label} · ${d.name}`,
+      dueDate: String(r.date).slice(0, 10),
+      type: 'todo', priority: r.status === 'Blocked' ? 'high' : 'medium',
+      ownerId: rep, createdAt: TODAY(),
+      note: [r.me && 'You: ' + r.me, r.mgmt && 'Management: ' + r.mgmt]
+        .filter(Boolean).join('\n') || 'Closing plan stage',
+      planStep: stamp, dealId: d.id
+    });
+    made++;
+  }));
+  if (!o.quiet) {
+    render();
+    toast(made ? `${made} reminder${made === 1 ? '' : 's'} added to ${ownerName(rep)}'s tasks`
+      : skipped ? 'Already set — they are in Tasks'
+      : undated ? 'Put dates on the stages first' : 'Nothing left to remind about',
+      made ? 'ok' : '');
+  }
+  return { made, skipped, undated };
+}
+
+/* --------------------------------------------------------------- rollup */
+const planDeals = () => scopedDeals().filter(d => isOpen(d) && planStarted(d));
+const planAttention = () => planDeals().filter(d => planLate(d).length || planBlocked(d).length);
+
+function viewClosing(root) {
+  const all = planDeals();
+  const late = all.filter(d => planLate(d).length);
+  const blocked = all.filter(d => planBlocked(d).length);
+
+  const t = el('div', { class: 'tiles', style: 'grid-template-columns:repeat(auto-fit,minmax(158px,1fr))' });
+  t.appendChild(tile('Deals with a plan', String(all.length),
+    { foot: `of ${scopedDeals().filter(isOpen).length} open deals` }));
+  t.appendChild(tile('Overdue stages', String(all.reduce((n, d) => n + planLate(d).length, 0)),
+    { foot: late.length + ' deal' + (late.length === 1 ? '' : 's') }));
+  t.appendChild(tile('Blocked stages', String(all.reduce((n, d) => n + planBlocked(d).length, 0)),
+    { foot: blocked.length + ' deal' + (blocked.length === 1 ? '' : 's') }));
+  t.appendChild(tile('Average progress', all.length
+    ? Math.round(all.reduce((n, d) => n + planProgress(d), 0) / all.length) + '%' : '—',
+    { foot: 'stages completed' }));
+  root.appendChild(t);
+
+  if (!all.length) {
+    const c = card('Nothing to show yet', 'No open deal has a closing plan on it');
+    c.body.appendChild(el('p', { class: 'sub', style: 'margin:0;line-height:1.6',
+      text: 'Open a deal and press “Start a closing plan”. The stages, who owes what and the ' +
+        'dates all roll up here once there is one.' }));
+    root.appendChild(c.node);
+    return;
+  }
+
+  /* what is in the way, first — this is the view a Monday review opens */
+  const need = planAttention();
+  const ac = card('Needs attention', need.length
+    ? `${need.length} deal${need.length === 1 ? '' : 's'} with a stage blocked or past its date`
+    : 'Nothing blocked and nothing overdue');
+  if (need.length) {
+    const tb = el('table', { class: 'dt' });
+    const hd = el('tr');
+    ['Deal', 'Rep', 'Stage', 'Status', 'Date', 'Waiting on'].forEach(h => hd.appendChild(el('th', { text: h })));
+    tb.appendChild(el('thead', {}, [hd]));
+    const bd = el('tbody');
+    need.forEach(d => planRows(d)
+      .filter(r => planOverdue(r) || r.status === 'Blocked')
+      .forEach(r => {
+        const tone = PLAN_TONE[r.status] || PLAN_TONE['Not Started'];
+        const tr = el('tr', { style: 'cursor:pointer' });
+        tr.addEventListener('click', () => openDeal(d.id));
+        tr.appendChild(el('td', { html: `<b>${esc(d.name)}</b>` +
+          (d.amount ? `<div class="cellsub">${esc(money(d.amount))}</div>` : '') }));
+        tr.appendChild(el('td', { text: ownerName(d.ownerId) || '—' }));
+        tr.appendChild(el('td', { text: r.label }));
+        tr.appendChild(el('td', { html: `<span class="pill" style="background:${tone.bg};color:${tone.fg}">${esc(r.status)}</span>` }));
+        tr.appendChild(el('td', { html: r.date
+          ? (planOverdue(r)
+              ? `<span style="color:var(--critical)">${esc(fdate(r.date))}</span>` +
+                `<div class="cellsub" style="color:var(--critical)">overdue</div>`
+              : esc(fdate(r.date)))
+          : '—' }));
+        tr.appendChild(el('td', { class: 'sub', text: r.mgmt ? 'Management: ' + r.mgmt
+          : r.me ? 'You: ' + r.me : '—' }));
+        bd.appendChild(tr);
+      }));
+    tb.appendChild(bd);
+    ac.body.appendChild(tb);
+  } else ac.body.appendChild(el('p', { class: 'sub', style: 'margin:0',
+    text: 'Every dated stage is either done or still has time on it.' }));
+  root.appendChild(ac.node);
+
+  /* and the whole book, by rep */
+  const byRep = new Map();
+  all.forEach(d => { const k = d.ownerId || ''; (byRep.get(k) || byRep.set(k, []).get(k)).push(d); });
+  const pc = card('Every plan', `${all.length} open deal${all.length === 1 ? '' : 's'}, by rep`);
+  [...byRep.entries()]
+    .sort((a, b) => String(ownerName(a[0])).localeCompare(String(ownerName(b[0]))))
+    .forEach(([rep, ds]) => {
+      pc.body.appendChild(el('div', { style: 'font-weight:600;margin:var(--sp-3) 0 var(--sp-2)',
+        text: (ownerName(rep) || 'Unassigned') + ' · ' + ds.length }));
+      const tb = el('table', { class: 'dt' });
+      const hd = el('tr');
+      ['Deal', 'Progress', 'Where it is', 'Next unfinished stage', 'Due'].forEach(h => hd.appendChild(el('th', { text: h })));
+      tb.appendChild(el('thead', {}, [hd]));
+      const bd = el('tbody');
+      ds.sort((a, b) => planProgress(b) - planProgress(a)).forEach(d => {
+        const next = planRows(d).find(r => r.status !== 'Completed');
+        const tr = el('tr', { style: 'cursor:pointer' });
+        tr.addEventListener('click', () => openDeal(d.id));
+        tr.appendChild(el('td', { html: `<b>${esc(d.name)}</b>` }));
+        tr.appendChild(el('td', { html:
+          `<div style="display:flex;align-items:center;gap:8px">` +
+          `<div style="flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden">` +
+          `<div style="width:${planProgress(d)}%;height:100%;background:var(--good)"></div></div>` +
+          `<span class="cellsub">${planProgress(d)}%</span></div>` }));
+        tr.appendChild(el('td', { text: stage(d.stageId).label }));
+        tr.appendChild(el('td', { text: next ? next.label : 'all done' }));
+        tr.appendChild(el('td', { html: next && next.date
+          ? (planOverdue(next) ? `<span style="color:var(--critical)">${esc(fdate(next.date))}</span>` : esc(fdate(next.date)))
+          : '—' }));
+        bd.appendChild(tr);
+      });
+      tb.appendChild(bd);
+      pc.body.appendChild(tb);
+    });
+  root.appendChild(pc.node);
+}
+
 const VIEWS = {
   dashboard: viewDashboard, deals: viewDeals,
   companies: viewCompanies, contacts: viewContacts, tasks: viewTasks,
   review: viewReview, demos: viewDemos, requests: viewRequests,
   monthly: viewMonthly, forecast: viewForecast, settings: viewSettings,
   perf: viewPerf, leads: viewLeads, quotes: viewQuotes,
-  rules: viewRules, guide: viewGuide
+  rules: viewRules, guide: viewGuide, closing: viewClosing
 };
 const TITLES = {
   dashboard: 'Executive Summary', deals: 'Deals',
@@ -24441,7 +24912,8 @@ const TITLES = {
   perf: 'Rep Performance', leads: 'Marketing Leads', quotes: 'Quotes',
   monthly: 'Per Month Commit vs. Forecast',
   forecast: 'Forecast & analytics', settings: 'Settings',
-  rules: 'Deal ownership & CRM rules', guide: 'Guidelines & methodology'
+  rules: 'Deal ownership & CRM rules', guide: 'Guidelines & methodology',
+  closing: 'Closing Plans'
 };
 let rendering = false;
 function render() {
