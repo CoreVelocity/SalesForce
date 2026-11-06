@@ -1,4 +1,4 @@
-<!--corev-build:1.87.0-->
+<!--corev-build:1.88.0-->
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -2337,7 +2337,7 @@ body.infoprint nav.side,body.infoprint header.top,body.infoprint .infobar{displa
 
 /* Bump VERSION on every build. It shows on the sign-in card, in the sidebar
    and in Settings, so a rep on a stale cached copy is obvious at a glance. */
-const VERSION = '1.87.0';
+const VERSION = '1.88.0';
 const RELEASED = '2026-10-03';
 
 const CFG = {
@@ -13727,8 +13727,17 @@ async function claudeText(prompt, maxTokens) {
       messages: [{ role: 'user', content: prompt }] })
   });
   const data = await r.json().catch(() => ({}));
-  if (data.error) throw new Error(data.error.message || 'Anthropic returned an error');
-  if (!r.ok) throw new Error('Anthropic returned ' + r.status);
+  /* The status as well as the message, and in plain words where the status
+     says what to DO about it. "invalid x-api-key" on its own does not tell
+     anybody that the key in Settings is the thing to go and change. */
+  const fix = r.status === 401
+      ? ' \u2014 the Anthropic key in Settings is not being accepted. An admin replaces it in Settings.'
+    : r.status === 404 ? ' \u2014 the model named in Settings does not exist for this key.'
+    : r.status === 429 ? ' \u2014 rate limited. Try again in a moment.'
+    : r.status >= 500 ? ' \u2014 Anthropic had a problem. Try again.' : '';
+  if (data.error) throw new Error((data.error.message || data.error.type ||
+    'Anthropic returned an error') + fix);
+  if (!r.ok) throw new Error('Anthropic returned ' + r.status + fix);
   const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('').trim();
   if (!text) throw new Error('Empty response');
   return text;
@@ -21117,8 +21126,15 @@ function dealFollowUp(d) {
   const bodyTa = el('textarea', { class: 'inp', rows: 14, value: draft.body || '',
     placeholder: 'Pick what the mail is for, then "Write it with Claude" — or type it yourself.' });
 
-  const status = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5;min-height:20px' });
-  const say = (t, bad) => { status.textContent = t || ''; status.style.color = bad ? 'var(--warning)' : ''; };
+  /* Same lesson as the lead composer: a failure reported under a tall email
+     box, in a modal taller than the window, is a failure nobody sees. */
+  const status = el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5;display:none' });
+  const say = (t, bad) => {
+    status.textContent = t || '';
+    status.style.color = bad ? 'var(--critical)' : '';
+    status.style.display = t ? '' : 'none';
+    if (bad) toast(String(t).slice(0, 160), 'err');
+  };
 
   const write = el('button', { class: 'btn primary', html: ico('bolt',14) + ' Write it with Claude',
     onclick: async () => {
@@ -21138,7 +21154,7 @@ function dealFollowUp(d) {
         }
         bodyTa.value = text;
         say('Written from ' + actsFor('deal', d.id).length + ' timeline entries. Read it before it goes — it is your name on it.');
-      } catch (e) { say('Claude: ' + String(e.message || e).slice(0, 140), true); }
+      } catch (e) { say('Claude could not write it \u2014 ' + String(e.message || e).slice(0, 200), true); }
       finally { FU_BUSY = false; write.disabled = false; }
     } });
 
@@ -21179,6 +21195,7 @@ function dealFollowUp(d) {
   body.appendChild(el('div', { class: 'field-row' }, [ fld('Language', lang), fld('Length', len) ]));
   body.appendChild(fld('Anything to add', steer));
   body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-3) 0' }, [ write ]));
+  body.appendChild(status);
   body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5', text:
     `Claude is given this deal's stage, value, estimate, quotes, open follow-ups and all ${
       actsFor('deal', d.id).length} entries on its timeline — including the notes that came across from HubSpot. ` +
@@ -21187,7 +21204,6 @@ function dealFollowUp(d) {
     ? 'Some contacts on this deal have no email address.' : ''));
   body.appendChild(fld('Subject', subject));
   body.appendChild(fld('The email', bodyTa));
-  body.appendChild(status);
 
   modal('Follow up on ' + d.name, body, [
     el('button', { class: 'btn', html: ico('copy',14) + ' Copy',
@@ -25471,14 +25487,28 @@ function leadEmailClient(id) {
   const bodyTa = el('textarea', { class: 'inp', rows: 13, value: draft.body || '',
     placeholder: 'Pick what the mail is for, then “Write it with Claude” — or type it yourself.' });
 
-  const status = el('p', { class: 'sub', style: 'margin:var(--sp-3) 0 0;line-height:1.5;min-height:20px' });
-  const say = (t, bad) => { status.textContent = t || ''; status.style.color = bad ? 'var(--warning)' : ''; };
+  /* WHERE A FAILURE HAS TO APPEAR.
+
+     This sat at the bottom of the composer, under a tall email box, which in
+     a window shorter than the modal is simply off the screen. So when Claude
+     was refused — a retired model, a key that had stopped working — the
+     button did nothing visible and the only explanation was in a line nobody
+     could see. It sits under the button that was pressed now, and a failure
+     also toasts, because a message you have to scroll to find is not one. */
+  const status = el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5;display:none' });
+  const say = (t, bad) => {
+    status.textContent = t || '';
+    status.style.color = bad ? 'var(--critical)' : '';
+    status.style.display = t ? '' : 'none';
+    if (bad) toast(String(t).slice(0, 160), 'err');
+  };
 
   const write = el('button', { class: 'btn primary', html: ico('bolt', 14) + ' Write it with Claude',
     onclick: async () => {
-      if (!aiReady()) return toast('No Anthropic key is set — an admin adds it in Settings', 'err');
+      if (!aiReady()) { say('No Anthropic key is set — an admin adds it in Settings.', true); return; }
       if (LC_BUSY) return;
       LC_BUSY = true; write.disabled = true;
+      write.innerHTML = '<span class="spin"></span> Writing…';
       say('Claude is reading the lead and everything on it…');
       try {
         const out = await claudeText(lcPrompt(l, { purpose: purpose.value, language: lang.value,
@@ -25490,12 +25520,16 @@ function leadEmailClient(id) {
           text = nl < 0 ? '' : text.slice(nl + 1).trim();
         }
         bodyTa.value = text;
+        try { subject.scrollIntoView({ block: 'nearest' }); } catch (e) {}
         const already = (l.touches || []).filter(t => t.status === 'sent').length;
         say('Written from what is on the lead' +
           (already ? `, and from the ${already} message${already === 1 ? '' : 's'} already sent to them` : '') +
           '. Read it before it goes — it is your name on it.');
-      } catch (e) { say('Claude: ' + String(e.message || e).slice(0, 140), true); }
-      finally { LC_BUSY = false; write.disabled = false; }
+      } catch (e) { say('Claude could not write it \u2014 ' + String(e.message || e).slice(0, 200), true); }
+      finally {
+        LC_BUSY = false; write.disabled = false;
+        write.innerHTML = ico('bolt', 14) + ' Write it with Claude';
+      }
     } });
 
   const keep = () => {
@@ -25537,13 +25571,13 @@ function leadEmailClient(id) {
   body.appendChild(el('div', { class: 'field-row' }, [fld('Language', lang), fld('Length', len)]));
   body.appendChild(fld('Anything to add', steer));
   body.appendChild(el('div', { style: 'display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-3) 0' }, [write]));
+  body.appendChild(status);
   if (!aiReady()) body.appendChild(el('p', { class: 'sub', style: 'margin:0 0 var(--sp-3);line-height:1.5',
     text: 'Claude is off until an admin adds the Anthropic key in Settings. You can still write the mail ' +
       'yourself below and open it in Outlook.' }));
   body.appendChild(fld('To', to));
   body.appendChild(fld('Subject', subject));
   body.appendChild(fld('The email', bodyTa));
-  body.appendChild(status);
 
   modal('Email ' + (first || 'the client'), body, [
     el('button', { class: 'btn', text: 'Close', onclick: () => { keep(); closeAll(); } }),
